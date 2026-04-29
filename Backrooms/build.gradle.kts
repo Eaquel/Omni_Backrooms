@@ -33,9 +33,9 @@ android {
                 )
             }
         }
-        buildConfigField("String", "API_BASE_URL",      ""https://api.omnibackrooms.com/v1/"")
-        buildConfigField("String", "AGORA_APP_ID",      ""YOUR_AGORA_APP_ID_HERE"")
-        buildConfigField("String", "EXPECTED_SIG_HASH", ""0000000000000000"")
+        buildConfigField("String", "API_BASE_URL",      "\"https://api.omnibackrooms.com/v1/\"")
+        buildConfigField("String", "AGORA_APP_ID",      "\"YOUR_AGORA_APP_ID_HERE\"")
+        buildConfigField("String", "EXPECTED_SIG_HASH", "\"0000000000000000\"")
     }
 
     buildTypes {
