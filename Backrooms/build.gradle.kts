@@ -14,6 +14,7 @@ android {
         targetSdk       = 36
         versionCode     = 1
         versionName     = "1.0.0-beta"
+        ndkVersion      = "29.0.14206865"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -32,6 +33,9 @@ android {
                 )
             }
         }
+        buildConfigField("String", "API_BASE_URL",      ""https://api.omnibackrooms.com/v1/"")
+        buildConfigField("String", "AGORA_APP_ID",      ""YOUR_AGORA_APP_ID_HERE"")
+        buildConfigField("String", "EXPECTED_SIG_HASH", ""0000000000000000"")
     }
 
     buildTypes {
@@ -62,13 +66,12 @@ android {
     buildFeatures {
         compose     = true
         buildConfig = true
-        buildConfig = true
     }
 
     sourceSets {
         getByName("main") {
-            java { srcDirs("Source/Main/Kotlin") }
-            res { srcDirs("Source/Main/res") }
+            java.srcDirs += file("Source/Main/Kotlin")
+            res.srcDirs += file("Source/Main/res")
             manifest.srcFile("Source/Main/AndroidManifest.xml")
         }
     }
