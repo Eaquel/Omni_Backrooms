@@ -57,8 +57,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    kotlinOptions {
-        jvmTarget = "21"
+    kotlin {
+        jvmToolchain(21)
     }
 
     buildFeatures {
@@ -69,8 +69,8 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDirs("Source/Main/Kotlin")
-            res.srcDirs("Source/Main/res")
+            java.setSrcDirs(listOf("Source/Main/Kotlin"))
+            res.setSrcDirs(listOf("Source/Main/res"))
             manifest.srcFile("Source/Main/AndroidManifest.xml")
         }
     }
