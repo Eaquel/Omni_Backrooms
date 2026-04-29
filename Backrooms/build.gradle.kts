@@ -17,9 +17,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-        }
+
 
         vectorDrawables {
             useSupportLibrary = true
@@ -69,8 +67,8 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.setSrcDirs(listOf("Source/Main/Kotlin"))
-            res.setSrcDirs(listOf("Source/Main/res"))
+            java.directories.setFrom("Source/Main/Kotlin")
+            res.directories.setFrom("Source/Main/res")
             manifest.srcFile("Source/Main/AndroidManifest.xml")
         }
     }
