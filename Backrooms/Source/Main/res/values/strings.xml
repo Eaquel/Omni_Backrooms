@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- App -->
+    <string name="app_name">Omni Backrooms</string>
+    <string name="app_version_prefix">v</string>
+
+    <!-- Splash / Loading -->
+    <string name="splash_tagline">Level 0 — Bekleme Odası</string>
+    <string name="loading_text">Yükleniyor…</string>
+
+    <!-- Story paragraphs -->
+    <string name="story_title">Hikaye</string>
+    <string name="story_para_1">Yanlış gitmişsin. Gerçeklik, seni bir an için terk etti ve şimdi burada — Omni Backrooms\'dasın. Sonsuz sarı duvarlı koridorlar, nemli halı kokusu ve floresan lambaların kesintisiz vızıltısı. Zaman yok. Yön yok. Çıkış var mı?</string>
+    <string name="story_para_2">Backrooms, bilinen evrenin altında var olan paralel bir uzamdır. Kuantum kayması, rüya sızması veya ani bir bilinç kopuşu yoluyla girebilirsin. Burası harita değil; sonsuz bir labirentin fraktal yankısıdır.</string>
+    <string name="story_para_3">Level 0\'dan başladın. Ama bu sadece başlangıç. Her koşun seni farklı bir seviyeye götürebilir — bazıları sessiz ve ıssız, bazıları… değil. Omni Backrooms\'un derinliklerinde neler yattığını kimse tam olarak bilmiyor.</string>
+    <string name="story_quote">\"Eğer bunu okuyorsan, hâlâ bir şansın var. Kaç. Dur. Dinle. Ve asla geriye bakma.\"\n— Anonim Hayatta Kalan</string>
+
+    <!-- Credits -->
+    <string name="credits_title">Krediler</string>
+    <string name="credits_developed_by">Geliştirici</string>
+    <string name="credits_developer_name">Eaquel</string>
+    <string name="credits_testers_label">Test Edenler</string>
+
+    <!-- Changelog -->
+    <string name="changelog_title">Değişiklik Geçmişi</string>
+    <string name="changelog_branch_beta">Beta Dalı</string>
+
+    <!-- Events -->
+    <string name="menu_events">Etkinlikler</string>
+    <string name="events_empty">Aktif etkinlik yok</string>
+    <string name="events_coming_soon">Yakında…</string>
+
+    <!-- Main Menu -->
+    <string name="menu_new_game">Yeni Oyun</string>
+    <string name="menu_settings">Ayarlar</string>
+    <string name="menu_story">Hikaye</string>
+    <string name="menu_credits">Krediler</string>
+    <string name="menu_changelog">Değişiklik Geçmişi</string>
+    <string name="menu_market">Market</string>
+
+    <!-- Player -->
+    <string name="player_level_prefix">Seviye </string>
+    <string name="currency_omnium">Omnium</string>
+    <string name="currency_soulium">Soulium</string>
+
+    <!-- Mode Select -->
+    <string name="mode_offline">Çevrimdışı</string>
+    <string name="mode_online">Çevrimiçi</string>
+
+    <!-- Difficulty -->
+    <string name="difficulty_title">Zorluk Seç</string>
+    <string name="difficulty_easy">Kolay</string>
+    <string name="difficulty_normal">Normal</string>
+    <string name="difficulty_hard">Zor</string>
+
+    <!-- Online -->
+    <string name="online_join_room">Oda Bul</string>
+    <string name="online_create_room">Oda Oluştur</string>
+    <string name="room_list_title">Oda Listesi</string>
+    <string name="room_list_empty">Oda bulunamadı</string>
+    <string name="room_search_hint">Oda adı ara…</string>
+    <string name="room_filter_locked">Kilitli</string>
+    <string name="room_filter_unlocked">Kilitsiz</string>
+    <string name="room_page_prev">Önceki</string>
+    <string name="room_page_next">Sonraki</string>
+    <string name="room_create_title">Oda Oluştur</string>
+    <string name="room_create_name_hint">Oda Adı (4–12 karakter)</string>
+    <string name="room_create_size_label">Oyuncu Sayısı: %d</string>
+    <string name="room_create_password_label">Şifreli Oda</string>
+    <string name="room_create_password_hint">Şifre girin…</string>
+    <string name="room_create_confirm">Oluştur</string>
+    <string name="room_name_error_length">Oda adı 4–12 karakter olmalıdır</string>
+    <string name="room_name_error_chars">Emoji veya özel karakter kullanılamaz</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Ayarlar</string>
+    <string name="settings_tab_account">Hesap</string>
+    <string name="settings_tab_graphics">Grafikler</string>
+    <string name="settings_tab_audio">Ses</string>
+    <string name="settings_tab_controls">Kontrol</string>
+
+    <!-- Account -->
+    <string name="account_change_name">İsim Değiştir</string>
+    <string name="account_change_photo">Fotoğraf Değiştir</string>
+    <string name="account_google_connect">Google ile Bağla</string>
+    <string name="account_name_hint">Kullanıcı adı…</string>
+
+    <!-- Graphics -->
+    <string name="graphics_quality_label">Grafik Kalitesi</string>
+    <string name="graphics_quality_low">Düşük</string>
+    <string name="graphics_quality_medium">Orta</string>
+    <string name="graphics_quality_high">Yüksek</string>
+    <string name="graphics_vhs_effect">VHS Efekti</string>
+    <string name="graphics_resolution_label">Çözünürlük</string>
+
+    <!-- Audio -->
+    <string name="audio_music_volume">Müzik</string>
+    <string name="audio_footstep_volume">Ayak Sesleri</string>
+    <string name="audio_monster_sfx_volume">Canavar SFX</string>
+    <string name="audio_voice_volume">Sesli Sohbet</string>
+
+    <!-- Controls / Editor -->
+    <string name="controls_ui_layout">Arayüz Düzeni</string>
+    <string name="controls_camera_sensitivity">Kamera Hassasiyeti</string>
+    <string name="controls_save_exit">Kaydet ve Çıkış</string>
+    <string name="editor_btn_move">Hareket</string>
+    <string name="editor_btn_sprint">Koşu</string>
+    <string name="editor_btn_interact">Etkileş</string>
+    <string name="editor_btn_crouch">Çömel</string>
+    <string name="editor_btn_flashlight">Fener</string>
+
+    <!-- Market -->
+    <string name="market_title">Market</string>
+    <string name="market_tab_boosts">Boostlar</string>
+    <string name="market_tab_characters">Karakterler</string>
+    <string name="market_tab_soulium">Soulium Paketi</string>
+    <string name="market_tab_vip">VIP Üyelik</string>
+    <string name="market_tab_daily">Günlük Fırsatlar</string>
+    <string name="market_buy">Satın Al</string>
+    <string name="market_equipped">Kullanılıyor</string>
+
+    <!-- Common -->
+    <string name="common_ok">Tamam</string>
+    <string name="common_cancel">İptal</string>
+    <string name="common_save">Kaydet</string>
+    <string name="common_close">Kapat</string>
+    <string name="common_back">Geri</string>
+    <string name="common_error">Bir hata oluştu. Lütfen tekrar deneyin.</string>
+    <string name="common_no_connection">İnternet bağlantısı yok</string>
+
+</resources>

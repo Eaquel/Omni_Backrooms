@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="backrooms_black">#FF000000</color>
+    <color name="backrooms_dark_bg">#FF0A0A08</color>
+    <color name="backrooms_panel_bg">#CC121208</color>
+    <color name="backrooms_metal">#FF1A1A14</color>
+    <color name="backrooms_yellow">#FFD4A84B</color>
+    <color name="backrooms_yellow_dim">#80D4A84B</color>
+    <color name="backrooms_yellow_glow">#FFE8C060</color>
+    <color name="backrooms_crt_amber">#FFFFB347</color>
+    <color name="backrooms_text_primary">#FFD4A84B</color>
+    <color name="backrooms_text_secondary">#FF8A7040</color>
+    <color name="backrooms_text_dim">#FF5A4A28</color>
+    <color name="backrooms_border">#FF2A2018</color>
+    <color name="omnium_color">#FF00E5FF</color>
+    <color name="soulium_color">#FF7B68EE</color>
+    <color name="danger_red">#FFCC2200</color>
+    <color name="success_green">#FF4CAF50</color>
+    <color name="transparent">#00000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.OmniBackrooms" parent="android:Theme.Material.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/backrooms_black</item>
+        <item name="android:statusBarColor">@color/backrooms_black</item>
+        <item name="android:navigationBarColor">@color/backrooms_black</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
+
+    <style name="Theme.OmniBackrooms.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/backrooms_black</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="windowSplashScreenAnimationDuration">1200</item>
+        <item name="postSplashScreenTheme">@style/Theme.OmniBackrooms</item>
+    </style>
+
+</resources>
