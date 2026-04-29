@@ -18,6 +18,11 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
     }
+    versionCatalogs {
+        create("libs") {
+            from(files("Gradle/libs.versions.toml"))
+        }
+    }
 }
 
 rootProject.name = "Omni_Backrooms"
