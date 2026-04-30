@@ -46,7 +46,6 @@ jobs:
       - name: Create local.properties
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> local.properties
           echo "cmake.dir=/usr/local" >> local.properties
 
       - name: Create google-services.json
