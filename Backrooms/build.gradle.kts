@@ -16,9 +16,6 @@ android {
         versionCode     = 1
         versionName     = "1.0.0-beta"
         ndkVersion      = "29.0.14206865"
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -141,8 +138,3 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
 }
 
-android.defaultConfig.apply {
-    buildConfigField("String", "API_BASE_URL",       "\"https://api.omnibackrooms.com/v1/\"")
-    buildConfigField("String", "AGORA_APP_ID",       "\"YOUR_AGORA_APP_ID_HERE\"")
-    buildConfigField("String", "EXPECTED_SIG_HASH",  "\"0000000000000000\"")
-}
