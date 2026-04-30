@@ -9,21 +9,34 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.compose.material3.Text
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 import kotlin.math.sin
 
 val Yellow      = Color(0xFFD4A84B)
@@ -77,6 +90,31 @@ sealed class Route(val path: String) {
     data object Game        : Route("game/{difficulty}/{online}") {
         fun go(d: String, o: Boolean) = "game/$d/$o"
     }
+}
+
+@Composable
+private fun LobbyVideoBackground() {
+    val ctx = LocalContext.current
+    val exoPlayer = remember {
+        ExoPlayer.Builder(ctx).build().apply {
+            val uri = android.net.Uri.parse("android.resource://${ctx.packageName}/raw/lobby_video")
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode = Player.REPEAT_MODE_ALL
+            volume = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+    AndroidView(
+        factory = {
+            PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = false
+            }
+        },
+        modifier = Modifier.fillMaxSize().alpha(0.38f)
+    )
 }
 
 @Composable
@@ -280,12 +318,7 @@ fun Divider_Line(modifier: Modifier = Modifier) {
     ))
 }
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import javax.inject.Inject
+
 
 @HiltViewModel
 class PlayerProfileVM @Inject constructor(
