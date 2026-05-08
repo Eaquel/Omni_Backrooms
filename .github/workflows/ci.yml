@@ -12,59 +12,54 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JAVA_VERSION:   "25"
-  NDK_VERSION:    "29.0.14206865"
-  CMAKE_VERSION:  "4.3.2"
-  GRADLE_OPTS:    "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true -Dorg.gradle.configureondemand=true -Xmx6g"
+  JAVA_VERSION: "25"
+  NDK_VERSION: "29.0.14206865"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true -Dorg.gradle.configureondemand=true -Xmx6g"
 
 jobs:
+
   build-debug:
-    name: Build Debug
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v6
 
-      - name: Setup Java ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
           cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
 
-      - name: Install NDK + CMake
+      - name: Install NDK (no CMake from SDK)
         run: |
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-            "ndk;${{ env.NDK_VERSION }}" \
-            "cmake;${{ env.CMAKE_VERSION }}"
+          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;${{ env.NDK_VERSION }}"
+
+      # 🔥 CMAKE 4.3.2 MANUAL INSTALL
+      - name: Install CMake 4.3.2 (manual)
+        run: |
+          curl -L -o cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v4.3.2/cmake-4.3.2-linux-x86_64.tar.gz
+          tar -xzf cmake.tar.gz
+          echo "$PWD/cmake-4.3.2-linux-x86_64/bin" >> $GITHUB_PATH
+          chmod +x $PWD/cmake-4.3.2-linux-x86_64/bin/cmake
+          cmake --version
 
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.android/build-cache
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*','**/gradle-wrapper.properties','**/libs.versions.toml') }}
-          restore-keys: gradle-${{ runner.os }}-
+          path: ~/.gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*','**/libs.versions.toml') }}
 
-      - name: Cache NDK Build
+      - name: Cache NDK
         uses: actions/cache@v4
         with:
           path: app/.cxx
-          key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ hashFiles('**/*.cpp','**/*.h','**/CMakeLists.txt') }}
-          restore-keys: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-
+          key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}
 
-      - name: Grant Gradle Execute Permission
-        run: chmod +x gradlew
+      - run: chmod +x gradlew
 
       - name: Inject google-services.json
         env:
@@ -72,78 +67,50 @@ jobs:
         run: |
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" | base64 --decode > app/google-services.json
-          else
-            echo "google-services.json missing, skipping"
           fi
 
-      - name: Gradle Clean (deterministic build)
-        run: ./gradlew clean --no-daemon
+      - run: ./gradlew clean
+      - run: ./gradlew lint
+      - run: ./gradlew assembleDebug
 
-      - name: Lint
-        run: ./gradlew lint --no-daemon --stacktrace
-
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: debug-apk-${{ github.run_number }}
+          name: debug-apk
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 7
+
 
   build-release:
-    name: Build Release
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
     needs: build-debug
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v6
 
-      - name: Validate Gradle Wrapper
-        uses: gradle/wrapper-validation-action@v2
+      - uses: gradle/wrapper-validation-action@v2
 
-      - name: Setup Java ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
           cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
 
-      - name: Install NDK + CMake
+      - name: Install NDK
         run: |
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-            "ndk;${{ env.NDK_VERSION }}" \
-            "cmake;${{ env.CMAKE_VERSION }}"
+          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;${{ env.NDK_VERSION }}"
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.android/build-cache
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*','**/gradle-wrapper.properties','**/libs.versions.toml') }}
-          restore-keys: gradle-${{ runner.os }}-
+      - name: Install CMake 4.3.2 (manual)
+        run: |
+          curl -L -o cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v4.3.2/cmake-4.3.2-linux-x86_64.tar.gz
+          tar -xzf cmake.tar.gz
+          echo "$PWD/cmake-4.3.2-linux-x86_64/bin" >> $GITHUB_PATH
+          cmake --version
 
-      - name: Cache NDK Build
-        uses: actions/cache@v4
-        with:
-          path: app/.cxx
-          key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ hashFiles('**/*.cpp','**/*.h','**/CMakeLists.txt') }}
-          restore-keys: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-
-
-      - name: Grant Gradle Execute Permission
-        run: chmod +x gradlew
+      - run: chmod +x gradlew
 
       - name: Inject google-services.json
         env:
@@ -159,72 +126,48 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > keystore.jks
           cat > keystore.properties << EOF
-          storeFile=../../keystore.jks
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          EOF
+storeFile=../../keystore.jks
+storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+keyAlias=${{ secrets.KEY_ALIAS }}
+keyPassword=${{ secrets.KEY_PASSWORD }}
+EOF
 
-      - name: Inject Signature Hash
-        run: |
-          HASH=$(keytool -printcert -jarfile keystore.jks 2>/dev/null | \
-            grep "SHA-256" | awk '{print $3}' | tr -d ':' | tr '[:upper:]' '[:lower:]' || echo "")
-          sed -i "s/EXPECTED_SIG_HASH\",     \"\"/EXPECTED_SIG_HASH\", \"${HASH}\"/" \
-            app/build.gradle.kts || true
+      - run: ./gradlew clean
+      - run: ./gradlew bundleRelease
+      - run: ./gradlew assembleRelease
 
-      - name: Gradle Clean
-        run: ./gradlew clean --no-daemon
-
-      - name: Build Release AAB
-        run: ./gradlew bundleRelease --no-daemon --stacktrace
-
-      - name: Build Release APK (arm64 + armeabi)
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
-
-      - name: Upload Release AAB
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: release-aab-${{ github.run_number }}
+          name: release-aab
           path: app/build/outputs/bundle/release/*.aab
-          retention-days: 30
 
-      - name: Upload Release APKs
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: release-apk-${{ github.run_number }}
+          name: release-apk
           path: app/build/outputs/apk/release/*.apk
-          retention-days: 30
 
-      - name: Upload Native Symbols (Crashlytics)
-        run: ./gradlew uploadCrashlyticsSymbolFileRelease --no-daemon || true
+      - run: ./gradlew uploadCrashlyticsSymbolFileRelease || true
+
 
   analyze:
-    name: Static Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: build-debug
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Setup Java ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
           cache: gradle
 
-      - name: Grant Gradle Execute Permission
-        run: chmod +x gradlew
+      - run: chmod +x gradlew
+      - run: ./gradlew detekt || true
 
-      - name: Detekt
-        run: ./gradlew detekt --no-daemon --continue || true
-
-      - name: Upload Lint Results
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: lint-results-${{ github.run_number }}
-          path: app/build/reports/lint-results-*.html
-          retention-days: 14
+          name: lint-results
+          path: app/build/reports/
