@@ -56,11 +56,14 @@ jobs:
 
       - name: Prepare Gradle Wrapper
         run: |
-          echo "=== JAR kontrol ==="
-          ls -lh Gradle/gradle-wrapper.jar
-          file Gradle/gradle-wrapper.jar
-          hexdump -C Gradle/gradle-wrapper.jar | head -1
+          # APP_HOME'u $GITHUB_WORKSPACE'a sabitleyerek gradlew'ü patch ediyoruz
+          # Böylece CLASSPATH her zaman doğru Gradle/gradle-wrapper.jar'a işaret eder
+          sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
+          echo "=== Patch sonrası APP_HOME satırı ==="
+          grep "APP_HOME" gradlew
+          echo "=== JAR mevcut mu? ==="
+          ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - name: Inject google-services.json
         env:
@@ -115,11 +118,12 @@ jobs:
 
       - name: Prepare Gradle Wrapper
         run: |
-          echo "=== JAR kontrol ==="
-          ls -lh Gradle/gradle-wrapper.jar
-          file Gradle/gradle-wrapper.jar
-          hexdump -C Gradle/gradle-wrapper.jar | head -1
+          sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
+          echo "=== Patch sonrası APP_HOME satırı ==="
+          grep "APP_HOME" gradlew
+          echo "=== JAR mevcut mu? ==="
+          ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - name: Inject google-services.json
         env:
@@ -178,11 +182,12 @@ jobs:
 
       - name: Prepare Gradle Wrapper
         run: |
-          echo "=== JAR kontrol ==="
-          ls -lh Gradle/gradle-wrapper.jar
-          file Gradle/gradle-wrapper.jar
-          hexdump -C Gradle/gradle-wrapper.jar | head -1
+          sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
+          echo "=== Patch sonrası APP_HOME satırı ==="
+          grep "APP_HOME" gradlew
+          echo "=== JAR mevcut mu? ==="
+          ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - run: ./gradlew :Backrooms:detekt || true
 
