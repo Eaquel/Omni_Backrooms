@@ -112,9 +112,9 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.directories.setFrom("Source/Main/Kotlin")
-            res.directories.setFrom("Source/Main/res")
-            assets.directories.setFrom("Source/Main/assets")
+            java.srcDirs("Source/Main/Kotlin")
+            res.srcDirs("Source/Main/res")
+            assets.srcDirs("Source/Main/assets")
             manifest.srcFile("Source/Main/AndroidManifest.xml")
         }
     }
