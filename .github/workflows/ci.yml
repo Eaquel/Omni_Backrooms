@@ -60,6 +60,9 @@ jobs:
           path: app/.cxx
           key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}
 
+      - name: Rename Gradle folder
+        run: mv Gradle gradle || true
+        
       - run: chmod +x gradlew
 
       - name: Inject google-services.json
@@ -110,6 +113,9 @@ jobs:
           tar -xzf cmake.tar.gz
           echo "$PWD/cmake-4.3.2-linux-x86_64/bin" >> $GITHUB_PATH
           cmake --version
+
+      - name: Rename Gradle folder
+        run: mv Gradle gradle || true
 
       - run: chmod +x gradlew
 
@@ -162,6 +168,9 @@ jobs:
           distribution: temurin
           cache: gradle
 
+      - name: Rename Gradle folder
+        run: mv Gradle gradle || true
+        
       - run: chmod +x gradlew
       - run: ./gradlew detekt || true
 
