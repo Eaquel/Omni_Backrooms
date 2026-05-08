@@ -170,4 +170,4 @@ EOF
         if: always()
         with:
           name: lint-results
-          path: app/build/reports/
+          path: app/build/reports/**

@@ -33,12 +33,11 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install NDK (no CMake from SDK)
+      - name: Install NDK
         run: |
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
           $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;${{ env.NDK_VERSION }}"
 
-      # 🔥 CMAKE 4.3.2 MANUAL INSTALL
       - name: Install CMake 4.3.2 (manual)
         run: |
           curl -L -o cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v4.3.2/cmake-4.3.2-linux-x86_64.tar.gz
@@ -50,8 +49,10 @@ jobs:
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
-          path: ~/.gradle
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*','**/libs.versions.toml') }}
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*','**/gradle-wrapper.properties') }}
 
       - name: Cache NDK
         uses: actions/cache@v4
