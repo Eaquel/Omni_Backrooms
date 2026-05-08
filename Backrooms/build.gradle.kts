@@ -86,19 +86,13 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "ENABLE_GUARD", "true")
-            firebaseCrashlytics {
-                nativeSymbolUploadEnabled = true
-                unstrippedNativeLibsDir   = "build/intermediates/merged_native_libs/release/out/lib"
-            }
+            // NDK sembol yükleme CI'da uploadCrashlyticsSymbolFileRelease task'i ile yapılıyor
         }
         debug {
             isMinifyEnabled     = false
             applicationIdSuffix = ".debug"
             versionNameSuffix   = "-debug"
             buildConfigField("boolean", "ENABLE_GUARD", "false")
-            firebaseCrashlytics {
-                nativeSymbolUploadEnabled = false
-            }
         }
     }
 
@@ -118,9 +112,9 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDirs("Source/Main/Kotlin")
-            res.srcDirs("Source/Main/res")
-            assets.srcDirs("Source/Main/assets")
+            java.directories.setFrom("Source/Main/Kotlin")
+            res.directories.setFrom("Source/Main/res")
+            assets.directories.setFrom("Source/Main/assets")
             manifest.srcFile("Source/Main/AndroidManifest.xml")
         }
     }
