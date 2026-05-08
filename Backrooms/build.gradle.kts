@@ -44,10 +44,6 @@ android {
             }
         }
 
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-        }
-
         buildConfigField("String",  "API_BASE_URL",     "\"https://api.omnibackrooms.com/v1/\"")
         buildConfigField("String",  "AGORA_TOKEN_URL",  "\"https://agora-token.shakeofangel.workers.dev\"")
         buildConfigField("String",  "EXPECTED_SIG_HASH","\"\"")
@@ -110,6 +106,7 @@ android {
         buildConfig = true
     }
 
+    @Suppress("DEPRECATION")
     sourceSets {
         getByName("main") {
             java.srcDirs("Source/Main/Kotlin")
