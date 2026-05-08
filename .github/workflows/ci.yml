@@ -54,10 +54,9 @@ jobs:
 
       - name: Fix Non-Standard Gradle Wrapper
         run: |
-          # Senin Gradle/ altındaki dosyalarını, CI'ın aradığı gradle/wrapper/ içine kopyalıyoruz.
           mkdir -p gradle/wrapper
-          cp Gradle/gradle-wrapper.jar gradle/wrapper/ 2>/dev/null || true
           cp Gradle/gradle-wrapper.properties gradle/wrapper/ 2>/dev/null || true
+          sed -i 's|gradle/wrapper/gradle-wrapper.jar|Gradle/gradle-wrapper.jar|g' gradlew
           chmod +x gradlew
 
       - name: Inject google-services.json
@@ -113,8 +112,8 @@ jobs:
       - name: Fix Non-Standard Gradle Wrapper
         run: |
           mkdir -p gradle/wrapper
-          cp Gradle/gradle-wrapper.jar gradle/wrapper/ 2>/dev/null || true
           cp Gradle/gradle-wrapper.properties gradle/wrapper/ 2>/dev/null || true
+          sed -i 's|gradle/wrapper/gradle-wrapper.jar|Gradle/gradle-wrapper.jar|g' gradlew
           chmod +x gradlew
 
       - name: Inject google-services.json
@@ -170,10 +169,10 @@ jobs:
       - name: Fix Non-Standard Gradle Wrapper
         run: |
           mkdir -p gradle/wrapper
-          cp Gradle/gradle-wrapper.jar gradle/wrapper/ 2>/dev/null || true
           cp Gradle/gradle-wrapper.properties gradle/wrapper/ 2>/dev/null || true
+          sed -i 's|gradle/wrapper/gradle-wrapper.jar|Gradle/gradle-wrapper.jar|g' gradlew
           chmod +x gradlew
-        
+
       - run: ./gradlew detekt || true
 
       - uses: actions/upload-artifact@v4
