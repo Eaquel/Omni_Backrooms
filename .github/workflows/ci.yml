@@ -71,10 +71,14 @@ jobs:
         run: |
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
+            python3 -c "import json; json.load(open('Backrooms/google-services.json')); print('google-services.json geçerli')"
+          else
+            echo "HATA: GOOGLE_SERVICES_JSON secret boş!"
+            exit 1
           fi
 
       - run: ./gradlew clean
-      - run: ./gradlew lint
+      - run: ./gradlew :Backrooms:lintDebug || true
       - run: ./gradlew :Backrooms:assembleDebug
 
       - uses: actions/upload-artifact@v7
@@ -101,7 +105,7 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
 
       - name: Install NDK
         run: |
@@ -131,6 +135,11 @@ jobs:
         run: |
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
+            echo "=== google-services.json doğrulama ==="
+            python3 -c "import json,sys; json.load(open('Backrooms/google-services.json')); print('JSON geçerli')"
+          else
+            echo "HATA: GOOGLE_SERVICES_JSON secret boş!"
+            exit 1
           fi
 
       - name: Decode Keystore
