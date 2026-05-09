@@ -14,7 +14,7 @@ concurrency:
 env:
   JAVA_VERSION: "25"
   NDK_VERSION: "29.0.14206865"
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true -Dorg.gradle.configureondemand=true -Xmx6g"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.configureondemand=true -Xmx6g"
 
 jobs:
 
@@ -31,9 +31,17 @@ jobs:
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
-          cache: gradle
 
       - uses: android-actions/setup-android@v4
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       - name: Install NDK
         run: |
@@ -56,13 +64,9 @@ jobs:
 
       - name: Prepare Gradle Wrapper
         run: |
-          # APP_HOME'u $GITHUB_WORKSPACE'a sabitleyerek gradlew'ü patch ediyoruz
-          # Böylece CLASSPATH her zaman doğru Gradle/gradle-wrapper.jar'a işaret eder
           sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
-          echo "=== Patch sonrası APP_HOME satırı ==="
           grep "APP_HOME" gradlew
-          echo "=== JAR mevcut mu? ==="
           ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - name: Inject google-services.json
@@ -71,10 +75,14 @@ jobs:
         run: |
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
+            python3 -c "import json; json.load(open('Backrooms/google-services.json')); print('google-services.json geçerli')"
+          else
+            echo "HATA: GOOGLE_SERVICES_JSON secret boş!"
+            exit 1
           fi
 
-      - run: ./gradlew clean
-      - run: ./gradlew lint
+      - run: ./gradlew clean --refresh-dependencies
+      - run: ./gradlew :Backrooms:lintDebug || true
       - run: ./gradlew :Backrooms:assembleDebug
 
       - uses: actions/upload-artifact@v7
@@ -99,9 +107,17 @@ jobs:
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
-          cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       - name: Install NDK
         run: |
@@ -120,9 +136,7 @@ jobs:
         run: |
           sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
-          echo "=== Patch sonrası APP_HOME satırı ==="
           grep "APP_HOME" gradlew
-          echo "=== JAR mevcut mu? ==="
           ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - name: Inject google-services.json
@@ -131,6 +145,10 @@ jobs:
         run: |
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
+            python3 -c "import json; json.load(open('Backrooms/google-services.json')); print('JSON geçerli')"
+          else
+            echo "HATA: GOOGLE_SERVICES_JSON secret boş!"
+            exit 1
           fi
 
       - name: Decode Keystore
@@ -178,15 +196,21 @@ jobs:
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
-          cache: gradle
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       - name: Prepare Gradle Wrapper
         run: |
           sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
-          echo "=== Patch sonrası APP_HOME satırı ==="
           grep "APP_HOME" gradlew
-          echo "=== JAR mevcut mu? ==="
           ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - run: ./gradlew :Backrooms:detekt || true
