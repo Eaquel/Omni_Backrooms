@@ -82,7 +82,6 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "ENABLE_GUARD", "true")
-            // NDK sembol yükleme CI'da uploadCrashlyticsSymbolFileRelease task'i ile yapılıyor
         }
         debug {
             isMinifyEnabled     = false
