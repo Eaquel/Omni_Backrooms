@@ -52,7 +52,7 @@ androidx-room-compiler                   = { group = "androidx.room",           
 retrofit                                 = { group = "com.squareup.retrofit2",          name = "retrofit",                          version.ref = "retrofit" }
 okhttp                                   = { group = "com.squareup.okhttp3",            name = "okhttp",                            version.ref = "okhttp" }
 okhttp-logging-interceptor               = { group = "com.squareup.okhttp3",            name = "logging-interceptor",               version.ref = "okhttp" }
-# Retrofit 2.11.0+ built-in Kotlinx Serialization converter (jakewharton değil)
+
 retrofit-converter-kotlinx-serialization = { group = "com.squareup.retrofit2",          name = "converter-kotlinx-serialization",   version.ref = "retrofit" }
 
 kotlinx-serialization-json               = { group = "org.jetbrains.kotlinx",           name = "kotlinx-serialization-json",        version.ref = "kotlinxSerializationJson" }
@@ -75,14 +75,14 @@ androidx-billing                         = { group = "com.android.billingclient"
 agora-rtc-voice                          = { group = "io.agora.rtc",                   name = "voice-sdk",                         version.ref = "agoraVoice" }
 
 firebase-bom                             = { group = "com.google.firebase",             name = "firebase-bom",                      version.ref = "firebaseBom" }
-firebase-auth                            = { group = "com.google.firebase",             name = "firebase-auth" }
-firebase-firestore                       = { group = "com.google.firebase",             name = "firebase-firestore" }
-firebase-storage                         = { group = "com.google.firebase",             name = "firebase-storage" }
-firebase-crashlytics                     = { group = "com.google.firebase",             name = "firebase-crashlytics" }
-firebase-crashlytics-ndk                 = { group = "com.google.firebase",             name = "firebase-crashlytics-ndk" }
-firebase-analytics                       = { group = "com.google.firebase",             name = "firebase-analytics" }
-firebase-messaging                       = { group = "com.google.firebase",             name = "firebase-messaging" }
-firebase-remote-config                   = { group = "com.google.firebase",             name = "firebase-remote-config" }
+firebase-auth                            = { module = "com.google.firebase:firebase-auth" }
+firebase-firestore                       = { module = "com.google.firebase:firebase-firestore" }
+firebase-storage                         = { module = "com.google.firebase:firebase-storage" }
+firebase-crashlytics                     = { module = "com.google.firebase:firebase-crashlytics" }
+firebase-crashlytics-ndk                 = { module = "com.google.firebase:firebase-crashlytics-ndk" }
+firebase-analytics                       = { module = "com.google.firebase:firebase-analytics" }
+firebase-messaging                       = { module = "com.google.firebase:firebase-messaging" }
+firebase-remote-config                   = { module = "com.google.firebase:firebase-remote-config" }
 
 [plugins]
 android-application                      = { id = "com.android.application",                    version.ref = "agp" }
