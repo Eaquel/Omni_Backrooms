@@ -34,28 +34,32 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
 
+// ─────────────────────────────────────────────────────────────
+// Repository — was "Settings_Repository", renamed to SettingsRepository
+// ─────────────────────────────────────────────────────────────
 @Singleton
-class Settings_Repository @Inject constructor(private val store: DataStore<Preferences>) {
+class SettingsRepository @Inject constructor(private val store: DataStore<Preferences>) {
+
     companion object {
-        val KEY_NAME        = stringPreferencesKey("player_name")
-        val KEY_QUALITY     = stringPreferencesKey("graphics_quality")
-        val KEY_VHS         = booleanPreferencesKey("vhs_enabled")
-        val KEY_RESOLUTION  = floatPreferencesKey("resolution_scale")
-        val KEY_MUSIC       = floatPreferencesKey("music_volume")
-        val KEY_FOOTSTEP    = floatPreferencesKey("footstep_volume")
-        val KEY_MONSTER     = floatPreferencesKey("monster_volume")
-        val KEY_VOICE       = floatPreferencesKey("voice_volume")
-        val KEY_SENSITIVITY = floatPreferencesKey("camera_sensitivity")
-        val KEY_LANGUAGE    = stringPreferencesKey("ui_language")
-        val KEY_FPS_LIMIT   = intPreferencesKey("fps_limit")
-        val KEY_SHADOWS     = booleanPreferencesKey("shadows_enabled")
-        val KEY_ANTIALIASING= booleanPreferencesKey("antialiasing")
-        val KEY_FOG         = booleanPreferencesKey("fog_enabled")
-        val KEY_VIBRATION   = booleanPreferencesKey("vibration")
-        val KEY_PUSH_NOTIF  = booleanPreferencesKey("push_notifications")
-        val KEY_SHOW_FPS    = booleanPreferencesKey("show_fps")
-        val KEY_SHOW_PING   = booleanPreferencesKey("show_ping")
-        val KEY_COLOR_BLIND = stringPreferencesKey("color_blind_mode")
+        val KEY_NAME         = stringPreferencesKey("player_name")
+        val KEY_QUALITY      = stringPreferencesKey("graphics_quality")
+        val KEY_VHS          = booleanPreferencesKey("vhs_enabled")
+        val KEY_RESOLUTION   = floatPreferencesKey("resolution_scale")
+        val KEY_MUSIC        = floatPreferencesKey("music_volume")
+        val KEY_FOOTSTEP     = floatPreferencesKey("footstep_volume")
+        val KEY_MONSTER      = floatPreferencesKey("monster_volume")
+        val KEY_VOICE        = floatPreferencesKey("voice_volume")
+        val KEY_SENSITIVITY  = floatPreferencesKey("camera_sensitivity")
+        val KEY_LANGUAGE     = stringPreferencesKey("ui_language")
+        val KEY_FPS_LIMIT    = intPreferencesKey("fps_limit")
+        val KEY_SHADOWS      = booleanPreferencesKey("shadows_enabled")
+        val KEY_ANTIALIASING = booleanPreferencesKey("antialiasing")
+        val KEY_FOG          = booleanPreferencesKey("fog_enabled")
+        val KEY_VIBRATION    = booleanPreferencesKey("vibration")
+        val KEY_PUSH_NOTIF   = booleanPreferencesKey("push_notifications")
+        val KEY_SHOW_FPS     = booleanPreferencesKey("show_fps")
+        val KEY_SHOW_PING    = booleanPreferencesKey("show_ping")
+        val KEY_COLOR_BLIND  = stringPreferencesKey("color_blind_mode")
     }
 
     fun observe(): Flow<GameSettings> = store.data.map { p ->
@@ -68,14 +72,23 @@ class Settings_Repository @Inject constructor(private val store: DataStore<Prefe
             footstepVolume    = p[KEY_FOOTSTEP]    ?: 0.8f,
             monsterVolume     = p[KEY_MONSTER]     ?: 0.9f,
             voiceVolume       = p[KEY_VOICE]       ?: 0.8f,
-            cameraSensitivity = p[KEY_SENSITIVITY] ?: 1f
+            cameraSensitivity = p[KEY_SENSITIVITY] ?: 1f,
+            fpsLimit          = p[KEY_FPS_LIMIT]   ?: 60,
+            shadowsEnabled    = p[KEY_SHADOWS]     ?: true,
+            antialiasingOn    = p[KEY_ANTIALIASING] ?: true,
+            fogEnabled        = p[KEY_FOG]         ?: true,
+            vibrationOn       = p[KEY_VIBRATION]   ?: true,
+            showFps           = p[KEY_SHOW_FPS]    ?: false,
+            showPing          = p[KEY_SHOW_PING]   ?: true,
+            colorBlindMode    = p[KEY_COLOR_BLIND] ?: "none",
+            pushNotifications = p[KEY_PUSH_NOTIF]  ?: true
         )
     }
 
-    fun observeVhs(): Flow<Boolean>    = store.data.map { it[KEY_VHS]     ?: true     }
-    fun observeMusic(): Flow<Float>    = store.data.map { it[KEY_MUSIC]   ?: 0.7f     }
-    fun observeVoice(): Flow<Float>    = store.data.map { it[KEY_VOICE]   ?: 0.8f     }
-    fun observeQuality(): Flow<String> = store.data.map { it[KEY_QUALITY] ?: "medium" }
+    fun observeVhs()    : Flow<Boolean> = store.data.map { it[KEY_VHS]     ?: true      }
+    fun observeMusic()  : Flow<Float>   = store.data.map { it[KEY_MUSIC]   ?: 0.7f      }
+    fun observeVoice()  : Flow<Float>   = store.data.map { it[KEY_VOICE]   ?: 0.8f      }
+    fun observeQuality(): Flow<String>  = store.data.map { it[KEY_QUALITY] ?: "medium"  }
 
     suspend fun saveName(v: String)          { store.edit { it[KEY_NAME]         = v } }
     suspend fun saveQuality(v: String)       { store.edit { it[KEY_QUALITY]      = v } }
@@ -107,7 +120,7 @@ class Settings_Repository @Inject constructor(private val store: DataStore<Prefe
 
     suspend fun loadUiLayout(): List<UiButtonLayout> {
         val p   = store.data.first()
-        val ids = listOf("joystick", "sprint", "interact", "crouch", "flashlight", "crouch2", "map_btn")
+        val ids = listOf("joystick","sprint","interact","crouch","flashlight","crouch2","map_btn")
         return ids.mapNotNull { id ->
             val x = p[floatPreferencesKey("ui_${id}_x")] ?: return@mapNotNull null
             val y = p[floatPreferencesKey("ui_${id}_y")] ?: return@mapNotNull null
@@ -116,9 +129,12 @@ class Settings_Repository @Inject constructor(private val store: DataStore<Prefe
     }
 
     suspend fun clearAll()      { store.edit { it.clear() } }
-    suspend fun connectGoogle() { }
+    suspend fun connectGoogle() { /* OAuth flow */ }
 }
 
+// ─────────────────────────────────────────────────────────────
+// UiState
+// ─────────────────────────────────────────────────────────────
 data class SettingsUiState(
     val playerName        : String  = "Wanderer",
     val graphicsQuality   : String  = "medium",
@@ -140,8 +156,11 @@ data class SettingsUiState(
     val pushNotifications : Boolean = true
 )
 
+// ─────────────────────────────────────────────────────────────
+// ViewModel
+// ─────────────────────────────────────────────────────────────
 @HiltViewModel
-class SettingsVM @Inject constructor(private val repo: Settings_Repository) : ViewModel() {
+class SettingsVM @Inject constructor(private val repo: SettingsRepository) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -149,45 +168,63 @@ class SettingsVM @Inject constructor(private val repo: Settings_Repository) : Vi
     init {
         viewModelScope.launch {
             repo.observe().collect { g ->
-                _state.update { it.copy(
-                    playerName        = g.playerName,        graphicsQuality   = g.graphicsQuality,
-                    vhsEnabled        = g.vhsEnabled,        resolutionScale   = g.resolutionScale,
-                    musicVolume       = g.musicVolume,       footstepVolume    = g.footstepVolume,
-                    monsterVolume     = g.monsterVolume,     voiceVolume       = g.voiceVolume,
-                    cameraSensitivity = g.cameraSensitivity
-                ) }
+                _state.update {
+                    it.copy(
+                        playerName        = g.playerName,
+                        graphicsQuality   = g.graphicsQuality,
+                        vhsEnabled        = g.vhsEnabled,
+                        resolutionScale   = g.resolutionScale,
+                        musicVolume       = g.musicVolume,
+                        footstepVolume    = g.footstepVolume,
+                        monsterVolume     = g.monsterVolume,
+                        voiceVolume       = g.voiceVolume,
+                        cameraSensitivity = g.cameraSensitivity,
+                        fpsLimit          = g.fpsLimit,
+                        shadowsEnabled    = g.shadowsEnabled,
+                        antialiasingOn    = g.antialiasingOn,
+                        fogEnabled        = g.fogEnabled,
+                        vibrationOn       = g.vibrationOn,
+                        showFps           = g.showFps,
+                        showPing          = g.showPing,
+                        colorBlindMode    = g.colorBlindMode,
+                        pushNotifications = g.pushNotifications
+                    )
+                }
             }
         }
     }
 
-    fun onName(v: String)           { _state.update { it.copy(playerName=v) };          viewModelScope.launch { repo.saveName(v) } }
-    fun onQuality(v: String)        { _state.update { it.copy(graphicsQuality=v) };     viewModelScope.launch { repo.saveQuality(v) } }
-    fun onVhs(v: Boolean)           { _state.update { it.copy(vhsEnabled=v) };          viewModelScope.launch { repo.saveVhs(v) } }
-    fun onResolution(v: Float)      { _state.update { it.copy(resolutionScale=v) };     viewModelScope.launch { repo.saveResolution(v) } }
-    fun onMusic(v: Float)           { _state.update { it.copy(musicVolume=v) };         viewModelScope.launch { repo.saveMusic(v) } }
-    fun onFootstep(v: Float)        { _state.update { it.copy(footstepVolume=v) };      viewModelScope.launch { repo.saveFootstep(v) } }
-    fun onMonster(v: Float)         { _state.update { it.copy(monsterVolume=v) };       viewModelScope.launch { repo.saveMonster(v) } }
-    fun onVoice(v: Float)           { _state.update { it.copy(voiceVolume=v) };         viewModelScope.launch { repo.saveVoice(v) } }
-    fun onSensitivity(v: Float)     { _state.update { it.copy(cameraSensitivity=v) };   viewModelScope.launch { repo.saveSensitivity(v) } }
-    fun onFpsLimit(v: Int)          { _state.update { it.copy(fpsLimit=v) };            viewModelScope.launch { repo.saveFpsLimit(v) } }
-    fun onShadows(v: Boolean)       { _state.update { it.copy(shadowsEnabled=v) };      viewModelScope.launch { repo.saveShadows(v) } }
-    fun onAntialiasing(v: Boolean)  { _state.update { it.copy(antialiasingOn=v) };      viewModelScope.launch { repo.saveAntialiasing(v) } }
-    fun onFog(v: Boolean)           { _state.update { it.copy(fogEnabled=v) };          viewModelScope.launch { repo.saveFog(v) } }
-    fun onVibration(v: Boolean)     { _state.update { it.copy(vibrationOn=v) };         viewModelScope.launch { repo.saveVibration(v) } }
-    fun onShowFps(v: Boolean)       { _state.update { it.copy(showFps=v) };             viewModelScope.launch { repo.saveShowFps(v) } }
-    fun onShowPing(v: Boolean)      { _state.update { it.copy(showPing=v) };            viewModelScope.launch { repo.saveShowPing(v) } }
-    fun onColorBlind(v: String)     { _state.update { it.copy(colorBlindMode=v) };      viewModelScope.launch { repo.saveColorBlind(v) } }
-    fun onPushNotif(v: Boolean)     { _state.update { it.copy(pushNotifications=v) };   viewModelScope.launch { repo.savePushNotif(v) } }
-    fun onGoogleConnect()           { viewModelScope.launch { repo.connectGoogle() } }
+    fun onName(v: String)          { _state.update { it.copy(playerName        = v) }; viewModelScope.launch { repo.saveName(v) } }
+    fun onQuality(v: String)       { _state.update { it.copy(graphicsQuality   = v) }; viewModelScope.launch { repo.saveQuality(v) } }
+    fun onVhs(v: Boolean)          { _state.update { it.copy(vhsEnabled        = v) }; viewModelScope.launch { repo.saveVhs(v) } }
+    fun onResolution(v: Float)     { _state.update { it.copy(resolutionScale   = v) }; viewModelScope.launch { repo.saveResolution(v) } }
+    fun onMusic(v: Float)          { _state.update { it.copy(musicVolume       = v) }; viewModelScope.launch { repo.saveMusic(v) } }
+    fun onFootstep(v: Float)       { _state.update { it.copy(footstepVolume    = v) }; viewModelScope.launch { repo.saveFootstep(v) } }
+    fun onMonster(v: Float)        { _state.update { it.copy(monsterVolume     = v) }; viewModelScope.launch { repo.saveMonster(v) } }
+    fun onVoice(v: Float)          { _state.update { it.copy(voiceVolume       = v) }; viewModelScope.launch { repo.saveVoice(v) } }
+    fun onSensitivity(v: Float)    { _state.update { it.copy(cameraSensitivity = v) }; viewModelScope.launch { repo.saveSensitivity(v) } }
+    fun onFpsLimit(v: Int)         { _state.update { it.copy(fpsLimit          = v) }; viewModelScope.launch { repo.saveFpsLimit(v) } }
+    fun onShadows(v: Boolean)      { _state.update { it.copy(shadowsEnabled    = v) }; viewModelScope.launch { repo.saveShadows(v) } }
+    fun onAntialiasing(v: Boolean) { _state.update { it.copy(antialiasingOn    = v) }; viewModelScope.launch { repo.saveAntialiasing(v) } }
+    fun onFog(v: Boolean)          { _state.update { it.copy(fogEnabled        = v) }; viewModelScope.launch { repo.saveFog(v) } }
+    fun onVibration(v: Boolean)    { _state.update { it.copy(vibrationOn       = v) }; viewModelScope.launch { repo.saveVibration(v) } }
+    fun onShowFps(v: Boolean)      { _state.update { it.copy(showFps           = v) }; viewModelScope.launch { repo.saveShowFps(v) } }
+    fun onShowPing(v: Boolean)     { _state.update { it.copy(showPing          = v) }; viewModelScope.launch { repo.saveShowPing(v) } }
+    fun onColorBlind(v: String)    { _state.update { it.copy(colorBlindMode    = v) }; viewModelScope.launch { repo.saveColorBlind(v) } }
+    fun onPushNotif(v: Boolean)    { _state.update { it.copy(pushNotifications = v) }; viewModelScope.launch { repo.savePushNotif(v) } }
+    fun onGoogleConnect()          { viewModelScope.launch { repo.connectGoogle() } }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Settings Screen
+// ─────────────────────────────────────────────────────────────
 private enum class STab(val labelRes: Int, val icon: ImageVector) {
     Account (R.string.settings_tab_account,  Icons.Default.Person),
     Graphics(R.string.settings_tab_graphics, Icons.Default.Tune),
     Audio   (R.string.settings_tab_audio,    Icons.Default.VolumeUp),
     Controls(R.string.settings_tab_controls, Icons.Default.SportsEsports),
-    Gameplay(R.string.settings_tab_account,  Icons.Default.VideogameAsset),
-    Notif   (R.string.settings_tab_audio,    Icons.Default.Notifications)
+    Gameplay(R.string.settings_tab_gameplay, Icons.Default.VideogameAsset),
+    Notif   (R.string.settings_tab_notif,    Icons.Default.Notifications)
 }
 
 @Composable
@@ -202,28 +239,28 @@ fun Settings(onUiEditor: () -> Unit, onBack: () -> Unit, vm: SettingsVM = hiltVi
             DividerLine()
             Row(
                 Modifier.fillMaxWidth().background(MetalBg.copy(0.5f))
-                    .horizontalScroll(rememberScrollState()).padding(horizontal=8.dp),
+                    .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 STab.entries.forEach { t ->
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(topStart=2.dp, topEnd=2.dp))
-                            .background(if(tab==t) PanelBg else Color.Transparent)
+                            .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
+                            .background(if (tab == t) PanelBg else Color.Transparent)
                             .clickable { tab = t }
-                            .padding(horizontal=14.dp, vertical=10.dp)
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        Icon(t.icon, null, tint=if(tab==t) Yellow else TextDim, modifier=Modifier.size(18.dp))
-                        Text(stringResource(t.labelRes), color=if(tab==t) Yellow else TextDim, fontSize=10.sp,
-                            fontWeight=if(tab==t) FontWeight.Bold else FontWeight.Normal)
+                        Icon(t.icon, null, tint = if (tab == t) Yellow else TextDim, modifier = Modifier.size(18.dp))
+                        Text(stringResource(t.labelRes), color = if (tab == t) Yellow else TextDim, fontSize = 10.sp,
+                            fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Normal)
                         if (tab == t) Box(Modifier.width(24.dp).height(2.dp).background(Yellow))
                     }
                 }
             }
             DividerLine()
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=24.dp, vertical=16.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 when (tab) {
@@ -244,37 +281,41 @@ private fun AccountTab(s: SettingsUiState, onName: (String) -> Unit, onGoogle: (
     SLabel(stringResource(R.string.account_change_name))
     OmniPanel(Modifier.fillMaxWidth()) {
         androidx.compose.foundation.text.BasicTextField(
-            value=s.playerName, onValueChange=onName, singleLine=true,
-            textStyle=TextStyle(color=Yellow, fontSize=13.sp),
-            cursorBrush=SolidColor(Yellow),
-            decorationBox={ inner -> if(s.playerName.isEmpty()) Text(stringResource(R.string.account_name_hint), color=TextDim, fontSize=12.sp); inner() }
+            value = s.playerName, onValueChange = onName, singleLine = true,
+            textStyle    = TextStyle(color = Yellow, fontSize = 13.sp),
+            cursorBrush  = SolidColor(Yellow),
+            decorationBox = { inner ->
+                if (s.playerName.isEmpty()) Text(stringResource(R.string.account_name_hint), color = TextDim, fontSize = 12.sp)
+                inner()
+            }
         )
     }
     Spacer(Modifier.height(4.dp))
-    OmniButton(stringResource(R.string.account_google_connect), onGoogle, width=240.dp, height=44.dp, accent=Color(0xFF4285F4))
+    OmniButton(stringResource(R.string.account_google_connect), onGoogle, width = 240.dp, height = 44.dp, accent = Color(0xFF4285F4))
 }
 
 @Composable
 private fun GraphicsTab(
-    s: SettingsUiState,
-    onQuality: (String)->Unit, onVhs: (Boolean)->Unit, onResolution: (Float)->Unit,
-    onShadows: (Boolean)->Unit, onAA: (Boolean)->Unit, onFog: (Boolean)->Unit,
-    onFps: (Boolean)->Unit, onPing: (Boolean)->Unit
+    s         : SettingsUiState,
+    onQuality : (String)  -> Unit, onVhs    : (Boolean) -> Unit, onResolution: (Float)  -> Unit,
+    onShadows : (Boolean) -> Unit, onAA     : (Boolean) -> Unit, onFog       : (Boolean) -> Unit,
+    onFps     : (Boolean) -> Unit, onPing   : (Boolean) -> Unit
 ) {
     SLabel(stringResource(R.string.graphics_quality_label))
-    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             Triple(R.string.graphics_quality_low,    "low",    SuccessGreen),
             Triple(R.string.graphics_quality_medium, "medium", Yellow),
             Triple(R.string.graphics_quality_high,   "high",   DangerRed)
-        ).forEach { (res,key,col) ->
-            val sel = s.graphicsQuality==key
+        ).forEach { (res, key, col) ->
+            val sel = s.graphicsQuality == key
             Box(Alignment.Center,
                 Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(2.dp))
-                    .background(if(sel) col.copy(0.15f) else MetalBg)
-                    .border(1.dp, if(sel) col.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
+                    .background(if (sel) col.copy(0.15f) else MetalBg)
+                    .border(1.dp, if (sel) col.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
                     .clickable { onQuality(key) }
-            ) { Text(stringResource(res), color=if(sel) col else TextDim, fontSize=11.sp, fontWeight=if(sel) FontWeight.Bold else FontWeight.Normal) }
+            ) { Text(stringResource(res), color = if (sel) col else TextDim, fontSize = 11.sp,
+                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) }
         }
     }
     SToggle(stringResource(R.string.graphics_vhs_effect), s.vhsEnabled,    onVhs)
@@ -288,9 +329,9 @@ private fun GraphicsTab(
 
 @Composable
 private fun AudioTab(
-    s: SettingsUiState,
-    onMusic: (Float)->Unit, onFoot: (Float)->Unit, onMonster: (Float)->Unit,
-    onVoice: (Float)->Unit, onVib: (Boolean)->Unit
+    s        : SettingsUiState,
+    onMusic  : (Float) -> Unit, onFoot  : (Float) -> Unit, onMonster: (Float) -> Unit,
+    onVoice  : (Float) -> Unit, onVib   : (Boolean) -> Unit
 ) {
     SSlider(stringResource(R.string.audio_music_volume),       s.musicVolume,    onMusic)
     SSlider(stringResource(R.string.audio_footstep_volume),    s.footstepVolume, onFoot)
@@ -300,68 +341,78 @@ private fun AudioTab(
 }
 
 @Composable
-private fun ControlsTab(s: SettingsUiState, onSensitivity: (Float)->Unit, onUiEditor: () -> Unit) {
+private fun ControlsTab(s: SettingsUiState, onSensitivity: (Float) -> Unit, onUiEditor: () -> Unit) {
     SSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, onSensitivity, 0.1f..3f)
     Spacer(Modifier.height(8.dp))
-    OmniButton(stringResource(R.string.controls_ui_layout), onUiEditor, width=240.dp, height=48.dp)
+    OmniButton(stringResource(R.string.controls_ui_layout), onUiEditor, width = 240.dp, height = 48.dp)
 }
 
 @Composable
-private fun GameplayTab(s: SettingsUiState, onColorBlind: (String)->Unit) {
+private fun GameplayTab(s: SettingsUiState, onColorBlind: (String) -> Unit) {
     SLabel("Renk Körlüğü Modu")
-    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-        listOf("none" to "Yok", "deuteranopia" to "Deuteranopia", "protanopia" to "Protanopia", "tritanopia" to "Tritanopia")
-            .forEach { (key,label) ->
-                val sel = s.colorBlindMode==key
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("none" to "Yok", "deuteranopia" to "D.", "protanopia" to "P.", "tritanopia" to "T.")
+            .forEach { (key, label) ->
+                val sel = s.colorBlindMode == key
                 Box(Alignment.Center,
                     Modifier.clip(RoundedCornerShape(2.dp))
-                        .background(if(sel) Yellow.copy(0.15f) else MetalBg)
-                        .border(1.dp, if(sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
+                        .background(if (sel) Yellow.copy(0.15f) else MetalBg)
+                        .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
                         .clickable { onColorBlind(key) }
-                        .padding(horizontal=8.dp, vertical=6.dp)
-                ) { Text(label, color=if(sel) Yellow else TextDim, fontSize=10.sp) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) { Text(label, color = if (sel) Yellow else TextDim, fontSize = 10.sp) }
             }
     }
 }
 
 @Composable
-private fun NotifTab(s: SettingsUiState, onPush: (Boolean)->Unit) {
+private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
     SToggle("Bildirimler", s.pushNotifications, onPush)
 }
 
 @Composable
 private fun SLabel(text: String) {
-    Text(text, color=TextSec, fontSize=11.sp, letterSpacing=2.sp, fontWeight=FontWeight.Bold)
+    Text(text, color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
 }
 
 @Composable
-private fun SToggle(label: String, checked: Boolean, onToggle: (Boolean)->Unit) {
+private fun SToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Text(label, color=TextSec, fontSize=12.sp)
-        Switch(checked, onToggle, colors=SwitchDefaults.colors(
-            checkedThumbColor=Yellow, checkedTrackColor=YellowDim,
-            uncheckedThumbColor=TextDim, uncheckedTrackColor=MetalBg
+        Text(label, color = TextSec, fontSize = 12.sp)
+        Switch(checked, onToggle, colors = SwitchDefaults.colors(
+            checkedThumbColor   = Yellow,  checkedTrackColor   = YellowDim,
+            uncheckedThumbColor = TextDim, uncheckedTrackColor = MetalBg
         ))
     }
 }
 
 @Composable
-private fun SSlider(label: String, value: Float, onValue: (Float)->Unit, range: ClosedFloatingPointRange<Float> = 0f..1f) {
-    Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
+private fun SSlider(
+    label  : String,
+    value  : Float,
+    onValue: (Float) -> Unit,
+    range  : ClosedFloatingPointRange<Float> = 0f..1f
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-            Text(label, color=TextSec, fontSize=12.sp)
-            Text("${(value*100).toInt()}%", color=Yellow, fontSize=11.sp, fontWeight=FontWeight.Bold)
+            Text(label, color = TextSec, fontSize = 12.sp)
+            Text("${(value * 100).toInt()}%", color = Yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
-        Slider(value, onValue, valueRange=range,
-            colors=SliderDefaults.colors(thumbColor=Yellow, activeTrackColor=Yellow, inactiveTrackColor=MetalBg))
+        Slider(value, onValue, valueRange = range,
+            colors = SliderDefaults.colors(thumbColor = Yellow, activeTrackColor = Yellow, inactiveTrackColor = MetalBg))
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// UI Editor
+// ─────────────────────────────────────────────────────────────
 private data class DragBtn(val id: String, val labelRes: Int, var ox: Float, var oy: Float)
 
 @HiltViewModel
-class UiEditorVM @Inject constructor(private val repo: Settings_Repository) : ViewModel() {
-    fun saveLayout(layout: List<UiButtonLayout>) { viewModelScope.launch { repo.saveUiLayout(layout) } }
+class UiEditorVM @Inject constructor(private val repo: SettingsRepository) : ViewModel() {
+    fun saveLayout(layout: List<UiButtonLayout>) {
+        viewModelScope.launch { repo.saveUiLayout(layout) }
+    }
 }
 
 @Composable
@@ -380,37 +431,40 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
         CrtOverlay()
         Text(
             stringResource(R.string.controls_ui_layout).uppercase(),
-            color=TextDim, fontSize=10.sp, letterSpacing=3.sp,
-            modifier=Modifier.align(Alignment.TopCenter).padding(top=20.dp)
+            color = TextDim, fontSize = 10.sp, letterSpacing = 3.sp,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp)
         )
         buttons.forEachIndexed { index, btn ->
             var ox by remember { mutableFloatStateOf(btn.ox) }
             var oy by remember { mutableFloatStateOf(btn.oy) }
             Box(
                 Alignment.Center,
-                Modifier.offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
+                Modifier
+                    .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
                     .size(80.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(MetalBg.copy(0.88f))
                     .border(1.dp, YellowDim, RoundedCornerShape(4.dp))
                     .pointerInput(Unit) {
                         detectDragGestures { ch, drag ->
-                            ch.consume(); ox += drag.x; oy += drag.y
-                            buttons[index] = btn.copy(ox=ox, oy=oy)
+                            ch.consume()
+                            ox += drag.x; oy += drag.y
+                            buttons[index] = btn.copy(ox = ox, oy = oy)
                         }
                     }
             ) {
-                Text(stringResource(btn.labelRes), color=Yellow, fontSize=9.sp, fontWeight=FontWeight.Bold, letterSpacing=1.sp)
+                Text(stringResource(btn.labelRes), color = Yellow, fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             }
         }
         OmniButton(
-            text     = stringResource(R.string.controls_save_exit),
-            onClick  = {
-                vm.saveLayout(buttons.map { UiButtonLayout(buttonId=it.id, offset=Offset(it.ox, it.oy)) })
+            text    = stringResource(R.string.controls_save_exit),
+            onClick = {
+                vm.saveLayout(buttons.map { UiButtonLayout(buttonId = it.id, offset = Offset(it.ox, it.oy)) })
                 onSave()
             },
             width    = 200.dp, height = 48.dp,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom=24.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
         )
     }
 }

@@ -494,7 +494,7 @@ static omni::guard::GuardState gGuard;
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_com_omni_backrooms_Native_1Bridge_initGuard(
+Java_com_omni_backrooms_NativeBridge_initGuard(
         JNIEnv* env, jobject, jobject ctx, jstring expectedSigHash) {
     using namespace omni::guard;
     const char* raw = env->GetStringUTFChars(expectedSigHash, nullptr);
@@ -527,12 +527,12 @@ Java_com_omni_backrooms_Native_1Bridge_initGuard(
 }
 
 JNIEXPORT jint JNICALL
-Java_com_omni_backrooms_Native_1Bridge_getGuardFlags(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_getGuardFlags(JNIEnv*, jobject) {
     return static_cast<jint>(gGuard.cachedFlags.load(std::memory_order_acquire));
 }
 
 JNIEXPORT jint JNICALL
-Java_com_omni_backrooms_Native_1Bridge_runGuardScan(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_runGuardScan(JNIEnv*, jobject) {
     using namespace omni::guard;
     uint32_t f = 0;
     f |= gGuard.root.scan();
@@ -544,7 +544,7 @@ Java_com_omni_backrooms_Native_1Bridge_runGuardScan(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_omni_backrooms_Native_1Bridge_isRooted(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_isRooted(JNIEnv*, jobject) {
     uint32_t f = gGuard.cachedFlags.load(std::memory_order_acquire);
     return (f & (omni::guard::FLAG_ROOT_BINARY | omni::guard::FLAG_ROOT_PROPS  |
                  omni::guard::FLAG_ROOT_PATHS   | omni::guard::FLAG_MAGISK      |
@@ -553,14 +553,14 @@ Java_com_omni_backrooms_Native_1Bridge_isRooted(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_omni_backrooms_Native_1Bridge_isFridaDetected(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_isFridaDetected(JNIEnv*, jobject) {
     uint32_t f = gGuard.cachedFlags.load(std::memory_order_acquire);
     return (f & (omni::guard::FLAG_FRIDA_PORT  | omni::guard::FLAG_FRIDA_MAPS   |
                  omni::guard::FLAG_FRIDA_THREAD | omni::guard::FLAG_FRIDA_GADGET)) != 0;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_omni_backrooms_Native_1Bridge_isDebugged(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_isDebugged(JNIEnv*, jobject) {
     uint32_t f = gGuard.cachedFlags.load(std::memory_order_acquire);
     return (f & (omni::guard::FLAG_PTRACE_TRACED | omni::guard::FLAG_DEBUG_WAIT  |
                  omni::guard::FLAG_XPOSED         | omni::guard::FLAG_SUBSTRATE   |
@@ -568,20 +568,20 @@ Java_com_omni_backrooms_Native_1Bridge_isDebugged(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_omni_backrooms_Native_1Bridge_isEmulator(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_isEmulator(JNIEnv*, jobject) {
     uint32_t f = gGuard.cachedFlags.load(std::memory_order_acquire);
     return (f & (omni::guard::FLAG_EMULATOR_PROPS | omni::guard::FLAG_EMULATOR_HW |
                  omni::guard::FLAG_EMULATOR_CPU)) != 0;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_omni_backrooms_Native_1Bridge_isSignatureValid(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_isSignatureValid(JNIEnv*, jobject) {
     return (gGuard.cachedFlags.load(std::memory_order_acquire) &
             omni::guard::FLAG_SIG_MISMATCH) == 0;
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_omni_backrooms_Native_1Bridge_getThreatReport(JNIEnv* env, jobject) {
+Java_com_omni_backrooms_NativeBridge_getThreatReport(JNIEnv* env, jobject) {
     uint32_t f = gGuard.cachedFlags.load(std::memory_order_acquire);
     std::string r;
     auto ap = [&](uint32_t flag, const char* name) {
@@ -615,7 +615,7 @@ Java_com_omni_backrooms_Native_1Bridge_getThreatReport(JNIEnv* env, jobject) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_omni_backrooms_Native_1Bridge_destroyGuard(JNIEnv*, jobject) {
+Java_com_omni_backrooms_NativeBridge_destroyGuard(JNIEnv*, jobject) {
     gGuard.monitor.stop();
     gGuard.sigVerifier.reset();
     gGuard.initialized.store(false, std::memory_order_release);

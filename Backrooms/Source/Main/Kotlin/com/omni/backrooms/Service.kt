@@ -2,6 +2,7 @@ package com.omni.backrooms
 
 import android.app.*
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Binder
 import android.os.IBinder
 import androidx.compose.ui.geometry.Offset
@@ -9,18 +10,92 @@ import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.*
 import javax.inject.Inject
+import okhttp3.MediaType.Companion.toMediaType
 
-interface Api_Service {
+// ─────────────────────────────────────────────────────────────
+// NativeBridge — Native_Bridge.kt dosyası kaldırıldı, buraya entegre edildi.
+// Tüm JNI çağrıları bu sınıf üzerinden yapılır.
+// ─────────────────────────────────────────────────────────────
+class NativeBridge @Inject constructor() {
+
+    // Core
+    external fun initCore(seed: Long)
+    external fun getFlicker(phase: Float, t: Float, broken: Boolean): Float
+    external fun generateLevel(count: Int, depth: Int): FloatArray?
+    external fun getMoistureAt(x: Float, y: Float): Float
+    external fun applyVhs(bitmap: Bitmap, t: Float, intensity: Float): Boolean
+    external fun applyFlicker(bitmap: Bitmap, value: Float)
+    external fun physicsTick(dt: Float)
+    external fun applyMovement(fx: Float, fy: Float, fz: Float)
+    external fun cameraLook(dx: Float, dy: Float, sensitivity: Float)
+    external fun getCameraState(): FloatArray?
+    external fun destroyCore()
+
+    // Sound
+    external fun initSound(): Boolean
+    external fun setMasterVolume(v: Float)
+    external fun setHumVolume(v: Float)
+    external fun setFootstepVolume(v: Float)
+    external fun setMonsterVolume(v: Float)
+    external fun setAmbienceLevel(v: Float)
+    external fun triggerFootstep(bpm: Float, surface: Float)
+    external fun triggerMonster(intensity: Float)
+    external fun stopMonster()
+    external fun setListenerPos(x: Float, y: Float, z: Float)
+    external fun setSpatialRolloff(ref: Float, maxDist: Float)
+    external fun destroySound()
+
+    // Entities
+    external fun initEntities()
+    external fun spawnEntity(x: Float, y: Float, z: Float, speed: Float, hear: Float, sight: Float, aggro: Float, typeId: Int): Int
+    external fun tickEntities(px: Float, py: Float, pz: Float, dt: Float): FloatArray?
+    external fun damageEntity(id: Int, amount: Float)
+    external fun getTotalFlickerInfluence(): Float
+    external fun destroyEntities()
+
+    // Network
+    external fun initSocket(port: Int): Boolean
+    external fun buildPosPacket(x: Float, y: Float, z: Float, yaw: Float, pitch: Float): ByteArray?
+    external fun buildPingPacket(): ByteArray?
+    external fun buildVoicePacket(pcmData: ByteArray, pcmLen: Int): ByteArray?
+    external fun drainRecvQueue(): Array<ByteArray>?
+    external fun getLocalPing(): Int
+    external fun getPeerCount(): Int
+    external fun setLocalId(id: Int)
+    external fun nowMs(): Long
+    external fun destroySocket()
+
+    // Guard
+    external fun initGuard(ctx: Any, expectedSigHash: String): Boolean
+    external fun getGuardFlags(): Int
+    external fun runGuardScan(): Int
+    external fun isRooted(): Boolean
+    external fun isFridaDetected(): Boolean
+    external fun isDebugged(): Boolean
+    external fun isEmulator(): Boolean
+    external fun isSignatureValid(): Boolean
+    external fun getThreatReport(): String
+    external fun destroyGuard()
+}
+
+// ─────────────────────────────────────────────────────────────
+// API Interface
+// ─────────────────────────────────────────────────────────────
+interface ApiService {
 
     @GET("rooms")
     suspend fun getRooms(
-        @Query("q")          query      : String?,
-        @Query("locked")     locked     : Boolean?,
-        @Query("lang")       language   : String?,
-        @Query("page")       page       : Int,
-        @Query("pageSize")   pageSize   : Int
+        @Query("q")        query    : String?,
+        @Query("locked")   locked   : Boolean?,
+        @Query("lang")     language : String?,
+        @Query("page")     page     : Int,
+        @Query("pageSize") pageSize : Int
     ): RoomPage
 
     @POST("rooms")
@@ -28,8 +103,8 @@ interface Api_Service {
 
     @POST("rooms/{id}/join")
     suspend fun joinRoom(
-        @Path("id")          roomId    : String,
-        @Query("password")   password  : String?
+        @Path("id")       roomId  : String,
+        @Query("password") password: String?
     ): JoinRoomResponse
 
     @DELETE("rooms/{id}")
@@ -40,8 +115,8 @@ interface Api_Service {
 
     @POST("rooms/{id}/kick/{peerId}")
     suspend fun kickPlayer(
-        @Path("id")     roomId  : String,
-        @Path("peerId") peerId  : Int
+        @Path("id")     roomId : String,
+        @Path("peerId") peerId : Int
     ): BaseResponse
 
     @GET("player/profile")
@@ -128,6 +203,9 @@ interface Api_Service {
     suspend fun reportPlayer(@Body body: ReportRequest): BaseResponse
 }
 
+// ─────────────────────────────────────────────────────────────
+// Data Models
+// ─────────────────────────────────────────────────────────────
 data class PlayerProfile(
     val id            : String  = "",
     val name          : String  = "Wanderer",
@@ -162,10 +240,7 @@ data class RoomInfo(
     val ping          : Int     = 0
 )
 
-data class RoomPage(
-    val rooms : List<RoomInfo>,
-    val total : Int
-)
+data class RoomPage(val rooms: List<RoomInfo>, val total: Int)
 
 data class GameSettings(
     val playerName        : String  = "Wanderer",
@@ -195,44 +270,41 @@ data class UiButtonLayout(
 )
 
 data class GameState(
-    val level              : Int     = 0,
-    val seed               : Long    = 0L,
-    val difficulty         : String  = "normal",
-    val isOnline           : Boolean = false,
-    val playerHp           : Float   = 100f,
-    val playerMaxHp        : Float   = 100f,
-    val sanity             : Float   = 100f,
-    val stamina            : Float   = 100f,
-    val staminaMax         : Float   = 100f,
-    val flashlightOn       : Boolean = true,
-    val flashlightBattery  : Float   = 1f,
-    val sessionElapsed     : Long    = 0L,
-    val entitiesNearby     : Int     = 0,
-    val flickerIntensity   : Float   = 0f,
-    val score              : Long    = 0L,
-    val kills              : Int     = 0,
-    val mapId              : String  = "level_0",
-    val isPaused           : Boolean = false,
-    val isGameOver         : Boolean = false,
-    val isEscaped          : Boolean = false
+    val level             : Int     = 0,
+    val seed              : Long    = 0L,
+    val difficulty        : String  = "normal",
+    val isOnline          : Boolean = false,
+    val playerHp          : Float   = 100f,
+    val playerMaxHp       : Float   = 100f,
+    val sanity            : Float   = 100f,
+    val stamina           : Float   = 100f,
+    val staminaMax        : Float   = 100f,
+    val flashlightOn      : Boolean = true,
+    val flashlightBattery : Float   = 1f,
+    val sessionElapsed    : Long    = 0L,
+    val entitiesNearby    : Int     = 0,
+    val flickerIntensity  : Float   = 0f,
+    val score             : Long    = 0L,
+    val kills             : Int     = 0,
+    val mapId             : String  = "level_0",
+    val isPaused          : Boolean = false,
+    val isGameOver        : Boolean = false,
+    val isEscaped         : Boolean = false
 )
 
 data class LeaderboardEntry(
-    val rank        : Int,
-    val playerId    : Int,
-    val playerName  : String,
-    val avatarUrl   : String?,
-    val level       : Int,
-    val score       : Long,
-    val survived    : Int,
-    val difficulty  : String,
-    val region      : String    = "TR"
+    val rank       : Int,
+    val playerId   : Int,
+    val playerName : String,
+    val avatarUrl  : String?,
+    val level      : Int,
+    val score      : Long,
+    val survived   : Int,
+    val difficulty : String,
+    val region     : String = "TR"
 )
 
-data class VoiceFrame(
-    val peerId  : Int,
-    val pcmData : ByteArray
-) {
+data class VoiceFrame(val peerId: Int, val pcmData: ByteArray) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -243,10 +315,10 @@ data class VoiceFrame(
 }
 
 data class ChatMessage(
-    val senderId    : Int,
-    val senderName  : String,
-    val text        : String,
-    val timestampMs : Long = System.currentTimeMillis()
+    val senderId   : Int,
+    val senderName : String,
+    val text       : String,
+    val timestampMs: Long = System.currentTimeMillis()
 )
 
 data class NetworkPlayerState(
@@ -256,12 +328,31 @@ data class NetworkPlayerState(
     val posZ        : Float,
     val yaw         : Float,
     val pitch       : Float,
-    val animState   : Int   = 0,
-    val hp          : Float = 100f,
-    val ping        : Int   = 0,
+    val animState   : Int     = 0,
+    val hp          : Float   = 100f,
+    val ping        : Int     = 0,
     val isConnected : Boolean = true,
-    val charId      : String = "wanderer"
+    val charId      : String  = "wanderer"
 )
+
+data class CameraSnapshot(
+    val posX     : Float,
+    val posY     : Float,
+    val posZ     : Float,
+    val yaw      : Float,
+    val pitch    : Float,
+    val roll     : Float,
+    val fov      : Float,
+    val bobAmount: Float,
+    val bobPhase : Float
+) {
+    companion object {
+        fun fromFloatArray(data: FloatArray?): CameraSnapshot? {
+            if (data == null || data.size < 9) return null
+            return CameraSnapshot(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8])
+        }
+    }
+}
 
 data class LevelSegment(
     val posX          : Float,
@@ -284,20 +375,20 @@ data class LevelSegment(
             val base = index * 14
             if (base + 13 >= data.size) return null
             return LevelSegment(
-                posX          = data[base],
-                posY          = data[base + 1],
-                width         = data[base + 2],
-                length        = data[base + 3],
-                height        = data[base + 4],
-                lightPhase    = data[base + 5],
-                lightIntensity= data[base + 6],
-                lightSpeed    = data[base + 7],
-                lightBroken   = data[base + 8] > 0.5f,
-                roomType      = data[base + 9].toInt(),
-                wallDamage    = data[base + 10],
-                moisture      = data[base + 11],
-                hasHazard     = data[base + 12] > 0.5f,
-                decalCount    = data[base + 13].toInt()
+                posX           = data[base],
+                posY           = data[base + 1],
+                width          = data[base + 2],
+                length         = data[base + 3],
+                height         = data[base + 4],
+                lightPhase     = data[base + 5],
+                lightIntensity = data[base + 6],
+                lightSpeed     = data[base + 7],
+                lightBroken    = data[base + 8] > 0.5f,
+                roomType       = data[base + 9].toInt(),
+                wallDamage     = data[base + 10],
+                moisture       = data[base + 11],
+                hasHazard      = data[base + 12] > 0.5f,
+                decalCount     = data[base + 13].toInt()
             )
         }
     }
@@ -320,69 +411,46 @@ data class EntityState(
             val base = index * 10
             if (base + 9 >= data.size) return null
             return EntityState(
-                id              = id,
-                posX            = data[base],
-                posY            = data[base + 1],
-                posZ            = data[base + 2],
-                aiState         = data[base + 3].toInt(),
-                alertLevel      = data[base + 4],
-                hpFraction      = data[base + 5],
-                flickerInfluence= data[base + 6],
-                typeId          = data[base + 8].toInt(),
-                isActive        = data[base + 9] > 0.5f
+                id               = id,
+                posX             = data[base],
+                posY             = data[base + 1],
+                posZ             = data[base + 2],
+                aiState          = data[base + 3].toInt(),
+                alertLevel       = data[base + 4],
+                hpFraction       = data[base + 5],
+                flickerInfluence = data[base + 6],
+                typeId           = data[base + 8].toInt(),
+                isActive         = data[base + 9] > 0.5f
             )
         }
     }
 }
 
-data class CameraSnapshot(
-    val posX      : Float,
-    val posY      : Float,
-    val posZ      : Float,
-    val yaw       : Float,
-    val pitch     : Float,
-    val roll      : Float,
-    val fov       : Float,
-    val bobAmount : Float,
-    val bobPhase  : Float
-) {
-    companion object {
-        fun fromFloatArray(data: FloatArray?): CameraSnapshot? {
-            if (data == null || data.size < 9) return null
-            return CameraSnapshot(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8])
-        }
-    }
-}
-
-data class InventoryItem(
-    val itemId    : String,
-    val quantity  : Int,
-    val slotIndex : Int
-)
+data class InventoryItem(val itemId: String, val quantity: Int, val slotIndex: Int)
 
 data class PlayerInventory(
-    val items     : List<InventoryItem> = emptyList(),
-    val maxSlots  : Int = 8,
-    val weight    : Float = 0f,
-    val maxWeight : Float = 20f
+    val items    : List<InventoryItem> = emptyList(),
+    val maxSlots : Int   = 8,
+    val weight   : Float = 0f,
+    val maxWeight: Float = 20f
 ) {
-    val isFull: Boolean get() = items.size >= maxSlots
+    val isFull      : Boolean get() = items.size >= maxSlots
     val isOverweight: Boolean get() = weight > maxWeight
 }
 
 data class SessionStats(
-    val sessionId     : String,
-    val startMs       : Long,
-    val endMs         : Long        = 0L,
-    val difficulty    : String,
-    val mapId         : String,
-    val finalScore    : Long        = 0L,
-    val survived      : Boolean     = false,
-    val kills         : Int         = 0,
-    val levelsReached : Int         = 0,
-    val peakSanity    : Float       = 100f,
-    val lowestHp      : Float       = 100f,
-    val totalDistance : Float       = 0f
+    val sessionId    : String,
+    val startMs      : Long,
+    val endMs        : Long    = 0L,
+    val difficulty   : String,
+    val mapId        : String,
+    val finalScore   : Long    = 0L,
+    val survived     : Boolean = false,
+    val kills        : Int     = 0,
+    val levelsReached: Int     = 0,
+    val peakSanity   : Float   = 100f,
+    val lowestHp     : Float   = 100f,
+    val totalDistance: Float   = 0f
 )
 
 data class AchievementDto(
@@ -399,25 +467,16 @@ data class AchievementDto(
 )
 
 data class CreateRoomRequest(
-    val name       : String,
-    val maxPlayers : Int,
-    val difficulty : String,
-    val password   : String?,
-    val language   : String = "TR",
-    val mapId      : String = "level_0"
+    val name      : String,
+    val maxPlayers: Int,
+    val difficulty: String,
+    val password  : String?,
+    val language  : String = "TR",
+    val mapId     : String = "level_0"
 )
 
-data class CreateRoomResponse(
-    val roomId    : String,
-    val joinCode  : String,
-    val success   : Boolean
-)
-
-data class JoinRoomResponse(
-    val success   : Boolean,
-    val roomId    : String?,
-    val error     : String?
-)
+data class CreateRoomResponse(val roomId: String, val joinCode: String, val success: Boolean)
+data class JoinRoomResponse(val success: Boolean, val roomId: String?, val error: String?)
 
 data class RoomDetail(
     val id            : String,
@@ -441,149 +500,108 @@ data class RoomPlayer(
     val ping     : Int
 )
 
-data class BaseResponse(
-    val success : Boolean,
-    val message : String?
-)
-
+data class BaseResponse(val success: Boolean, val message: String?)
 data class AvatarRequest(val avatarId: String)
+data class PurchaseRequest(val itemType: String, val amount: Int)
+data class PurchaseResponse(val success: Boolean, val newBalance: Long, val currency: String)
 
-data class PurchaseRequest(
-    val itemType: String,
-    val amount  : Int
-)
-
-data class PurchaseResponse(
-    val success     : Boolean,
-    val newBalance  : Long,
-    val currency    : String
-)
-
-data class LeaderboardPage(
-    val entries    : List<LeaderboardEntry>,
-    val total      : Int,
-    val myRank     : Int?
-)
+data class LeaderboardPage(val entries: List<LeaderboardEntry>, val total: Int, val myRank: Int?)
 
 data class ScoreSubmitRequest(
-    val level      : Int,
-    val score      : Long,
-    val survived   : Int,
-    val difficulty : String,
-    val sessionMs  : Long,
-    val kills      : Int    = 0
+    val level     : Int,
+    val score     : Long,
+    val survived  : Int,
+    val difficulty: String,
+    val sessionMs : Long,
+    val kills     : Int = 0
 )
 
 data class EventDto(
-    val id          : String,
-    val titleTr     : String,
-    val titleEn     : String,
+    val id           : String,
+    val titleTr      : String,
+    val titleEn      : String,
     val descriptionTr: String,
     val descriptionEn: String,
-    val startMs     : Long,
-    val endMs       : Long,
-    val rewardType  : String,
-    val rewardAmount: Long,
-    val imageUrl    : String?,
-    val isActive    : Boolean
+    val startMs      : Long,
+    val endMs        : Long,
+    val rewardType   : String,
+    val rewardAmount : Long,
+    val imageUrl     : String?,
+    val isActive     : Boolean
 )
 
 data class GoogleAuthRequest(val idToken: String)
-
 data class RefreshRequest(val refreshToken: String)
+data class AuthResponse(val accessToken: String, val refreshToken: String, val expiresIn: Long, val playerId: Int)
 
-data class AuthResponse(
-    val accessToken  : String,
-    val refreshToken : String,
-    val expiresIn    : Long,
-    val playerId     : Int
-)
-
-data class MarketPage(
-    val items  : List<MarketItemDto>,
-    val total  : Int
-)
+data class MarketPage(val items: List<MarketItemDto>, val total: Int)
 
 data class MarketItemDto(
-    val id           : String,
-    val nameTr       : String,
-    val nameEn       : String,
-    val descTr       : String,
-    val descEn       : String,
-    val category     : String,
-    val price        : Long,
-    val currency     : String,
-    val imageUrl     : String?,
-    val isOwned      : Boolean,
-    val isEquipped   : Boolean,
-    val isLimited    : Boolean,
-    val expiresMs    : Long?
+    val id       : String,
+    val nameTr   : String,
+    val nameEn   : String,
+    val descTr   : String,
+    val descEn   : String,
+    val category : String,
+    val price    : Long,
+    val currency : String,
+    val imageUrl : String?,
+    val isOwned  : Boolean,
+    val isEquipped: Boolean,
+    val isLimited: Boolean,
+    val expiresMs: Long?
 )
 
-data class BuyRequest(
-    val itemId   : String,
-    val currency : String
-)
-
-data class BuyResponse(
-    val success     : Boolean,
-    val newBalance  : Long,
-    val error       : String?
-)
+data class BuyRequest(val itemId: String, val currency: String)
+data class BuyResponse(val success: Boolean, val newBalance: Long, val error: String?)
 
 data class MapDto(
-    val id           : String,
-    val nameTr       : String,
-    val nameEn       : String,
-    val level        : Int,
-    val descTr       : String,
-    val descEn       : String,
-    val thumbnailUrl : String?,
-    val isUnlocked   : Boolean,
-    val threatLevel  : Int,
-    val entityTypes  : List<Int>
+    val id          : String,
+    val nameTr      : String,
+    val nameEn      : String,
+    val level       : Int,
+    val descTr      : String,
+    val descEn      : String,
+    val thumbnailUrl: String?,
+    val isUnlocked  : Boolean,
+    val threatLevel : Int,
+    val entityTypes : List<Int>
 )
 
 data class CharacterDto(
-    val id           : String,
-    val nameTr       : String,
-    val nameEn       : String,
-    val clazz        : String,
-    val maxHp        : Float,
-    val baseSpeed    : Float,
-    val stealthMult  : Float,
-    val staminaMult  : Float,
-    val abilities    : List<String>,
-    val isUnlocked   : Boolean,
-    val isEquipped   : Boolean,
-    val imageUrl     : String?,
-    val price        : Long,
-    val currency     : String
+    val id         : String,
+    val nameTr     : String,
+    val nameEn     : String,
+    val clazz      : String,
+    val maxHp      : Float,
+    val baseSpeed  : Float,
+    val stealthMult: Float,
+    val staminaMult: Float,
+    val abilities  : List<String>,
+    val isUnlocked : Boolean,
+    val isEquipped : Boolean,
+    val imageUrl   : String?,
+    val price      : Long,
+    val currency   : String
 )
 
-data class ChangelogDto(
-    val version   : String,
-    val dateMs    : Long,
-    val changes   : List<String>,
-    val branch    : String
-)
+data class ChangelogDto(val version: String, val dateMs: Long, val changes: List<String>, val branch: String)
 
 data class StoryChapterDto(
-    val id        : Int,
-    val titleTr   : String,
-    val titleEn   : String,
-    val contentTr : String,
-    val contentEn : String,
+    val id       : Int,
+    val titleTr  : String,
+    val titleEn  : String,
+    val contentTr: String,
+    val contentEn: String,
     val isUnlocked: Boolean
 )
 
-data class ReportRequest(
-    val reportedId : Int,
-    val reason     : String,
-    val details    : String
-)
+data class ReportRequest(val reportedId: Int, val reason: String, val details: String)
 
-class Room_Repository @Inject constructor(private val api: Api_Service) {
+// ─────────────────────────────────────────────────────────────
+// Repository
+// ─────────────────────────────────────────────────────────────
+class RoomRepository @Inject constructor(private val api: ApiService) {
 
     suspend fun fetchRooms(
         query   : String?,
@@ -598,71 +616,60 @@ class Room_Repository @Inject constructor(private val api: Api_Service) {
         maxPlayers: Int,
         difficulty: String,
         password  : String?
-    ): String {
-        val resp = api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password))
-        return resp.roomId
-    }
+    ): String = api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password)).roomId
 }
 
+// ─────────────────────────────────────────────────────────────
+// Session Service
+// ─────────────────────────────────────────────────────────────
 @AndroidEntryPoint
-class Session_Service : Service() {
+class SessionService : Service() {
 
     inner class LocalBinder : Binder() {
-        fun get(): Session_Service = this@Session_Service
+        fun get(): SessionService = this@SessionService
     }
 
-    @Inject lateinit var bridge      : Native_Bridge
+    @Inject lateinit var bridge      : NativeBridge
     @Inject lateinit var assetManager: AssetManager
-    @Inject lateinit var api         : Api_Service
+    @Inject lateinit var api         : ApiService
 
-    private val binder   = LocalBinder()
-    private val scope    = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val binder = LocalBinder()
+    private val scope  = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _gameState = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
-    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    private val _chatMessages   = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
     private val _networkPlayers = MutableStateFlow<List<NetworkPlayerState>>(emptyList())
     val networkPlayers: StateFlow<List<NetworkPlayerState>> = _networkPlayers.asStateFlow()
 
-    private var physicsJob   : Job? = null
-    private var entityJob    : Job? = null
-    private var networkJob   : Job? = null
-    private var scoreJob     : Job? = null
-    private var lastTickMs   = 0L
-    private var elapsedMs    = 0L
-    private var score        = 0L
-    private var kills        = 0
+    private var physicsJob: Job? = null
+    private var entityJob : Job? = null
+    private var networkJob: Job? = null
+    private var scoreJob  : Job? = null
+    private var lastTickMs = 0L
+    private var elapsedMs  = 0L
+    private var score      = 0L
+    private var kills      = 0
 
     companion object {
-        private const val CHANNEL_ID            = "omni_session"
-        private const val NOTIF_ID              = 2001
-        const val ACTION_START_OFFLINE          = "start_offline"
-        const val ACTION_START_ONLINE           = "start_online"
-        const val ACTION_STOP                   = "stop_game"
-        const val ACTION_PAUSE                  = "pause_game"
-        const val ACTION_RESUME                 = "resume_game"
-        const val ACTION_MOVE                   = "move"
-        const val ACTION_LOOK                   = "look"
-        const val ACTION_JUMP                   = "jump"
-        const val ACTION_CROUCH                 = "crouch"
-        const val ACTION_FLASHLIGHT             = "flashlight"
-        const val ACTION_INTERACT               = "interact"
-        const val ACTION_DAMAGE_ENTITY          = "damage_entity"
-        const val EXTRA_DIFFICULTY              = "difficulty"
-        const val EXTRA_ROOM_ID                 = "room_id"
-        const val EXTRA_SEED                    = "seed"
-        const val EXTRA_MAP_ID                  = "map_id"
-        const val EXTRA_FX                      = "fx"
-        const val EXTRA_FY                      = "fy"
-        const val EXTRA_FZ                      = "fz"
-        const val EXTRA_DX                      = "dx"
-        const val EXTRA_DY                      = "dy"
-        const val EXTRA_SENSITIVITY             = "sensitivity"
-        const val EXTRA_ENTITY_ID               = "entity_id"
-        const val EXTRA_DAMAGE                  = "damage"
+        private const val CHANNEL_ID   = "omni_session"
+        private const val NOTIF_ID     = 2001
+        const val ACTION_START_OFFLINE = "start_offline"
+        const val ACTION_START_ONLINE  = "start_online"
+        const val ACTION_STOP          = "stop_game"
+        const val ACTION_PAUSE         = "pause_game"
+        const val ACTION_RESUME        = "resume_game"
+        const val ACTION_FLASHLIGHT    = "flashlight"
+        const val ACTION_DAMAGE_ENTITY = "damage_entity"
+        const val EXTRA_DIFFICULTY     = "difficulty"
+        const val EXTRA_ROOM_ID        = "room_id"
+        const val EXTRA_SEED           = "seed"
+        const val EXTRA_MAP_ID         = "map_id"
+        const val EXTRA_ENTITY_ID      = "entity_id"
+        const val EXTRA_DAMAGE         = "damage"
     }
 
     override fun onCreate() {
@@ -684,30 +691,16 @@ class Session_Service : Service() {
                 val diff   = intent.getStringExtra(EXTRA_DIFFICULTY) ?: "normal"
                 startOnline(roomId, diff)
             }
-            ACTION_STOP      -> stopSession()
-            ACTION_PAUSE     -> _gameState.update { it.copy(isPaused = true) }
-            ACTION_RESUME    -> _gameState.update { it.copy(isPaused = false) }
-            ACTION_MOVE      -> {
-                val fx = intent.getFloatExtra(EXTRA_FX, 0f)
-                val fy = intent.getFloatExtra(EXTRA_FY, 0f)
-                val fz = intent.getFloatExtra(EXTRA_FZ, 0f)
-                bridge.applyMovement(fx, fy, fz)
-            }
-            ACTION_LOOK      -> {
-                val dx   = intent.getFloatExtra(EXTRA_DX, 0f)
-                val dy   = intent.getFloatExtra(EXTRA_DY, 0f)
-                val sens = intent.getFloatExtra(EXTRA_SENSITIVITY, 1f)
-                bridge.cameraLook(dx, dy, sens)
-            }
-            ACTION_JUMP      -> bridge.applyMovement(0f, 350f, 0f)
-            ACTION_FLASHLIGHT-> _gameState.update { it.copy(flashlightOn = !it.flashlightOn) }
+            ACTION_STOP       -> stopSession()
+            ACTION_PAUSE      -> _gameState.update { it.copy(isPaused = true) }
+            ACTION_RESUME     -> _gameState.update { it.copy(isPaused = false) }
+            ACTION_FLASHLIGHT -> _gameState.update { it.copy(flashlightOn = !it.flashlightOn) }
             ACTION_DAMAGE_ENTITY -> {
                 val id     = intent.getIntExtra(EXTRA_ENTITY_ID, -1)
                 val damage = intent.getFloatExtra(EXTRA_DAMAGE, 10f)
                 if (id >= 0) {
                     bridge.damageEntity(id, damage)
-                    kills++
-                    score += 100L
+                    kills++; score += 100L
                     _gameState.update { it.copy(kills = kills, score = score) }
                 }
             }
@@ -718,6 +711,8 @@ class Session_Service : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
     override fun onDestroy() { scope.cancel(); stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy() }
 
+    // ── Game lifecycle ────────────────────────────────────────
+
     private fun startOffline(difficulty: String, seed: Long, mapId: String) {
         scope.launch {
             bridge.initCore(seed)
@@ -727,32 +722,25 @@ class Session_Service : Service() {
             bridge.setHumVolume(0.3f)
             bridge.setSpatialRolloff(1f, 40f)
 
-            val spawnCfg = assetManager.getSpawnConfig(difficulty)
-
-            repeat(spawnCfg.count) { i ->
-                val typeId = (i % EntityType.entries.size)
+            val cfg = assetManager.getSpawnConfig(difficulty)
+            repeat(cfg.count) { i ->
+                val typeId = i % EntityType.entries.size
                 val entity = EntityType.entries[typeId]
                 bridge.spawnEntity(
                     x      = (Math.random() * 60 - 30).toFloat(),
                     y      = 0f,
                     z      = (Math.random() * 60 - 30).toFloat(),
-                    speed  = entity.baseSpeed  * spawnCfg.speedMult,
+                    speed  = entity.baseSpeed * cfg.speedMult,
                     hear   = 10f + i * 1.5f,
-                    sight  = 16f * spawnCfg.sightMult,
+                    sight  = 16f * cfg.sightMult,
                     aggro  = 8f,
                     typeId = typeId
                 )
             }
 
-            _gameState.value = GameState(
-                seed       = seed,
-                difficulty = difficulty,
-                isOnline   = false,
-                mapId      = mapId
-            )
-
+            _gameState.value = GameState(seed = seed, difficulty = difficulty, isOnline = false, mapId = mapId)
             startPhysicsLoop()
-            startEntitySpawner(difficulty, spawnCfg)
+            startEntitySpawner(difficulty, cfg)
             startScoreAccumulator()
         }
     }
@@ -766,23 +754,26 @@ class Session_Service : Service() {
             bridge.initSocket(0)
             bridge.setLocalId((Math.random() * Int.MAX_VALUE).toInt())
 
-            val spawnCfg = assetManager.getSpawnConfig(difficulty)
-            repeat(spawnCfg.count) { i ->
+            val cfg = assetManager.getSpawnConfig(difficulty)
+            repeat(cfg.count) { i ->
                 bridge.spawnEntity(
-                    x = (Math.random() * 60 - 30).toFloat(), y = 0f, z = (Math.random() * 60 - 30).toFloat(),
-                    speed = 2.5f * spawnCfg.speedMult, hear = 10f, sight = 16f * spawnCfg.sightMult, aggro = 8f,
+                    x = (Math.random() * 60 - 30).toFloat(), y = 0f,
+                    z = (Math.random() * 60 - 30).toFloat(),
+                    speed = 2.5f * cfg.speedMult, hear = 10f,
+                    sight = 16f * cfg.sightMult,  aggro = 8f,
                     typeId = i % 8
                 )
             }
 
             _gameState.value = GameState(seed = seed, difficulty = difficulty, isOnline = true)
-
             startPhysicsLoop()
-            startEntitySpawner(difficulty, spawnCfg)
+            startEntitySpawner(difficulty, cfg)
             startNetworkSync()
             startScoreAccumulator()
         }
     }
+
+    // ── Loops ─────────────────────────────────────────────────
 
     private fun startPhysicsLoop() {
         lastTickMs = bridge.nowMs()
@@ -796,13 +787,12 @@ class Session_Service : Service() {
                 elapsedMs += (dt * 1000).toLong()
 
                 bridge.physicsTick(dt)
-
                 val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
                 if (cam != null) bridge.setListenerPos(cam.posX, cam.posY, cam.posZ)
 
-                val entityData      = bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
-                val flickerInfluence= bridge.getTotalFlickerInfluence()
-                val nearbyCount     = (entityData?.size ?: 0) / 10
+                val entityData       = bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
+                val flickerInfluence = bridge.getTotalFlickerInfluence()
+                val nearbyCount      = (entityData?.size ?: 0) / 10
 
                 updateFlashlightBattery(dt)
                 updateSanity(nearbyCount, flickerInfluence, dt)
@@ -816,7 +806,6 @@ class Session_Service : Service() {
                         score            = score
                     )
                 }
-
                 delay(16)
             }
         }
@@ -826,20 +815,17 @@ class Session_Service : Service() {
         entityJob = scope.launch {
             var timer = 0L
             while (isActive) {
-                delay(5000)
-                timer += 5000
+                delay(5_000)
+                timer += 5_000
                 if (timer >= cfg.spawnIntervalMs) {
                     timer = 0
                     val typeId = (Math.random() * 8).toInt()
                     val entity = EntityType.entries.getOrNull(typeId) ?: EntityType.SMILER
                     bridge.spawnEntity(
-                        x      = (Math.random() * 80 - 40).toFloat(),
-                        y      = 0f,
-                        z      = (Math.random() * 80 - 40).toFloat(),
+                        x = (Math.random() * 80 - 40).toFloat(), y = 0f,
+                        z = (Math.random() * 80 - 40).toFloat(),
                         speed  = entity.baseSpeed * cfg.speedMult,
-                        hear   = 12f,
-                        sight  = 18f * cfg.sightMult,
-                        aggro  = 9f,
+                        hear   = 12f, sight = 18f * cfg.sightMult, aggro = 9f,
                         typeId = typeId
                     )
                 }
@@ -851,14 +837,9 @@ class Session_Service : Service() {
         networkJob = scope.launch {
             while (isActive) {
                 val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
-                if (cam != null) {
-                    bridge.buildPosPacket(cam.posX, cam.posY, cam.posZ, cam.yaw, cam.pitch)
-                }
-                bridge.drainRecvQueue()?.forEach { rawPkt -> processIncomingPacket(rawPkt) }
-
-                val pingPkt = bridge.buildPingPacket()
-                pingPkt?.let { }
-
+                if (cam != null) bridge.buildPosPacket(cam.posX, cam.posY, cam.posZ, cam.yaw, cam.pitch)
+                bridge.drainRecvQueue()?.forEach { processIncomingPacket(it) }
+                bridge.buildPingPacket()
                 delay(50)
             }
         }
@@ -874,10 +855,12 @@ class Session_Service : Service() {
                         else     -> 1L
                     }
                 }
-                delay(1000)
+                delay(1_000)
             }
         }
     }
+
+    // ── State updaters ────────────────────────────────────────
 
     private fun processIncomingPacket(raw: ByteArray) {
         if (raw.size < 8) return
@@ -886,29 +869,24 @@ class Session_Service : Service() {
     private fun updateFlashlightBattery(dt: Float) {
         val s = _gameState.value
         if (!s.flashlightOn) return
-        val drain = dt * 0.005f
-        val newBat = (s.flashlightBattery - drain).coerceAtLeast(0f)
-        if (newBat <= 0f && s.flashlightOn) {
-            _gameState.update { it.copy(flashlightBattery = 0f, flashlightOn = false) }
-        } else {
-            _gameState.update { it.copy(flashlightBattery = newBat) }
-        }
+        val newBat = (s.flashlightBattery - dt * 0.005f).coerceAtLeast(0f)
+        _gameState.update { it.copy(flashlightBattery = newBat, flashlightOn = newBat > 0f) }
     }
 
     private fun updateSanity(nearbyEntities: Int, flickerInfluence: Float, dt: Float) {
         val s = _gameState.value
-        val drainRate = (nearbyEntities * 0.5f + flickerInfluence * 2f) * dt
-        val regenRate = if (nearbyEntities == 0 && flickerInfluence < 0.1f) dt * 0.3f else 0f
-        val newSanity = (s.sanity - drainRate + regenRate).coerceIn(0f, 100f)
-        _gameState.update { it.copy(sanity = newSanity) }
+        val drain = (nearbyEntities * 0.5f + flickerInfluence * 2f) * dt
+        val regen = if (nearbyEntities == 0 && flickerInfluence < 0.1f) dt * 0.3f else 0f
+        _gameState.update { it.copy(sanity = (s.sanity - drain + regen).coerceIn(0f, 100f)) }
     }
 
     private fun updateStamina(dt: Float) {
         val s = _gameState.value
-        val regen = dt * 8f
-        val newStamina = (s.stamina + regen).coerceAtMost(s.staminaMax)
+        val newStamina = (s.stamina + dt * 8f).coerceAtMost(s.staminaMax)
         if (newStamina != s.stamina) _gameState.update { it.copy(stamina = newStamina) }
     }
+
+    // ── Public API ────────────────────────────────────────────
 
     fun applyDamage(amount: Float) {
         val s = _gameState.value
@@ -930,14 +908,16 @@ class Session_Service : Service() {
         scope.launch {
             val s = _gameState.value
             runCatching {
-                api.submitScore(ScoreSubmitRequest(
-                    level      = s.level,
-                    score      = score,
-                    survived   = if (s.isEscaped) 1 else 0,
-                    difficulty = s.difficulty,
-                    sessionMs  = elapsedMs,
-                    kills      = kills
-                ))
+                api.submitScore(
+                    ScoreSubmitRequest(
+                        level      = s.level,
+                        score      = score,
+                        survived   = if (s.isEscaped) 1 else 0,
+                        difficulty = s.difficulty,
+                        sessionMs  = elapsedMs,
+                        kills      = kills
+                    )
+                )
             }
         }
     }

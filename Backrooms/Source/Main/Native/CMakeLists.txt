@@ -2,11 +2,13 @@ cmake_minimum_required(VERSION 4.3.2)
 
 project("omni_backrooms" CXX)
 
+# ── C++26 zorunlu ─────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD            26)
 set(CMAKE_CXX_STANDARD_REQUIRED   ON)
 set(CMAKE_CXX_EXTENSIONS          OFF)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 
+# ── Sistem kütüphaneleri ──────────────────────────────────────
 find_library(log-lib     log)
 find_library(android-lib android)
 find_library(opensl-lib  OpenSLES)
@@ -14,6 +16,7 @@ find_library(gles-lib    GLESv3)
 find_library(egl-lib     EGL)
 find_library(dl-lib      dl)
 find_library(z-lib       z)
+find_library(jnigraphics jnigraphics)   # android/bitmap.h için
 
 add_library(
     omni_backrooms
@@ -29,7 +32,8 @@ target_include_directories(omni_backrooms PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 
-set(HARDENING_FLAGS
+# ── Hardening flags — tüm build tiplerinde aktif ─────────────
+set(COMMON_FLAGS
     -fstack-protector-strong
     -fstack-clash-protection
     -D_FORTIFY_SOURCE=3
@@ -41,8 +45,26 @@ set(HARDENING_FLAGS
     -Wextra
     -Wpedantic
     -Wno-unused-parameter
+    -Wno-c++26-extensions
 )
 
+# ── ABI bazlı SIMD optimizasyonları ──────────────────────────
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    list(APPEND COMMON_FLAGS
+        -march=armv8.2-a+simd+dotprod+fp16
+        -mtune=cortex-a76
+        -mfpu=neon-fp-armv8
+    )
+elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+    list(APPEND COMMON_FLAGS
+        -march=armv7-a
+        -mfpu=neon-vfpv4
+        -mfloat-abi=softfp
+        -mtune=cortex-a15
+    )
+endif()
+
+# ── Release / Debug ───────────────────────────────────────────
 set(RELEASE_FLAGS
     -O3
     -flto=thin
@@ -60,7 +82,7 @@ set(DEBUG_FLAGS
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(omni_backrooms PRIVATE
-        ${HARDENING_FLAGS}
+        ${COMMON_FLAGS}
         ${RELEASE_FLAGS}
     )
     target_link_options(omni_backrooms PRIVATE
@@ -73,11 +95,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     )
 else()
     target_compile_options(omni_backrooms PRIVATE
-        ${HARDENING_FLAGS}
+        ${COMMON_FLAGS}
         ${DEBUG_FLAGS}
     )
 endif()
 
+# ── Link ──────────────────────────────────────────────────────
 target_link_libraries(omni_backrooms
     ${log-lib}
     ${android-lib}
@@ -86,6 +109,7 @@ target_link_libraries(omni_backrooms
     ${egl-lib}
     ${dl-lib}
     ${z-lib}
+    ${jnigraphics}
 )
 
 set_target_properties(omni_backrooms PROPERTIES

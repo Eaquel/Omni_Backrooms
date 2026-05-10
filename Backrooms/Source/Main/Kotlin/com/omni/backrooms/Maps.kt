@@ -44,7 +44,7 @@ enum class MapFilter(val label: String) {
 
 @HiltViewModel
 class MapsVM @Inject constructor(
-    private val api         : Api_Service,
+    private val api         : ApiService,
     private val assetManager: AssetManager
 ) : ViewModel() {
 

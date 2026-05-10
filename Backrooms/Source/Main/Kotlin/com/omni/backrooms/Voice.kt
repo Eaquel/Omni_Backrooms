@@ -10,89 +10,98 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.agora.rtc2.*
-import io.agora.rtc2.audio.AudioTrackConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// ─────────────────────────────────────────────────────────────
+// Models
+// ─────────────────────────────────────────────────────────────
 data class VoicePeer(
     val uid       : Int,
-    val name      : String    = "???",
-    val isMuted   : Boolean   = false,
-    val isSpeaking: Boolean   = false,
-    val volume    : Int       = 0,
-    val ping      : Int       = 0
+    val name      : String  = "???",
+    val isMuted   : Boolean = false,
+    val isSpeaking: Boolean = false,
+    val volume    : Int     = 0,
+    val ping      : Int     = 0
 )
 
 data class VoiceUiState(
-    val isConnected   : Boolean       = false,
-    val isMuted       : Boolean       = false,
-    val isPttMode     : Boolean       = false,
-    val isPttActive   : Boolean       = false,
-    val peers         : List<VoicePeer> = emptyList(),
-    val myVolume      : Int           = 0,
-    val roomId        : String        = "",
-    val errorMsg      : String?       = null,
-    val noiseCancel   : Boolean       = true,
-    val echoCancellation: Boolean     = true,
-    val spatialAudio  : Boolean       = false
+    val isConnected     : Boolean         = false,
+    val isMuted         : Boolean         = false,
+    val isPttMode       : Boolean         = false,
+    val isPttActive     : Boolean         = false,
+    val peers           : List<VoicePeer> = emptyList(),
+    val myVolume        : Int             = 0,
+    val roomId          : String          = "",
+    val errorMsg        : String?         = null,
+    val noiseCancel     : Boolean         = true,
+    val echoCancellation: Boolean         = true,
+    val spatialAudio    : Boolean         = false
 )
 
+// ─────────────────────────────────────────────────────────────
+// VoiceManager — NativeBridge kullanır, GlobalScope yok
+// ─────────────────────────────────────────────────────────────
 @Singleton
 class VoiceManager @Inject constructor(
-    private val bridge: Native_Bridge
+    private val bridge: NativeBridge
 ) {
-    private val _state        = MutableStateFlow(VoiceUiState())
+    private val _state = MutableStateFlow(VoiceUiState())
     val state: StateFlow<VoiceUiState> = _state.asStateFlow()
 
-    private var rtcEngine     : RtcEngine?   = null
-    private var audioRecord   : AudioRecord? = null
-    private var captureJob    : Job?         = null
-    private val scope         = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var rtcEngine  : RtcEngine?   = null
+    private var audioRecord: AudioRecord? = null
+    private var captureJob : Job?         = null
+
+    // Scoped — GlobalScope yok
+    private val voiceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val rtcHandler = object : IRtcEngineEventHandler() {
+
         override fun onJoinChannelSuccess(channel: String, uid: Int, elapsed: Int) {
-            _state.update { it.copy(isConnected=true, roomId=channel) }
+            _state.update { it.copy(isConnected = true, roomId = channel) }
         }
 
         override fun onUserJoined(uid: Int, elapsed: Int) {
             _state.update { s ->
                 val peers = s.peers.toMutableList()
-                if (peers.none { it.uid == uid }) peers.add(VoicePeer(uid))
-                s.copy(peers=peers)
+                if (peers.none { it.uid == uid }) peers += VoicePeer(uid)
+                s.copy(peers = peers)
             }
         }
 
         override fun onUserOffline(uid: Int, reason: Int) {
-            _state.update { it.copy(peers=it.peers.filter { p -> p.uid != uid }) }
+            _state.update { it.copy(peers = it.peers.filter { p -> p.uid != uid }) }
         }
 
         override fun onAudioVolumeIndication(speakers: Array<out AudioVolumeInfo>?, totalVolume: Int) {
             speakers ?: return
             val myVol = speakers.firstOrNull { it.uid == 0 }?.volume ?: 0
             _state.update { s ->
-                val updated = s.peers.map { peer ->
-                    val vol = speakers.firstOrNull { it.uid == peer.uid }?.volume ?: 0
-                    peer.copy(volume=vol, isSpeaking=vol > 15)
-                }
-                s.copy(peers=updated, myVolume=myVol)
+                s.copy(
+                    peers    = s.peers.map { peer ->
+                        val vol = speakers.firstOrNull { it.uid == peer.uid }?.volume ?: 0
+                        peer.copy(volume = vol, isSpeaking = vol > 15)
+                    },
+                    myVolume = myVol
+                )
             }
         }
 
         override fun onRemoteAudioStats(stats: RemoteAudioStats) {
-            val networkDelay = stats.networkTransportDelay
             _state.update { s ->
-                s.copy(peers=s.peers.map { if (it.uid==stats.uid) it.copy(ping=networkDelay) else it })
+                s.copy(peers = s.peers.map { if (it.uid == stats.uid) it.copy(ping = stats.networkTransportDelay) else it })
             }
         }
 
         override fun onError(err: Int) {
-            _state.update { it.copy(errorMsg="RTC Hata: $err") }
+            _state.update { it.copy(errorMsg = "RTC Hata: $err") }
         }
 
         override fun onLeaveChannel(stats: RtcStats) {
-            _state.update { it.copy(isConnected=false, peers=emptyList()) }
+            _state.update { it.copy(isConnected = false, peers = emptyList()) }
         }
     }
 
@@ -127,44 +136,42 @@ class VoiceManager @Inject constructor(
     fun leave() {
         stopCapture()
         rtcEngine?.leaveChannel()
-        _state.update { it.copy(isConnected=false, peers=emptyList()) }
+        _state.update { it.copy(isConnected = false, peers = emptyList()) }
     }
 
     fun mute(muted: Boolean) {
-        _state.update { it.copy(isMuted=muted) }
+        _state.update { it.copy(isMuted = muted) }
         rtcEngine?.muteLocalAudioStream(muted)
     }
 
     fun setPttMode(enabled: Boolean) {
-        _state.update { it.copy(isPttMode=enabled) }
+        _state.update { it.copy(isPttMode = enabled) }
         if (enabled) mute(true)
     }
 
     fun pttPress() {
         if (!_state.value.isPttMode) return
-        _state.update { it.copy(isPttActive=true) }
+        _state.update { it.copy(isPttActive = true) }
         rtcEngine?.muteLocalAudioStream(false)
     }
 
     fun pttRelease() {
         if (!_state.value.isPttMode) return
-        _state.update { it.copy(isPttActive=false) }
+        _state.update { it.copy(isPttActive = false) }
         rtcEngine?.muteLocalAudioStream(true)
     }
 
     fun setNoiseCancellation(on: Boolean) {
-        _state.update { it.copy(noiseCancel=on) }
+        _state.update { it.copy(noiseCancel = on) }
         rtcEngine?.setParameters("{\"che.audio.ans.enable\":$on}")
     }
 
     fun setEchoCancellation(on: Boolean) {
-        _state.update { it.copy(echoCancellation=on) }
+        _state.update { it.copy(echoCancellation = on) }
         rtcEngine?.setParameters("{\"che.audio.aec.enable\":$on}")
     }
 
-    fun setSpatialAudio(on: Boolean) {
-        _state.update { it.copy(spatialAudio=on) }
-    }
+    fun setSpatialAudio(on: Boolean) { _state.update { it.copy(spatialAudio = on) } }
 
     fun setVolume(uid: Int, vol: Int) {
         rtcEngine?.adjustUserPlaybackSignalVolume(uid, vol.coerceIn(0, 400))
@@ -176,20 +183,19 @@ class VoiceManager @Inject constructor(
     }
 
     private fun startCapture() {
-        val bufSize = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val bufSize = AudioRecord.getMinBufferSize(16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+            16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
             bufSize * 2
-        )
-        audioRecord?.startRecording()
-        captureJob = scope.launch {
+        ).also { it.startRecording() }
+
+        captureJob = voiceScope.launch {
             val buf = ByteArray(bufSize)
             while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 val read = audioRecord?.read(buf, 0, buf.size) ?: break
                 if (read > 0 && !_state.value.isMuted) {
-                    val pkt = bridge.buildVoicePacket(buf, read)
-                    pkt?.let { }
+                    bridge.buildVoicePacket(buf, read) // native tarafta paketlenir
                 }
             }
         }
@@ -197,21 +203,23 @@ class VoiceManager @Inject constructor(
 
     private fun stopCapture() {
         captureJob?.cancel()
-        audioRecord?.stop()
-        audioRecord?.release()
+        audioRecord?.run { stop(); release() }
         audioRecord = null
     }
 
     fun destroy() {
         stopCapture()
-        scope.cancel()
+        voiceScope.cancel()
         RtcEngine.destroy()
         rtcEngine = null
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// VoiceChatService — Voice_Chat → VoiceChatService (clean naming)
+// ─────────────────────────────────────────────────────────────
 @AndroidEntryPoint
-class Voice_Chat : Service() {
+class VoiceChatService : Service() {
 
     @Inject lateinit var voiceManager: VoiceManager
 
@@ -243,8 +251,7 @@ class Voice_Chat : Service() {
         when (intent?.action) {
             ACTION_JOIN        -> {
                 val room = intent.getStringExtra(EXTRA_ROOM) ?: return START_NOT_STICKY
-                val uid  = intent.getIntExtra(EXTRA_UID, 0)
-                voiceManager.join(room, uid)
+                voiceManager.join(room, intent.getIntExtra(EXTRA_UID, 0))
             }
             ACTION_LEAVE       -> voiceManager.leave()
             ACTION_MUTE        -> voiceManager.mute(true)
@@ -265,7 +272,7 @@ class Voice_Chat : Service() {
     }
 
     private fun createChannel() {
-        val ch = NotificationChannel(CHANNEL_ID, getString(R.string.audio_voice_volume), NotificationManager.IMPORTANCE_LOW)
+        val ch = NotificationChannel(CHANNEL_ID, "Sesli Sohbet", NotificationManager.IMPORTANCE_LOW)
             .apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
@@ -273,11 +280,14 @@ class Voice_Chat : Service() {
     private fun buildNotif(): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.audio_voice_volume))
+            .setContentText("Sesli sohbet aktif")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true).setSilent(true).build()
 }
 
+// ─────────────────────────────────────────────────────────────
+// VoiceVM
+// ─────────────────────────────────────────────────────────────
 @HiltViewModel
 class VoiceVM @Inject constructor(
     private val voiceManager: VoiceManager
@@ -285,39 +295,14 @@ class VoiceVM @Inject constructor(
 
     val state: StateFlow<VoiceUiState> = voiceManager.state
 
-    fun join(roomId: String, uid: Int) {
-        viewModelScope.launch(Dispatchers.IO) { voiceManager.join(roomId, uid) }
-    }
-
-    fun leave() {
-        viewModelScope.launch(Dispatchers.IO) { voiceManager.leave() }
-    }
-
-    fun toggleMute() {
-        val muted = !state.value.isMuted
-        voiceManager.mute(muted)
-    }
-
-    fun pttPress()   { voiceManager.pttPress() }
-    fun pttRelease() { voiceManager.pttRelease() }
-
-    fun togglePttMode() {
-        voiceManager.setPttMode(!state.value.isPttMode)
-    }
-
-    fun toggleNoiseCancellation() {
-        voiceManager.setNoiseCancellation(!state.value.noiseCancel)
-    }
-
-    fun toggleEchoCancellation() {
-        voiceManager.setEchoCancellation(!state.value.echoCancellation)
-    }
-
-    fun setVolume(uid: Int, vol: Int) {
-        voiceManager.setVolume(uid, vol)
-    }
-
-    fun setMasterVolume(vol: Float) {
-        voiceManager.setMasterVolume(vol)
-    }
+    fun join(roomId: String, uid: Int)  { viewModelScope.launch(Dispatchers.IO) { voiceManager.join(roomId, uid) } }
+    fun leave()                          { viewModelScope.launch(Dispatchers.IO) { voiceManager.leave() } }
+    fun toggleMute()                     { voiceManager.mute(!state.value.isMuted) }
+    fun pttPress()                       { voiceManager.pttPress() }
+    fun pttRelease()                     { voiceManager.pttRelease() }
+    fun togglePttMode()                  { voiceManager.setPttMode(!state.value.isPttMode) }
+    fun toggleNoiseCancellation()        { voiceManager.setNoiseCancellation(!state.value.noiseCancel) }
+    fun toggleEchoCancellation()         { voiceManager.setEchoCancellation(!state.value.echoCancellation) }
+    fun setVolume(uid: Int, vol: Int)    { voiceManager.setVolume(uid, vol) }
+    fun setMasterVolume(vol: Float)      { voiceManager.setMasterVolume(vol) }
 }

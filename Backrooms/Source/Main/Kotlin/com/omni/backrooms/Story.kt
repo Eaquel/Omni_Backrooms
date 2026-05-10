@@ -42,113 +42,13 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.sin
 
-@HiltViewModel
-class SplashVM @Inject constructor(
-    private val bridge      : Native_Bridge,
-    private val guardManager: GuardManager
-) : ViewModel() {
-    init {
-        viewModelScope.launch {
-            bridge.initSound()
-            bridge.initCore(System.currentTimeMillis())
-            bridge.initEntities()
-            guardManager.initialize()
-            bridge.setAmbienceLevel(0.35f)
-            bridge.setHumVolume(0.3f)
-        }
-    }
-    override fun onCleared() {
-        bridge.destroyEntities()
-        bridge.destroyCore()
-        bridge.destroySound()
-        bridge.destroySocket()
-        guardManager.destroy()
-    }
-}
+// SplashVM → Asset.kt içindeki GuardManager + Credits.kt LoadingVM ile değiştirildi
 
-@HiltViewModel
-class LoadingVM @Inject constructor(
-    private val assetManager: AssetManager
-) : ViewModel() {
-    private val _progress = MutableStateFlow(0f)
-    private val _stage    = MutableStateFlow("")
-    val progress: StateFlow<Float>  = _progress.asStateFlow()
-    val stage   : StateFlow<String> = _stage.asStateFlow()
+// LoadingVM → Credits.kt'ye taşındı
 
-    init {
-        viewModelScope.launch {
-            assetManager.preload().collect { e ->
-                _progress.value = e.progress
-                _stage.value    = e.stage
-            }
-        }
-    }
-}
+// Splash → Credits.kt'ye taşındı
 
-@Composable
-fun Splash(onDone: () -> Unit, vm: SplashVM = hiltViewModel()) {
-    val inf     = rememberInfiniteTransition(label = "splash")
-    val alpha   by animateFloatAsState(1f, tween(2000), label = "al")
-    val glitch  by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(80,  easing = LinearEasing), RepeatMode.Reverse), "gl")
-    val flicker by inf.animateFloat(0.9f, 1.0f,
-        infiniteRepeatable(tween(130, easing = LinearEasing), RepeatMode.Reverse), "fl")
-
-    LaunchedEffect(Unit) { delay(3400); onDone() }
-
-    Box(Modifier.fillMaxSize().background(Color.Black), Alignment.Center) {
-        CrtOverlay()
-        ScanlineSweep()
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            GlitchText(
-                text      = stringResource(R.string.app_name),
-                intensity = glitch,
-                modifier  = Modifier.alpha(alpha * flicker).padding(horizontal = 32.dp),
-                fontSize  = 38
-            )
-            Text(
-                text      = stringResource(R.string.splash_tagline),
-                color     = TextSec.copy(alpha * 0.7f),
-                fontSize  = 13.sp,
-                letterSpacing = 4.sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(24.dp))
-            FluorescentHumVisualizer(Modifier.width(180.dp).height(3.dp).alpha(alpha * 0.5f))
-        }
-    }
-}
-
-@Composable
-fun Loading(onDone: () -> Unit, vm: LoadingVM = hiltViewModel()) {
-    val progress by vm.progress.collectAsState()
-    val stage    by vm.stage.collectAsState()
-    val inf      = rememberInfiniteTransition(label = "ld")
-    val flicker  by inf.animateFloat(0.78f, 1.0f,
-        infiniteRepeatable(tween(170, easing = LinearEasing), RepeatMode.Reverse), "fl")
-    val pan      by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(8000, easing = LinearEasing)), "pan")
-
-    LaunchedEffect(progress) { if (progress >= 1f) { delay(500); onDone() } }
-
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        CorridorCanvas(pan = pan, flicker = flicker, modifier = Modifier.fillMaxSize())
-        CrtOverlay()
-        Column(
-            Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = 40.dp, start = 56.dp, end = 56.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(stage, color = TextDim, fontSize = 10.sp, letterSpacing = 2.sp, textAlign = TextAlign.Center)
-            CarpetProgressBar(progress, Modifier.fillMaxWidth().height(14.dp))
-            Text("${(progress * 100).toInt()}%", color = TextDim, fontSize = 11.sp, letterSpacing = 1.sp)
-        }
-    }
-}
+// Loading → Credits.kt'ye taşındı
 
 @Composable
 private fun ScanlineSweep() {
@@ -237,73 +137,7 @@ fun CarpetProgressBar(progress: Float, modifier: Modifier) {
     }
 }
 
-@Composable
-fun Menu(
-    onNewGame   : () -> Unit,
-    onEvents    : () -> Unit,
-    onSettings  : () -> Unit,
-    onMarket    : () -> Unit,
-    onStory     : () -> Unit,
-    onCredits   : () -> Unit,
-    onChangelog : () -> Unit,
-    onMaps      : () -> Unit,
-    onChars     : () -> Unit,
-    onLeader    : () -> Unit,
-    vm          : PlayerProfileVM = hiltViewModel()
-) {
-    val profile by vm.profile.collectAsState()
-    Box(Modifier.fillMaxSize().background(DarkBg)) {
-        LobbyBackground()
-        CrtOverlay()
-        Column(Modifier.fillMaxSize()) {
-            MenuTopBar(profile, onStory, onCredits, onChangelog, onMarket, onChars, onLeader)
-            Box(Modifier.fillMaxSize()) {
-                Column(
-                    Modifier.align(Alignment.CenterEnd).padding(end = 36.dp),
-                    verticalArrangement   = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment   = Alignment.End
-                ) {
-                    MenuButton(stringResource(R.string.menu_new_game), Icons.Default.PlayArrow,  Yellow,       200.dp, onNewGame)
-                    MenuButton(stringResource(R.string.menu_events),   Icons.Default.Event,      CrtAmber,     200.dp, onEvents)
-                    MenuButton(stringResource(R.string.maps_title),    Icons.Default.Map,         TextSec,      200.dp, onMaps)
-                    MenuButton(stringResource(R.string.menu_settings), Icons.Default.Settings,    TextSec,      200.dp, onSettings)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MenuTopBar(
-    profile     : PlayerProfile,
-    onStory     : () -> Unit,
-    onCredits   : () -> Unit,
-    onChangelog : () -> Unit,
-    onMarket    : () -> Unit,
-    onChars     : () -> Unit,
-    onLeader    : () -> Unit
-) {
-    Row(
-        Modifier.fillMaxWidth().background(Color.Black.copy(0.7f)).padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment     = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        PlayerCard(profile)
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            QuickBtn(stringResource(R.string.menu_story),    Icons.Default.MenuBook,        onStory)
-            QuickBtn(stringResource(R.string.menu_credits),  Icons.Default.Groups,          onCredits)
-            QuickBtn(stringResource(R.string.menu_changelog),Icons.Default.FormatListBulleted, onChangelog)
-        }
-        Spacer(Modifier.weight(1f))
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.End) {
-            QuickBtn(stringResource(R.string.characters_title), Icons.Default.Person,       onChars)
-            QuickBtn(stringResource(R.string.leaderboard_title),Icons.Default.EmojiEvents,  onLeader)
-            QuickBtn(stringResource(R.string.market_title),     Icons.Default.ShoppingCart, onMarket)
-        }
-        Spacer(Modifier.width(4.dp))
-        CurrencyPanel(profile.omniumAmount, profile.souliumAmount, profile.isVip)
-    }
-}
+// Menu → Backrooms.kt'ye taşındı
 
 @Composable
 private fun PlayerCard(profile: PlayerProfile) {
@@ -414,7 +248,7 @@ data class StoryUiState(
 
 @HiltViewModel
 class StoryVM @Inject constructor(
-    private val api         : Api_Service,
+    private val api         : ApiService,
     private val assetManager: AssetManager
 ) : ViewModel() {
 
@@ -601,8 +435,8 @@ data class EventUiState(
 
 @HiltViewModel
 class EventsVM @Inject constructor(
-    private val api   : Api_Service,
-    private val bridge: Native_Bridge
+    private val api   : ApiService,
+    private val bridge: NativeBridge
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EventUiState())
