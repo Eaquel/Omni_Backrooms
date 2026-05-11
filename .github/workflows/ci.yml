@@ -81,6 +81,13 @@ jobs:
             exit 1
           fi
 
+      - name: Clean KSP Generated Cache
+        run: |
+          rm -rf Backrooms/build/generated/ksp
+          rm -rf Backrooms/build/tmp
+          rm -rf ~/.gradle/caches/transforms-*
+          rm -rf ~/.gradle/caches/build-cache-*
+
       - run: ./gradlew clean --refresh-dependencies
       - run: ./gradlew :Backrooms:lintDebug || true
       - run: ./gradlew :Backrooms:assembleDebug
@@ -162,6 +169,13 @@ jobs:
             echo "keyAlias=${{ secrets.KEY_ALIAS }}"
             echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
           } > keystore.properties
+
+      - name: Clean KSP Generated Cache
+        run: |
+          rm -rf Backrooms/build/generated/ksp
+          rm -rf Backrooms/build/tmp
+          rm -rf ~/.gradle/caches/transforms-*
+          rm -rf ~/.gradle/caches/build-cache-*
 
       - run: ./gradlew clean --refresh-dependencies
       - run: ./gradlew :Backrooms:bundleRelease
