@@ -130,6 +130,11 @@ android {
         }
         jniLibs {
             useLegacyPackaging = false
+            pickFirsts += setOf(
+                "lib/*/libagora_rtc_sdk.so",
+                "lib/*/libagora-fdkaac.so",
+                "lib/*/libagora-soundtouch.so"
+            )
         }
     }
 

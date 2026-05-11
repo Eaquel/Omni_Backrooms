@@ -59,7 +59,7 @@ data class MarketUiState(
 
 @HiltViewModel
 class MarketVM @Inject constructor(
-    private val api         : Api_Service,
+    private val api         : ApiService,
     private val profileVM   : PlayerProfileVM
 ) : ViewModel() {
 
@@ -391,7 +391,7 @@ data class CharactersUiState(
 
 @HiltViewModel
 class CharactersVM @Inject constructor(
-    private val api         : Api_Service,
+    private val api         : ApiService,
     private val assetManager: AssetManager
 ) : ViewModel() {
 
@@ -741,7 +741,7 @@ data class LeaderboardUiState(
 
 @HiltViewModel
 class LeaderboardVM @Inject constructor(
-    private val api      : Api_Service,
+    private val api      : ApiService,
     private val profileVM: PlayerProfileVM
 ) : ViewModel() {
 

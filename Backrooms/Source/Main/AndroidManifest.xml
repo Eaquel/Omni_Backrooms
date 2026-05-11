@@ -42,9 +42,9 @@
         android:supportsRtl="false"
         android:theme="@style/Theme.OmniBackrooms"
         android:enableOnBackInvokedCallback="true"
-        android:extractNativeLibs="false"
         android:networkSecurityConfig="@xml/network_security_config"
-        tools:targetApi="36">
+        tools:targetApi="36"
+        tools:replace="android:label,android:theme">
 
         <profileable
             android:shell="true"
