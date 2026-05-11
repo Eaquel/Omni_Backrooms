@@ -1,0 +1,23 @@
+# Build
+build/
+*/build/
+**/.cxx/
+*.apk
+*.aab
+*.ap_
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Local
+local.properties
+keystore.properties
+*.jks
+google-services.json
