@@ -40,8 +40,8 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts') }}
-          restore-keys: gradle-${{ runner.os }}-
+          key: gradle-${{ runner.os }}-v2-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
+          restore-keys: gradle-${{ runner.os }}-v2-
 
       - name: Install NDK
         run: |
@@ -83,10 +83,9 @@ jobs:
 
       - name: Clean KSP Generated Cache
         run: |
-          rm -rf Backrooms/build/generated/ksp
-          rm -rf Backrooms/build/tmp
-          rm -rf ~/.gradle/caches/transforms-*
-          rm -rf ~/.gradle/caches/build-cache-*
+          rm -rf Backrooms/build
+          rm -rf ~/.gradle/caches
+          rm -rf ~/.gradle/configuration-cache
 
       - run: ./gradlew clean --refresh-dependencies
       - run: ./gradlew :Backrooms:lintDebug || true
@@ -123,8 +122,8 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts') }}
-          restore-keys: gradle-${{ runner.os }}-
+          key: gradle-${{ runner.os }}-v2-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
+          restore-keys: gradle-${{ runner.os }}-v2-
 
       - name: Install NDK
         run: |
@@ -172,10 +171,9 @@ jobs:
 
       - name: Clean KSP Generated Cache
         run: |
-          rm -rf Backrooms/build/generated/ksp
-          rm -rf Backrooms/build/tmp
-          rm -rf ~/.gradle/caches/transforms-*
-          rm -rf ~/.gradle/caches/build-cache-*
+          rm -rf Backrooms/build
+          rm -rf ~/.gradle/caches
+          rm -rf ~/.gradle/configuration-cache
 
       - run: ./gradlew clean --refresh-dependencies
       - run: ./gradlew :Backrooms:bundleRelease
@@ -217,8 +215,8 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts') }}
-          restore-keys: gradle-${{ runner.os }}-
+          key: gradle-${{ runner.os }}-v2-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
+          restore-keys: gradle-${{ runner.os }}-v2-
 
       - name: Prepare Gradle Wrapper
         run: |
