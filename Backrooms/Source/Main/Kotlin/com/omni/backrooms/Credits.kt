@@ -385,13 +385,13 @@ fun Menu(
                 R.string.menu_new_game    to onNewGame,
                 R.string.menu_events      to onEvents,
                 R.string.menu_market      to onMarket,
-                R.string.menu_maps        to onMaps,
+                R.string.menu_maps to onMaps,
                 R.string.menu_characters  to onChars,
                 R.string.menu_leaderboard to onLeader,
                 R.string.menu_story       to onStory
             )
-            primary.forEach { (res, action) ->
-                OmniButton(stringResource(res), action, width = 240.dp, height = 52.dp)
+            primary.forEach { (label, action) ->
+                OmniButton(label, action, width = 240.dp, height = 52.dp)
                 Spacer(Modifier.height(12.dp))
             }
 

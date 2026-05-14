@@ -224,7 +224,7 @@ private enum class STab(val labelRes: Int, val icon: ImageVector) {
     Audio   (R.string.settings_tab_audio,    Icons.Default.VolumeUp),
     Controls(R.string.settings_tab_controls, Icons.Default.SportsEsports),
     Gameplay(R.string.settings_tab_gameplay, Icons.Default.VideogameAsset),
-    Notif   (R.string.settings_tab_notif,    Icons.Default.Notifications)
+    Notif   (R.string.settings_tab_audio,    Icons.Default.Notifications)
 }
 
 @Composable

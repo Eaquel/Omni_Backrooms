@@ -226,7 +226,7 @@ fun Room(
                 verticalAlignment     = Alignment.CenterVertically
             ) {
                 SearchField(s.query, vm::onQuery, Modifier.weight(1f))
-                FilterChip(stringResource(R.string.room_filter_open),   s.filterLocked == false) { vm.onLocked(if (s.filterLocked == false) null else false) }
+                FilterChip("Açık",   s.filterLocked == false) { vm.onLocked(if (s.filterLocked == false) null else false) }
                 FilterChip(stringResource(R.string.room_filter_locked),  s.filterLocked == true)  { vm.onLocked(if (s.filterLocked == true) null else true) }
             }
             DividerLine()
@@ -265,7 +265,7 @@ fun CreateRoom(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(stringResource(R.string.room_create_name_label), color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp)
+                Text("ODA ADI", color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp)
                 OmniTextField(
                     value         = s.name,
                     onValueChange = vm::onName,
