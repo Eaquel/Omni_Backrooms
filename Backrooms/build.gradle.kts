@@ -46,6 +46,7 @@ android {
 
         buildConfigField("String",  "API_BASE_URL",     "\"https://api.omnibackrooms.com/v1/\"")
         buildConfigField("String",  "AGORA_TOKEN_URL",  "\"https://agora-token.shakeofangel.workers.dev\"")
+        buildConfigField("String",  "AGORA_APP_ID",     "\"\"")
         buildConfigField("String",  "EXPECTED_SIG_HASH","\"\"")
         buildConfigField("boolean", "ENABLE_GUARD",     "true")
     }
@@ -107,7 +108,6 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDirs("Source/Main/Kotlin")
-            kotlin.srcDirs("Source/Main/Kotlin")   // DÜZELTME
             res.srcDirs("Source/Main/res")
             assets.srcDirs("Source/Main/assets")
             manifest.srcFile("Source/Main/AndroidManifest.xml")

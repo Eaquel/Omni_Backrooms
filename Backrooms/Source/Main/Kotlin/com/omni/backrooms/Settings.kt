@@ -309,8 +309,8 @@ private fun GraphicsTab(
             Triple(R.string.graphics_quality_high,   "high",   DangerRed)
         ).forEach { (res, key, col) ->
             val sel = s.graphicsQuality == key
-            Box(Alignment.Center,
-                Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(2.dp))
+            Box(contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(2.dp))
                     .background(if (sel) col.copy(0.15f) else MetalBg)
                     .border(1.dp, if (sel) col.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
                     .clickable { onQuality(key) }
@@ -354,8 +354,8 @@ private fun GameplayTab(s: SettingsUiState, onColorBlind: (String) -> Unit) {
         listOf("none" to "Yok", "deuteranopia" to "D.", "protanopia" to "P.", "tritanopia" to "T.")
             .forEach { (key, label) ->
                 val sel = s.colorBlindMode == key
-                Box(Alignment.Center,
-                    Modifier.clip(RoundedCornerShape(2.dp))
+                Box(contentAlignment = Alignment.Center,
+                    modifier = Modifier.clip(RoundedCornerShape(2.dp))
                         .background(if (sel) Yellow.copy(0.15f) else MetalBg)
                         .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
                         .clickable { onColorBlind(key) }
@@ -438,8 +438,8 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
             var ox by remember { mutableFloatStateOf(btn.ox) }
             var oy by remember { mutableFloatStateOf(btn.oy) }
             Box(
-                Alignment.Center,
-                Modifier
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
                     .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
                     .size(80.dp)
                     .clip(RoundedCornerShape(4.dp))

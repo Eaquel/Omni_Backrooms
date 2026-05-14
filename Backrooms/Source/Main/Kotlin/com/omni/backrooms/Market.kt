@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,7 +36,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-private enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
+internal enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
     Boosts    (R.string.market_tab_boosts,     Icons.Default.Bolt),
     Characters(R.string.market_tab_characters, Icons.Default.Person),
     Soulium   (R.string.market_tab_soulium,    Icons.Default.AutoAwesome),
@@ -313,8 +314,8 @@ private fun MarketCard(item: MarketItemDto, isPurchasing: Boolean, onBuy: () -> 
             CircularProgressIndicator(color=Yellow, strokeWidth=2.dp, modifier=Modifier.size(24.dp))
         } else {
             Box(
-                Alignment.Center,
-                Modifier.fillMaxWidth().height(32.dp)
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxWidth().height(32.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(currencyColor.copy(0.15f))
                     .border(1.dp, currencyColor.copy(0.5f), RoundedCornerShape(2.dp))
@@ -944,8 +945,8 @@ private fun LeaderboardRow(entry: LeaderboardEntry, rankColor: Color, rankIcon: 
 @Composable
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
-        Alignment.Center,
-        Modifier.clip(RoundedCornerShape(2.dp))
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.clip(RoundedCornerShape(2.dp))
             .background(if (selected) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
             .border(1.dp, if (selected) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
             .clickable(onClick = onClick)

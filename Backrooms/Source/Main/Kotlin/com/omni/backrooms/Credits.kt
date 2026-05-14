@@ -381,7 +381,7 @@ fun Menu(
             DividerLine(Modifier.width(180.dp))
             Spacer(Modifier.height(32.dp))
 
-            val primary = listOf(
+            val primary = listOf<Pair<Int, () -> Unit>>(
                 R.string.menu_new_game    to onNewGame,
                 R.string.menu_events      to onEvents,
                 R.string.menu_market      to onMarket,

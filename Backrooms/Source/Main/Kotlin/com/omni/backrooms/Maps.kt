@@ -118,8 +118,8 @@ fun Maps(onBack: () -> Unit, vm: MapsVM = hiltViewModel()) {
                 MapFilter.entries.forEach { f ->
                     val sel = state.filter == f
                     Box(
-                        Alignment.Center,
-                        Modifier.clip(RoundedCornerShape(2.dp))
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.clip(RoundedCornerShape(2.dp))
                             .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
                             .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
                             .clickable { vm.setFilter(f) }

@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -191,13 +191,13 @@ private fun CurrencyPanel(omnium: Long, soulium: Long, isVip: Boolean) {
     OmniPanel {
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Icon(Icons.Default.Diamond,     null, tint = OmniumCol,  Modifier.size(13.dp))
+                Icon(Icons.Default.Diamond,     null, modifier = Modifier.size(13.dp), tint = OmniumCol)
                 Text(stringResource(R.string.currency_omnium),  color = OmniumCol,  fontSize = 9.sp,  letterSpacing = 1.sp)
                 Spacer(Modifier.width(4.dp))
                 Text(formatCurrency(omnium),  color = Yellow, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Icon(Icons.Default.AutoAwesome, null, tint = SouliumCol, Modifier.size(13.dp))
+                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(13.dp), tint = SouliumCol)
                 Text(stringResource(R.string.currency_soulium), color = SouliumCol, fontSize = 9.sp,  letterSpacing = 1.sp)
                 Spacer(Modifier.width(4.dp))
                 Text(formatCurrency(soulium), color = Yellow, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -348,7 +348,7 @@ private fun ChapterCard(chapter: StoryChapterDto, onClick: () -> Unit) {
                 .background(if (locked) MetalBg else Yellow.copy(0.15f)),
             Alignment.Center
         ) {
-            if (locked) Icon(Icons.Default.Lock, null, tint = TextDim, Modifier.size(20.dp))
+            if (locked) Icon(Icons.Default.Lock, null, modifier = Modifier.size(20.dp), tint = TextDim)
             else Text(chapter.id.toString(), color = Yellow, fontSize = 18.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -399,7 +399,7 @@ private fun BookReadingView(chapter: StoryChapterDto, onClose: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text("Bölüm ${chapter.id}", color = Color(0xFF8B6914), fontSize = 12.sp, letterSpacing = 3.sp)
                     IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, null, tint = Color(0xFF8B6914), Modifier.size(18.dp))
+                        Icon(Icons.Default.Close, null, modifier = Modifier.size(18.dp), tint = Color(0xFF8B6914))
                     }
                 }
                 Text(
@@ -560,19 +560,19 @@ private fun EventCard(
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
-                Icon(Icons.Default.Timer, null, tint = CrtAmber, Modifier.size(16.dp))
+                Icon(Icons.Default.Timer, null, modifier = Modifier.size(16.dp), tint = CrtAmber)
                 Text(remaining, color = CrtAmber, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
         DividerLine()
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.EmojiEvents, null, tint = rewardColor, Modifier.size(14.dp))
+                Icon(Icons.Default.EmojiEvents, null, modifier = Modifier.size(14.dp), tint = rewardColor)
                 Text("${event.rewardType.uppercase()} +${event.rewardAmount}", color = rewardColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
             if (isJoined) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, Modifier.size(14.dp))
+                    Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = SuccessGreen)
                     Text(stringResource(R.string.events_joined), color = SuccessGreen, fontSize = 11.sp)
                 }
             } else {
@@ -617,7 +617,7 @@ private fun EventDetailOverlay(
                 OmniButton(stringResource(R.string.events_join_action), onJoin, width = Double.MAX_VALUE.dp, height = 46.dp)
             } else {
                 Row(Modifier.fillMaxWidth(), Arrangement.Center, Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, Modifier.size(18.dp))
+                    Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(18.dp), tint = SuccessGreen)
                     Spacer(Modifier.width(6.dp))
                     Text(stringResource(R.string.events_already_joined), color = SuccessGreen, fontSize = 13.sp)
                 }
@@ -630,7 +630,7 @@ private fun EventDetailOverlay(
 private fun EmptyEventsView() {
     Box(Modifier.fillMaxSize(), Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Default.Event, null, tint = TextDim, Modifier.size(56.dp))
+            Icon(Icons.Default.Event, null, modifier = Modifier.size(56.dp), tint = TextDim)
             Text(stringResource(R.string.events_empty),      color = TextDim, fontSize = 14.sp, letterSpacing = 2.sp)
             Text(stringResource(R.string.events_coming_soon),color = TextDim.copy(0.5f), fontSize = 11.sp)
         }

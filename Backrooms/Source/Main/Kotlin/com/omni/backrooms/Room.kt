@@ -290,8 +290,8 @@ fun CreateRoom(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("TR","EN","DE","RU").forEach { l ->
                         val sel = s.language == l
-                        Box(Alignment.Center,
-                            Modifier.weight(1f).height(34.dp)
+                        Box(contentAlignment = Alignment.Center,
+                            modifier = Modifier.weight(1f).height(34.dp)
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
                                 .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
@@ -384,8 +384,8 @@ private fun SearchField(query: String, onQuery: (String) -> Unit, modifier: Modi
 
 @Composable
 private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(Alignment.Center,
-        Modifier.clip(RoundedCornerShape(2.dp))
+    Box(contentAlignment = Alignment.Center,
+        modifier = Modifier.clip(RoundedCornerShape(2.dp))
             .background(if (selected) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
             .border(1.dp, if (selected) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
             .clickable(onClick = onClick)
@@ -405,8 +405,8 @@ private fun DifficultyRow(selected: String, onSelect: (String) -> Unit) {
             Triple(R.string.difficulty_hard,   "hard",   DangerRed)
         ).forEach { (res, key, col) ->
             val sel = selected == key
-            Box(Alignment.Center,
-                Modifier.weight(1f).height(36.dp)
+            Box(contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).height(36.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(if (sel) col.copy(0.15f) else MetalBg.copy(0.5f))
                     .border(1.dp, if (sel) col.copy(0.7f) else BorderCol, RoundedCornerShape(2.dp))
@@ -427,8 +427,8 @@ private fun MapPicker(selected: String, onSelect: (String) -> Unit) {
             modifier = Modifier.horizontalScroll(rememberScrollState())) {
             maps.forEach { (id, name) ->
                 val sel = selected == id
-                Box(Alignment.Center,
-                    Modifier.clip(RoundedCornerShape(2.dp))
+                Box(contentAlignment = Alignment.Center,
+                    modifier = Modifier.clip(RoundedCornerShape(2.dp))
                         .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
                         .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
                         .clickable { onSelect(id) }.padding(horizontal = 10.dp, vertical = 6.dp)

@@ -375,9 +375,10 @@ class GameScreenVM @Inject constructor(
     }
 
     fun startGame(difficulty: String, isOnline: Boolean) {
-        val intent = android.content.Intent(
-            android.app.Application::class.java, SessionService::class.java
-        ).apply {
+        // Intent(Context, Class) constructor requires a Context instance, not a Class.
+        // GameScreenVM receives the application context via @ApplicationContext injection.
+        val intent = android.content.Intent().apply {
+            setClassName("com.omni.backrooms", SessionService::class.java.name)
             action = if (isOnline) SessionService.ACTION_START_ONLINE else SessionService.ACTION_START_OFFLINE
             putExtra(SessionService.EXTRA_DIFFICULTY, difficulty)
             if (!isOnline) putExtra(SessionService.EXTRA_SEED, System.currentTimeMillis())
@@ -692,8 +693,8 @@ private fun HudBadge(text: String, color: Color) {
 @Composable
 private fun HudButton(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: () -> Unit) {
     Box(
-        Alignment.Center,
-        Modifier.size(60.dp)
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(60.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(MetalBg.copy(0.75f))
             .border(1.dp, tint.copy(0.4f), RoundedCornerShape(4.dp))
@@ -707,8 +708,8 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
     var knobY by remember { mutableFloatStateOf(0f) }
     val radius = 48f
     Box(
-        Alignment.Center,
-        modifier
+        contentAlignment = Alignment.Center,
+        modifier = modifier
             .clip(RoundedCornerShape(percent = 50))
             .background(MetalBg.copy(0.6f))
             .border(1.dp, YellowDim, RoundedCornerShape(percent = 50))
