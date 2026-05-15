@@ -36,7 +36,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-private enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
+internal enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
     Boosts    (R.string.market_tab_boosts,     Icons.Default.Bolt),
     Characters(R.string.market_tab_characters, Icons.Default.Person),
     Soulium   (R.string.market_tab_soulium,    Icons.Default.AutoAwesome),
@@ -172,7 +172,7 @@ class MarketVM @Inject constructor(
 }
 
 @Composable
-private fun Market(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
+private internal fun Market(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
     val s   by vm.state.collectAsState()
     val items = vm.displayedItems()
 
