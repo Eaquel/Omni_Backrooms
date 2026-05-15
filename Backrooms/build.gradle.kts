@@ -162,16 +162,6 @@ android {
     }
 }
 
-// Agora voice-sdk 4.6.x transitif sub-modülleri AGP 9.x'te
-// namespace çakışması yarattığı için global olarak exclude edilir.
-configurations.all {
-    exclude(group = "io.agora.rtc", module = "ains")
-    exclude(group = "io.agora.rtc", module = "audio-beauty")
-    exclude(group = "io.agora.rtc", module = "spatial-audio")
-    exclude(group = "io.agora.rtc", module = "aiaec")
-    exclude(group = "io.agora.rtc", module = "full-voice-drive")
-}
-
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
