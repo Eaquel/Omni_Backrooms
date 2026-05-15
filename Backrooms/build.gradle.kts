@@ -162,6 +162,19 @@ android {
     }
 }
 
+// AGP 9.x: Agora voice-sdk sub-modülleri aynı namespace'i paylaşıyor.
+// full-voice-drive, ains, audio-beauty, spatial-audio, aiaec exclude ediliyor.
+// voice-rtc-basic EXCLUDE EDİLMİYOR — RtcEngine API sınıflarını sağlar.
+// Manifest namespace çakışması: voice-sdk vs voice-rtc-basic — bu Agora'nın bug'ı.
+// Çözüm: gradle.properties'de android.disableLibraryNamespaceCompilation=true
+configurations.all {
+    exclude(group = "io.agora.rtc", module = "ains")
+    exclude(group = "io.agora.rtc", module = "audio-beauty")
+    exclude(group = "io.agora.rtc", module = "spatial-audio")
+    exclude(group = "io.agora.rtc", module = "aiaec")
+    exclude(group = "io.agora.rtc", module = "full-voice-drive")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

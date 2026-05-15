@@ -40,8 +40,8 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-v2-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
-          restore-keys: gradle-${{ runner.os }}-v2-
+          key: gradle-${{ runner.os }}-v3-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
+          restore-keys: gradle-${{ runner.os }}-v3-
 
       - name: Install NDK
         run: |
@@ -122,8 +122,8 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-v2-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
-          restore-keys: gradle-${{ runner.os }}-v2-
+          key: gradle-${{ runner.os }}-v3-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
+          restore-keys: gradle-${{ runner.os }}-v3-
 
       - name: Install NDK
         run: |
@@ -174,6 +174,9 @@ jobs:
           rm -rf Backrooms/build
           rm -rf ~/.gradle/caches
           rm -rf ~/.gradle/configuration-cache
+          find ~/.gradle -name "voice-sdk*" -delete 2>/dev/null || true
+          find ~/.gradle -name "voice-rtc-basic*" -delete 2>/dev/null || true
+          find ~/.gradle -name "full-voice-drive*" -delete 2>/dev/null || true
 
       - run: ./gradlew clean --refresh-dependencies
       - run: ./gradlew :Backrooms:bundleRelease
@@ -215,8 +218,8 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-v2-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
-          restore-keys: gradle-${{ runner.os }}-v2-
+          key: gradle-${{ runner.os }}-v3-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
+          restore-keys: gradle-${{ runner.os }}-v3-
 
       - name: Prepare Gradle Wrapper
         run: |
