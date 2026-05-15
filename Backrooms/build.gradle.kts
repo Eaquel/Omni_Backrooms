@@ -170,7 +170,6 @@ configurations.all {
     exclude(group = "io.agora.rtc", module = "spatial-audio")
     exclude(group = "io.agora.rtc", module = "aiaec")
     exclude(group = "io.agora.rtc", module = "full-voice-drive")
-    exclude(group = "io.agora.rtc", module = "voice-rtc-basic")
 }
 
 dependencies {
