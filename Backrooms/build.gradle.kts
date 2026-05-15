@@ -47,7 +47,7 @@ android {
         buildConfigField("String",  "API_BASE_URL",     "\"https://api.omnibackrooms.com/v1/\"")
         buildConfigField("String",  "AGORA_TOKEN_URL",  "\"https://agora-token.shakeofangel.workers.dev\"")
         buildConfigField("String",  "EXPECTED_SIG_HASH","\"\"")
-        buildConfigField("String",  "AGORA_APP_ID",     """")
+        buildConfigField("String",  "AGORA_APP_ID",     "\"\"")
         buildConfigField("boolean", "ENABLE_GUARD",     "true")
     }
 
@@ -214,7 +214,7 @@ dependencies {
         exclude(group = "io.agora.rtc", module = "audio-beauty")
         exclude(group = "io.agora.rtc", module = "spatial-audio")
         exclude(group = "io.agora.rtc", module = "aiaec")
-        exclude(group = "io.agora.rtc", module = "full-voice-drive")
+        exclude(group = "io.agora.rtc", module = "full-drive-voice")
     }
     implementation(libs.androidx.billing)
 
