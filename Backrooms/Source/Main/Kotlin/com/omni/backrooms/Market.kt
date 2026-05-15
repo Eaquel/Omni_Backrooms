@@ -36,7 +36,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-internal enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
+enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
     Boosts    (R.string.market_tab_boosts,     Icons.Default.Bolt),
     Characters(R.string.market_tab_characters, Icons.Default.Person),
     Soulium   (R.string.market_tab_soulium,    Icons.Default.AutoAwesome),
@@ -65,7 +65,7 @@ class MarketVM @Inject constructor(
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MarketUiState())
-    internal val state: StateFlow<MarketUiState> = _state.asStateFlow()
+    val state: StateFlow<MarketUiState> = _state.asStateFlow()
 
     init {
         loadTab(MarketTab.Boosts)
