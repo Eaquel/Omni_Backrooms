@@ -46,7 +46,6 @@ android {
 
         buildConfigField("String",  "API_BASE_URL",     "\"https://api.omnibackrooms.com/v1/\"")
         buildConfigField("String",  "AGORA_TOKEN_URL",  "\"https://agora-token.shakeofangel.workers.dev\"")
-        buildConfigField("String",  "AGORA_APP_ID",     "\"\"")
         buildConfigField("String",  "EXPECTED_SIG_HASH","\"\"")
         buildConfigField("boolean", "ENABLE_GUARD",     "true")
     }
@@ -206,7 +205,16 @@ dependencies {
     implementation(libs.lottie.compose)
     implementation(libs.accompanist.permissions)
 
-    implementation(libs.agora.rtc.voice)
+    implementation(libs.agora.rtc.voice) {
+        // Agora voice-sdk bundles multiple sub-modules that all declare
+        // the same 'io.agora.rtc' namespace, which AGP 9.x rejects.
+        // Exclude the conflicting transitive AARs; the core SDK still works.
+        exclude(group = "io.agora.rtc", module = "ains")
+        exclude(group = "io.agora.rtc", module = "audio-beauty")
+        exclude(group = "io.agora.rtc", module = "spatial-audio")
+        exclude(group = "io.agora.rtc", module = "aiaec")
+        exclude(group = "io.agora.rtc", module = "full-voice-drive")
+    }
     implementation(libs.androidx.billing)
 
     debugImplementation(libs.androidx.ui.tooling)
