@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    tools:overrideLibrary="io.agora.rtc,io.agora.rtc2,io.agora.rtc.base,io.agora.rtc.voice,io.agora.rtc.ains,io.agora.rtc.audio_beauty,io.agora.rtc.spatial_audio,io.agora.rtc.aiaec,io.agora.rtc.full_voice_drive">
+    tools:overrideLibrary="io.agora.rtc,io.agora.rtc2,io.agora.rtc.base,io.agora.rtc.voice,io.agora.rtc.ains,io.agora.rtc.audio_beauty,io.agora.rtc.spatial_audio,io.agora.rtc.aiaec">
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -51,7 +51,7 @@
             android:shell="true"
             tools:targetApi="29" />
 
-        <!-- MainActivity — Main_Activity → MainActivity -->
+        <!-- MainActivity -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|fontScale|density"
@@ -68,14 +68,14 @@
             </intent-filter>
         </activity>
 
-        <!-- SessionService — Session_Service → SessionService -->
+        <!-- SessionService -->
         <service
             android:name=".SessionService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="true" />
 
-        <!-- VoiceChatService — Voice_Chat → VoiceChatService -->
+        <!-- VoiceChatService -->
         <service
             android:name=".VoiceChatService"
             android:exported="false"

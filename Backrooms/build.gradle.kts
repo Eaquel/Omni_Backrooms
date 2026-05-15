@@ -162,6 +162,17 @@ android {
     }
 }
 
+// Agora voice-sdk 4.6.x transitif sub-modülleri AGP 9.x'te
+// namespace çakışması yarattığı için global olarak exclude edilir.
+configurations.all {
+    exclude(group = "io.agora.rtc", module = "ains")
+    exclude(group = "io.agora.rtc", module = "audio-beauty")
+    exclude(group = "io.agora.rtc", module = "spatial-audio")
+    exclude(group = "io.agora.rtc", module = "aiaec")
+    exclude(group = "io.agora.rtc", module = "full-voice-drive")
+    exclude(group = "io.agora.rtc", module = "voice-rtc-basic")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -206,17 +217,7 @@ dependencies {
     implementation(libs.lottie.compose)
     implementation(libs.accompanist.permissions)
 
-    implementation(libs.agora.rtc.voice) {
-        // Agora voice-sdk bundles multiple sub-modules that all declare
-        // the same 'io.agora.rtc' namespace, which AGP 9.x rejects.
-        // Exclude the conflicting transitive AARs; the core SDK still works.
-        exclude(group = "io.agora.rtc", module = "ains")
-        exclude(group = "io.agora.rtc", module = "audio-beauty")
-        exclude(group = "io.agora.rtc", module = "spatial-audio")
-        exclude(group = "io.agora.rtc", module = "aiaec")
-        exclude(group = "io.agora.rtc", module = "full-voice-drive")
-        exclude(group = "io.agora.rtc", module = "voice-rtc-basic")
-    }
+    implementation(libs.agora.rtc.voice)
     implementation(libs.androidx.billing)
 
     debugImplementation(libs.androidx.ui.tooling)
