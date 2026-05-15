@@ -172,7 +172,7 @@ class MarketVM @Inject constructor(
 }
 
 @Composable
-private internal fun Market(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
+internal fun Market(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
     val s   by vm.state.collectAsState()
     val items = vm.displayedItems()
 

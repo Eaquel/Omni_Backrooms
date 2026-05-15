@@ -381,14 +381,14 @@ fun Menu(
             DividerLine(Modifier.width(180.dp))
             Spacer(Modifier.height(32.dp))
 
-            val primary = listOf<Pair<Int, () -> Unit>>(
-                R.string.menu_new_game    to onNewGame,
-                R.string.menu_events      to onEvents,
-                R.string.menu_market      to onMarket,
-                R.string.menu_maps to onMaps,
-                R.string.menu_characters  to onChars,
-                R.string.menu_leaderboard to onLeader,
-                R.string.menu_story       to onStory
+            val primary = listOf<Pair<String, () -> Unit>>(
+                "Yeni Oyun"    to onNewGame,
+                "Etkinlikler"  to onEvents,
+                "Market"       to onMarket,
+                "Haritalar"    to onMaps,
+                "Karakterler"  to onChars,
+                "Sıralamalar"  to onLeader,
+                "Hikaye"       to onStory
             )
             primary.forEach { (label, action) ->
                 OmniButton(label, action, width = 240.dp, height = 52.dp)
