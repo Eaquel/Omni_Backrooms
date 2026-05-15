@@ -44,7 +44,7 @@ internal enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
     Daily     (R.string.market_tab_daily,      Icons.Default.LocalOffer)
 }
 
-data class MarketUiState(
+internal data class MarketUiState(
     val items       : List<MarketItemDto> = emptyList(),
     val dailyDeals  : List<MarketItemDto> = emptyList(),
     val isLoading   : Boolean             = false,
@@ -77,7 +77,7 @@ class MarketVM @Inject constructor(
         }
     }
 
-    fun setTab(tab: MarketTab) {
+    internal fun setTab(tab: MarketTab) {
         _state.update { it.copy(tab=tab) }
         if (tab == MarketTab.Daily) return
         loadTab(tab)

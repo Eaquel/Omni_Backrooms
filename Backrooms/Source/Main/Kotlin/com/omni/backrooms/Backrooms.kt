@@ -716,14 +716,15 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
             .background(MetalBg.copy(0.6f))
             .border(1.dp, YellowDim, RoundedCornerShape(percent = 50))
             .pointerInput(Unit) {
-                androidx.compose.foundation.gestures.detectDragGestures(
+                detectDragGestures(
                     onDragEnd    = { knobX = 0f; knobY = 0f; onMove(0f, 0f) },
-                    onDragCancel = { knobX = 0f; knobY = 0f; onMove(0f, 0f) }
-                ) { _, drag ->
-                    knobX = (knobX + drag.x).coerceIn(-radius, radius)
-                    knobY = (knobY + drag.y).coerceIn(-radius, radius)
-                    onMove(knobX / radius, knobY / radius)
-                }
+                    onDragCancel = { knobX = 0f; knobY = 0f; onMove(0f, 0f) },
+                    onDrag = { _: androidx.compose.ui.input.pointer.PointerInputChange, drag: androidx.compose.ui.geometry.Offset ->
+                        knobX = (knobX + drag.x).coerceIn(-radius, radius)
+                        knobY = (knobY + drag.y).coerceIn(-radius, radius)
+                        onMove(knobX / radius, knobY / radius)
+                    }
+                )
             }
     ) {
         Box(
