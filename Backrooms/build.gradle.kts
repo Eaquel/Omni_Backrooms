@@ -214,7 +214,8 @@ dependencies {
         exclude(group = "io.agora.rtc", module = "audio-beauty")
         exclude(group = "io.agora.rtc", module = "spatial-audio")
         exclude(group = "io.agora.rtc", module = "aiaec")
-        exclude(group = "io.agora.rtc", module = "full-drive-voice")
+        exclude(group = "io.agora.rtc", module = "full-voice-drive")
+        exclude(group = "io.agora.rtc", module = "voice-rtc-basic")
     }
     implementation(libs.androidx.billing)
 
