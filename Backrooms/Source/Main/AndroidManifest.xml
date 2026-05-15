@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.omni.backrooms">
+    tools:overrideLibrary="io.agora.rtc2,io.agora.rtc.base,io.agora.rtc,io.agora">
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -45,8 +45,7 @@
         android:enableOnBackInvokedCallback="true"
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="36"
-        tools:replace="android:label,android:theme"
-        tools:overrideLibrary="io.agora.rtc2,io.agora.rtc.base">
+        tools:replace="android:label,android:theme">
 
         <profileable
             android:shell="true"
