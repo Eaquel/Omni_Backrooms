@@ -60,8 +60,7 @@ data class MarketUiState(
 
 @HiltViewModel
 class MarketVM @Inject constructor(
-    private val api         : ApiService,
-    private val profileVM   : PlayerProfileVM
+    private val api         : ApiService
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MarketUiState())
@@ -70,8 +69,12 @@ class MarketVM @Inject constructor(
     init {
         loadTab(MarketTab.Boosts)
         loadDaily()
+        loadProfile()
+    }
+
+    private fun loadProfile() {
         viewModelScope.launch {
-            profileVM.profile.collect { p ->
+            runCatching { api.getProfile() }.onSuccess { p ->
                 _state.update { it.copy(omniumBal=p.omniumAmount, souliumBal=p.souliumAmount, isVip=p.isVip) }
             }
         }
@@ -742,8 +745,7 @@ data class LeaderboardUiState(
 
 @HiltViewModel
 class LeaderboardVM @Inject constructor(
-    private val api      : ApiService,
-    private val profileVM: PlayerProfileVM
+    private val api      : ApiService
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LeaderboardUiState())

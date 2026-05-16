@@ -333,15 +333,18 @@ fun Splash(onDone: () -> Unit) {
 // ─────────────────────────────────────────────────────────────
 @HiltViewModel
 class MenuVM @Inject constructor(
-    private val api    : ApiService,
-    private val profile: PlayerProfileVM
+    private val api: ApiService
 ) : ViewModel() {
 
-    val playerProfile: StateFlow<PlayerProfile> = profile.profile
+    private val _playerProfile = MutableStateFlow(PlayerProfile())
+    val playerProfile: StateFlow<PlayerProfile> = _playerProfile.asStateFlow()
 
     init {
         viewModelScope.launch {
             runCatching { api.getActiveEvents() }
+        }
+        viewModelScope.launch {
+            runCatching { api.getProfile() }.onSuccess { _playerProfile.value = it }
         }
     }
 }
