@@ -425,7 +425,7 @@ fun GameScreen(
     onExit     : () -> Unit,
     vm         : GameScreenVM = hiltViewModel()
 ) {
-    val gameState by vm.service.gameState.collectAsState()
+    val gameState by vm.gameState.collectAsState()
     val camSnap   by vm.camSnapshot.collectAsState()
 
     DisposableEffect(difficulty, isOnline) {
