@@ -354,15 +354,33 @@ fun OmniNavGraph(nav: NavHostController) {
 // ─────────────────────────────────────────────────────────────
 @HiltViewModel
 class GameScreenVM @Inject constructor(
-    val bridge              : NativeBridge,
-    val service             : SessionService,
-    private val settingsRepo: SettingsRepository
+    val bridge                          : NativeBridge,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
+    private val settingsRepo            : SettingsRepository
 ) : ViewModel() {
 
     private val _camSnapshot = MutableStateFlow<CameraSnapshot?>(null)
     val camSnapshot: StateFlow<CameraSnapshot?> = _camSnapshot.asStateFlow()
 
+    // GameState SessionService'den ServiceConnection ile alınır.
+    // ViewModel'e direkt Service inject etmek Hilt scope'larını ihlal eder.
+    private val _gameState = MutableStateFlow(GameState())
+    val gameState: StateFlow<GameState> = _gameState.asStateFlow()
+
     private var sensitivity = 1f
+
+    private var serviceBinder: SessionService.LocalBinder? = null
+    private val serviceConnection = object : android.content.ServiceConnection {
+        override fun onServiceConnected(name: android.content.ComponentName?, binder: android.os.IBinder?) {
+            serviceBinder = binder as? SessionService.LocalBinder
+            viewModelScope.launch {
+                serviceBinder?.get()?.gameState?.collect { _gameState.value = it }
+            }
+        }
+        override fun onServiceDisconnected(name: android.content.ComponentName?) {
+            serviceBinder = null
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -377,21 +395,21 @@ class GameScreenVM @Inject constructor(
     }
 
     fun startGame(difficulty: String, isOnline: Boolean) {
-        // Intent(Context, Class) constructor requires a Context instance, not a Class.
-        // GameScreenVM receives the application context via @ApplicationContext injection.
-        val intent = android.content.Intent().apply {
-            setClassName("com.omni.backrooms", SessionService::class.java.name)
+        val intent = android.content.Intent(appContext, SessionService::class.java).apply {
             action = if (isOnline) SessionService.ACTION_START_ONLINE else SessionService.ACTION_START_OFFLINE
             putExtra(SessionService.EXTRA_DIFFICULTY, difficulty)
             if (!isOnline) putExtra(SessionService.EXTRA_SEED, System.currentTimeMillis())
         }
+        appContext.startForegroundService(intent)
+        appContext.bindService(intent, serviceConnection, android.content.Context.BIND_AUTO_CREATE)
     }
 
-    fun stopGame() {}
-    fun togglePause() {
-        val s = service.gameState.value
-        service.gameState // accessed via service directly
+    fun stopGame() {
+        runCatching { appContext.unbindService(serviceConnection) }
+        appContext.stopService(android.content.Intent(appContext, SessionService::class.java))
     }
+
+    fun togglePause() {}
     fun toggleFlashlight() {}
     fun onMove(fx: Float, fy: Float, fz: Float) { bridge.applyMovement(fx, fy, fz) }
     fun onLook(dx: Float, dy: Float)            { bridge.cameraLook(dx, dy, sensitivity) }
