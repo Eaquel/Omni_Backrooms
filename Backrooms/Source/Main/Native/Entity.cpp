@@ -111,7 +111,12 @@ public:
         if (!grid[goal.y][goal.x]) return {};
 
         using Node = std::pair<float, Vec2i>;
-        std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open;
+        // NDK 29 libc++: pair<float,Vec2i> has no operator> (Vec2i lacks it).
+        // Use a lambda comparator that compares only the float cost.
+        auto node_cmp = [](const Node& a, const Node& b) noexcept {
+            return a.first > b.first;
+        };
+        std::priority_queue<Node, std::vector<Node>, decltype(node_cmp)> open(node_cmp);
         std::unordered_map<Vec2i, Vec2i,  Vec2iHash> from;
         std::unordered_map<Vec2i, float,  Vec2iHash> g;
         std::unordered_set<Vec2i, Vec2iHash>          closed;

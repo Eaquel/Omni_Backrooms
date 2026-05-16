@@ -30,7 +30,7 @@ namespace omni::sound {
 constexpr int   kRate      = 44100;
 constexpr int   kFrames    = 2048;
 constexpr float kTwoPi    = 2.0f * std::numbers::pi_v<float>;
-constexpr float kInv32767  = 1.0f / 32767.0f;
+[[maybe_unused]] constexpr float kInv32767 = 1.0f / 32767.0f;
 
 struct Vec3f { float x, y, z; };
 
@@ -314,7 +314,7 @@ static void onQueue(SLAndroidSimpleBufferQueueItf bq, void*) {
     if (!gSound.running.load()) return;
 
     std::lock_guard<std::mutex> lock(gSound.mtx);
-    auto& mb  = gSound.mixBuf;
+    [[maybe_unused]] auto& mb = gSound.mixBuf;
     auto& ob  = gSound.outBuf;
 
     std::vector<float> humBuf(kFrames), footBuf(kFrames), monBuf(kFrames), ambBuf(kFrames);
