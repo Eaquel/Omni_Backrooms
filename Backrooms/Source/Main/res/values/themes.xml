@@ -1,18 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.OmniBackrooms" parent="android:Theme.Material.NoTitleBar.Fullscreen">
+    <!--
+        Compose + Material3 projesi — parent olarak MaterialComponents.NoActionBar kullanılır.
+        android:Theme.Material.NoTitleBar.Fullscreen API 30'da mevcut değil.
+        navigationBarContrastEnforced ve statusBarContrastEnforced API 29+ özelliği,
+        android: namespace ile değil doğrudan item name ile yazılır.
+    -->
+    <style name="Theme.OmniBackrooms" parent="Theme.MaterialComponents.NoActionBar">
         <item name="android:windowBackground">@color/backrooms_black</item>
         <item name="android:statusBarColor">@color/transparent</item>
         <item name="android:navigationBarColor">@color/transparent</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
-        <item name="android:enforceNavigationBarContrast">false</item>
-        <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
-        <item name="android:navigationBarContrastEnforced">false</item>
-        <item name="android:statusBarContrastEnforced">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="navigationBarContrastEnforced">false</item>
+        <item name="statusBarContrastEnforced">false</item>
     </style>
 
     <style name="Theme.OmniBackrooms.Splash" parent="Theme.SplashScreen">
