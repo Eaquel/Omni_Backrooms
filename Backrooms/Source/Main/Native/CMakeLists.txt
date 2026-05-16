@@ -36,6 +36,7 @@ target_include_directories(omni_backrooms PRIVATE
 set(COMMON_FLAGS
     -fstack-protector-strong
     -fstack-clash-protection
+    -U_FORTIFY_SOURCE
     -D_FORTIFY_SOURCE=3
     -fvisibility=hidden
     -fvisibility-inlines-hidden
@@ -53,7 +54,7 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
     list(APPEND COMMON_FLAGS
         -march=armv8.2-a+simd+dotprod+fp16
         -mtune=cortex-a76
-        -mfpu=neon-fp-armv8
+        # -mfpu= arm32'e özgüdür, aarch64'te kullanılmaz
     )
 elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
     list(APPEND COMMON_FLAGS
