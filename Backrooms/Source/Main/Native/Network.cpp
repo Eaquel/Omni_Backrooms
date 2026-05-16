@@ -30,7 +30,7 @@ constexpr uint32_t kMagic       = 0x4F4D4E49;
 constexpr int      kHdrSize     = 12;
 constexpr int      kMaxPayload  = 1400;
 constexpr int      kMaxRetries  = 5;
-constexpr int      kPingIntervalMs = 2000;
+[[maybe_unused]] constexpr int kPingIntervalMs = 2000;
 constexpr int      kTimeoutMs      = 8000;
 
 enum class PktType : uint16_t {

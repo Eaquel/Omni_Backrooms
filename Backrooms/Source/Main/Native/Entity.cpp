@@ -111,7 +111,7 @@ public:
         if (!grid[goal.y][goal.x]) return {};
 
         using Node = std::pair<float, Vec2i>;
-        std::priority_queue<Node, std::vector<Node>, std::greater<>> open;
+        std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open;
         std::unordered_map<Vec2i, Vec2i,  Vec2iHash> from;
         std::unordered_map<Vec2i, float,  Vec2iHash> g;
         std::unordered_set<Vec2i, Vec2iHash>          closed;
