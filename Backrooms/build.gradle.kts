@@ -83,8 +83,6 @@ android {
         }
         debug {
             isMinifyEnabled     = false
-            applicationIdSuffix = ".debug"
-            versionNameSuffix   = "-debug"
             buildConfigField("boolean", "ENABLE_GUARD", "false")
         }
     }
