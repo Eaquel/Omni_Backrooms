@@ -26,8 +26,6 @@ android {
         targetSdk     = 36
         versionCode   = 1
         versionName   = "1.0.0"
-
-        // NDK 29 LTS — en son stable release (Mayıs 2026)
         ndkVersion    = "29.0.14206865"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -46,7 +44,7 @@ android {
         }
 
         buildConfigField("String",  "API_BASE_URL",      "\"https://api.omnibackrooms.com/v1/\"")
-        buildConfigField("String",  "EXPECTED_SIG_HASH", "\"\"")   // Prod imzadan doldurul
+        buildConfigField("String",  "EXPECTED_SIG_HASH", "\"\"")
         buildConfigField("boolean", "ENABLE_GUARD",      "true")
     }
 
@@ -67,7 +65,6 @@ android {
                 keyAlias      = keyAliasVal
                 keyPassword   = keyPass
             }
-            // V3 + V4: Play Store zorunlu kılar, APK Signature Scheme V4 = incremental install
             enableV3Signing = true
             enableV4Signing = true
         }
@@ -82,23 +79,19 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // NDK crash stack trace için full sembol — Firebase Crashlytics NDK'ya gider
-            nativeDebugSymbolLevel = "FULL"
             buildConfigField("boolean", "ENABLE_GUARD", "true")
         }
         debug {
-            isMinifyEnabled = false
+            isMinifyEnabled     = false
             applicationIdSuffix = ".debug"
             versionNameSuffix   = "-debug"
             buildConfigField("boolean", "ENABLE_GUARD", "false")
         }
     }
 
-    // JVM 21: LTS, Kotlin 2.x için önerilen minimum.
-    // Java 25 EA — Gradle toolchain ile sorunlu, henüz production'da kullanılmamalı.
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_25
-        targetCompatibility = JavaVersion.VERSION_25
+        sourceCompatibility = JavaVersion.toVersion(25)
+        targetCompatibility = JavaVersion.toVersion(25)
     }
     kotlin {
         jvmToolchain(25)
@@ -109,6 +102,9 @@ android {
         buildConfig = true
     }
 
+    // AGP 9.x: srcDirs() deprecated, uyarıyı bastırmak için @Suppress eklendi.
+    // Fonksiyonel olarak aynı çalışıyor; AGP breaking change olduğunda directories += setOf() geçişi yapılacak.
+    @Suppress("DEPRECATION")
     sourceSets {
         getByName("main") {
             java.srcDirs("Source/Main/Kotlin")
@@ -134,15 +130,11 @@ android {
                 "META-INF/INDEX.LIST"
             )
         }
-        // useLegacyPackaging=false: .so'lar APK içinde sıkıştırılmaz →
-        // kurulum hızlı, cihaz direkt mmap eder (API 23+)
         jniLibs {
             useLegacyPackaging = false
         }
     }
 
-    // AAB (Play Store) için ABI split; splits.abi yerine bundle tercih edilmeli
-    // APK dağıtımı gerekiyorsa splits.abi bloğunu geri aç
     splits {
         abi {
             isEnable       = true
@@ -159,16 +151,14 @@ android {
     }
 
     lint {
-        abortOnError       = false
-        checkReleaseBuilds = true
-        warningsAsErrors   = false
-        // Kullanılmayan kaynakları lint'e raporlat (shrinkResources zaten kaldırır)
+        abortOnError          = false
+        checkReleaseBuilds    = true
+        warningsAsErrors      = false
         checkGeneratedSources = false
     }
 }
 
 dependencies {
-    // ── AndroidX core ────────────────────────────────────────
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -176,7 +166,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
 
-    // ── Compose BOM ───────────────────────────────────────────
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -186,61 +175,43 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     debugImplementation(libs.androidx.ui.tooling)
 
-    // ── Hilt DI ───────────────────────────────────────────────
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)
 
-    // ── Kotlin ────────────────────────────────────────────────
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 
-    // ── Network ───────────────────────────────────────────────
     implementation(libs.retrofit)
     implementation(libs.okhttp)
     implementation(libs.retrofit.converter.kotlinx.serialization)
-    // logging interceptor sadece debug build'de — release APK'ya sızmaz
     debugImplementation(libs.okhttp.logging.interceptor)
 
-    // ── Storage ───────────────────────────────────────────────
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    // ── Media ─────────────────────────────────────────────────
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
-    // HLS: online oda stream'i için tutuldu; kullanılmıyorsa kaldır → APK ~1.2 MB küçülür
     implementation(libs.media3.exoplayer.hls)
 
-    // ── Image ─────────────────────────────────────────────────
     implementation(libs.coil.compose)
-    // coil-video: lobby video thumbnail preview için; ExoPlayer direkt kullanılıyorsa kaldırılabilir
     implementation(libs.coil.video)
 
-    // ── UI extras ─────────────────────────────────────────────
     implementation(libs.lottie.compose)
-    // accompanist-permissions: bildirim izni (POST_NOTIFICATIONS) için
     implementation(libs.accompanist.permissions)
 
-    // ── Billing ───────────────────────────────────────────────
     implementation(libs.androidx.billing)
 
-    // ── Firebase ──────────────────────────────────────────────
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.crashlytics)
-    implementation(libs.firebase.crashlytics.ndk)   // Native crash stack trace
+    implementation(libs.firebase.crashlytics.ndk)
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.remote.config)
-
-    // ── Agora KALDIRILDI ──────────────────────────────────────
-    // Voice.kt ve Agora SDK tamamen çıkarıldı.
-    // Ses işleme native Sound.cpp (OpenSLES) üzerinden yapılıyor.
-    // Bağımlılık: libs.agora.rtc.voice → KULLANILMIYOR
 }
