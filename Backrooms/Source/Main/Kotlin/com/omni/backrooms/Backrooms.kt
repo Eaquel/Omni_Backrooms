@@ -394,6 +394,67 @@ fun OmniNavGraph(nav: NavHostController) {
     }
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// Loading Screen — Credits.kt silindi, buraya taşındı
+// ─────────────────────────────────────────────────────────────
+@HiltViewModel
+class LoadingVM @Inject constructor(
+    private val assetManager: AssetManager
+) : ViewModel() {
+    private val _progress = MutableStateFlow(0f)
+    private val _stage    = MutableStateFlow("")
+    private val _done     = MutableStateFlow(false)
+    val progress: StateFlow<Float>   = _progress.asStateFlow()
+    val stage   : StateFlow<String>  = _stage.asStateFlow()
+    val done    : StateFlow<Boolean> = _done.asStateFlow()
+    init {
+        viewModelScope.launch {
+            assetManager.preload().collect { event ->
+                _progress.value = event.progress
+                _stage.value    = event.stage
+                if (event.progress >= 1f) _done.value = true
+            }
+        }
+    }
+}
+
+@Composable
+fun Loading(onDone: () -> Unit, vm: LoadingVM = hiltViewModel()) {
+    val progress by vm.progress.collectAsState()
+    val stage    by vm.stage.collectAsState()
+    val done     by vm.done.collectAsState()
+    LaunchedEffect(done) { if (done) onDone() }
+    Box(Modifier.fillMaxSize().background(DarkBg)) {
+        CrtOverlay()
+        Column(
+            Modifier.fillMaxWidth().align(Alignment.Center).padding(horizontal = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            val inf = rememberInfiniteTransition(label = "ld")
+            val g by inf.animateFloat(0f, 1f,
+                infiniteRepeatable(tween(2000, easing = EaseInOut), RepeatMode.Reverse), "lg")
+            GlitchText(stringResource(R.string.app_name), g, fontSize = 28, color = Yellow)
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress  = { progress },
+                modifier  = Modifier.fillMaxWidth().height(3.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color     = Yellow, trackColor = MetalBg
+            )
+            Text(stage, color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp)
+            Text("${(progress * 100).toInt()}%", color = YellowDim, fontSize = 10.sp)
+        }
+        Text(
+            "© 2026 Eaquel",
+            color    = TextDim.copy(0.4f),
+            fontSize = 9.sp,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+        )
+    }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Intro Screen: splash_video.mp4 → animated title → present
 // ─────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import android.os.IBinder
 import androidx.compose.ui.geometry.Offset
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import com.omni.backrooms.R
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -181,6 +182,13 @@ interface ApiService {
 
     @GET("player/settings")
     suspend fun fetchSettings(): GameSettings
+
+
+    @GET("events/active")
+    suspend fun getActiveEvents(): List<EventDto>
+
+    @POST("events/{id}/join")
+    suspend fun joinEvent(@Path("id") eventId: String): BaseResponse
 
     @POST("report/player")
     suspend fun reportPlayer(@Body body: ReportRequest): BaseResponse
@@ -451,6 +459,19 @@ data class StoryChapterDto(
     val contentTr: String, val contentEn: String, val isUnlocked: Boolean
 )
 
+
+data class EventDto(
+    val id           : String,
+    val titleTr      : String,
+    val titleEn      : String,
+    val descriptionTr: String,
+    val descriptionEn: String,
+    val rewardType   : String,
+    val rewardAmount : Long,
+    val endMs        : Long,
+    val isActive     : Boolean
+)
+
 data class ReportRequest(val reportedId: Int, val reason: String, val details: String)
 
 // ─────────────────────────────────────────────────────────────
@@ -468,19 +489,6 @@ class RoomRepository @Inject constructor(private val api: ApiService) {
     ): String = api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password)).roomId
 }
 
-// ─────────────────────────────────────────────────────────────
-// GuardManager
-// ─────────────────────────────────────────────────────────────
-class GuardManager @Inject constructor(
-    private val ctx   : android.content.Context,
-    private val bridge: NativeBridge
-) {
-    fun init(expectedSigHash: String) = bridge.initGuard(ctx, expectedSigHash)
-    fun scan(): Int = bridge.runGuardScan()
-    fun flags(): Int = bridge.getGuardFlags()
-    fun report(): String = bridge.getThreatReport()
-    fun destroy() = bridge.destroyGuard()
-}
 
 // ─────────────────────────────────────────────────────────────
 // Session Service

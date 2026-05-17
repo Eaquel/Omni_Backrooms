@@ -424,7 +424,7 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
             DragBtn("interact",   R.string.editor_btn_interact,   900f,  400f),
             DragBtn("crouch",     R.string.editor_btn_crouch,     1000f, 460f),
             DragBtn("flashlight", R.string.editor_btn_flashlight, 1100f, 400f),
-            DragBtn("map_btn",    R.string.maps_title,            50f,   50f)
+
         )
     }
     Box(Modifier.fillMaxSize().background(DarkBg.copy(0.92f))) {
