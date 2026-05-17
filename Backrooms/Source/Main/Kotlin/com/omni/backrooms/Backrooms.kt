@@ -3,11 +3,15 @@ package com.omni.backrooms
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.view.WindowManager
+import android.provider.Settings
+import android.view.View
+import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -36,11 +41,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
@@ -50,6 +58,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -98,6 +107,16 @@ val SouliumCol   = Color(0xFF7B68EE)
 val OmniumCol    = Color(0xFF00E5FF)
 val DangerRed    = Color(0xFFCC2200)
 val SuccessGreen = Color(0xFF4CAF50)
+
+// ─────────────────────────────────────────────────────────────
+// Device-unique player name: "Player" + first 8 chars of Android ID
+// Stable across sessions, unique per device.
+// ─────────────────────────────────────────────────────────────
+fun buildPlayerName(ctx: Context): String {
+    val androidId = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID)
+        ?.take(8)?.lowercase() ?: "unknown"
+    return "Player$androidId"
+}
 
 // ─────────────────────────────────────────────────────────────
 // Application
@@ -195,18 +214,41 @@ object AppModule {
 // ─────────────────────────────────────────────────────────────
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
         splash.setKeepOnScreenCondition { false }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // ── Full immersive: hide status bar + nav bar completely.
+        // WindowCompat + WindowInsetsControllerCompat is the modern API
+        // that works correctly on API 30 through 37 without the deprecated
+        // View.SYSTEM_UI_FLAG_* flags.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val ctrl = WindowInsetsControllerCompat(window, window.decorView)
+        ctrl.hide(WindowInsetsCompat.Type.systemBars())
+        ctrl.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
         enableEdgeToEdge()
+
         setContent {
             OmniTheme {
                 Surface(Modifier.fillMaxSize(), color = Color.Black) {
                     OmniNavGraph(rememberNavController())
                 }
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Re-hide system bars whenever the window regains focus (e.g. after a dialog)
+        if (hasFocus) {
+            val ctrl = WindowInsetsControllerCompat(window, window.decorView)
+            ctrl.hide(WindowInsetsCompat.Type.systemBars())
+            ctrl.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 }
@@ -232,10 +274,10 @@ fun OmniTheme(content: @Composable () -> Unit) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Navigation
+// Navigation — Credits, Changelog, Events, Maps removed
 // ─────────────────────────────────────────────────────────────
 sealed class Route(val path: String) {
-    data object Splash       : Route("splash")
+    data object Intro        : Route("intro")        // splash video + title
     data object Loading      : Route("loading")
     data object Menu         : Route("menu")
     data object ModeSelect   : Route("mode_select")
@@ -247,11 +289,6 @@ sealed class Route(val path: String) {
     data object UiEditor     : Route("ui_editor")
     data object Market       : Route("market")
     data object Story        : Route("story")
-    data object Credits      : Route("credits")
-    data object Changelog    : Route("changelog")
-    data object Events       : Route("events")
-    data object Maps         : Route("maps")
-    data object Characters   : Route("characters")
     data object Leaderboard  : Route("leaderboard")
     data object Game : Route("game/{difficulty}/{online}") {
         fun go(d: String, o: Boolean) = "game/$d/$o"
@@ -260,11 +297,25 @@ sealed class Route(val path: String) {
 
 @Composable
 fun OmniNavGraph(nav: NavHostController) {
-    NavHost(nav, startDestination = Route.Splash.path) {
+    // Single ExoPlayer instance shared across lobby screens — prevents restart on navigation
+    val ctx = LocalContext.current
+    val lobbyPlayer = remember {
+        ExoPlayer.Builder(ctx).build().apply {
+            val uri = Uri.parse("android.resource://${ctx.packageName}/raw/lobby_video")
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode    = Player.REPEAT_MODE_ALL
+            volume        = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(Unit) { onDispose { lobbyPlayer.release() } }
 
-        composable(Route.Splash.path) {
-            Splash(onDone = {
-                nav.navigate(Route.Loading.path) { popUpTo(Route.Splash.path) { inclusive = true } }
+    NavHost(nav, startDestination = Route.Intro.path) {
+
+        composable(Route.Intro.path) {
+            IntroScreen(onDone = {
+                nav.navigate(Route.Loading.path) { popUpTo(Route.Intro.path) { inclusive = true } }
             })
         }
         composable(Route.Loading.path) {
@@ -274,20 +325,17 @@ fun OmniNavGraph(nav: NavHostController) {
         }
         composable(Route.Menu.path) {
             Menu(
+                player      = lobbyPlayer,
                 onNewGame   = { nav.navigate(Route.ModeSelect.path) },
-                onEvents    = { nav.navigate(Route.Events.path) },
                 onSettings  = { nav.navigate(Route.Settings.path) },
                 onMarket    = { nav.navigate(Route.Market.path) },
                 onStory     = { nav.navigate(Route.Story.path) },
-                onCredits   = { nav.navigate(Route.Credits.path) },
-                onChangelog = { nav.navigate(Route.Changelog.path) },
-                onMaps      = { nav.navigate(Route.Maps.path) },
-                onChars     = { nav.navigate(Route.Characters.path) },
                 onLeader    = { nav.navigate(Route.Leaderboard.path) }
             )
         }
         composable(Route.ModeSelect.path) {
             ModeSelect(
+                player    = lobbyPlayer,
                 onOffline = { nav.navigate(Route.Difficulty.path) },
                 onOnline  = { nav.navigate(Route.OnlineSelect.path) },
                 onBack    = { nav.popBackStack() }
@@ -295,12 +343,14 @@ fun OmniNavGraph(nav: NavHostController) {
         }
         composable(Route.Difficulty.path) {
             DifficultySelect(
+                player   = lobbyPlayer,
                 onSelect = { d -> nav.navigate(Route.Game.go(d, false)) { popUpTo(Route.Menu.path) } },
                 onBack   = { nav.popBackStack() }
             )
         }
         composable(Route.OnlineSelect.path) {
             OnlineSelect(
+                player   = lobbyPlayer,
                 onJoin   = { nav.navigate(Route.RoomList.path) },
                 onCreate = { nav.navigate(Route.CreateRoom.path) },
                 onBack   = { nav.popBackStack() }
@@ -324,11 +374,6 @@ fun OmniNavGraph(nav: NavHostController) {
         composable(Route.UiEditor.path)    { UiEditor(onSave = { nav.popBackStack() }) }
         composable(Route.Market.path)      { Market(onBack = { nav.popBackStack() }) }
         composable(Route.Story.path)       { Story(onBack = { nav.popBackStack() }) }
-        composable(Route.Credits.path)     { Credits(onBack = { nav.popBackStack() }) }
-        composable(Route.Changelog.path)   { Changelog(onBack = { nav.popBackStack() }) }
-        composable(Route.Events.path)      { Events(onBack = { nav.popBackStack() }) }
-        composable(Route.Maps.path)        { Maps(onBack = { nav.popBackStack() }) }
-        composable(Route.Characters.path)  { Characters(onBack = { nav.popBackStack() }) }
         composable(Route.Leaderboard.path) { Leaderboard(onBack = { nav.popBackStack() }) }
 
         composable(
@@ -350,20 +395,117 @@ fun OmniNavGraph(nav: NavHostController) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Intro Screen: splash_video.mp4 → animated title → present
+// ─────────────────────────────────────────────────────────────
+@Composable
+fun IntroScreen(onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    var phase by remember { mutableIntStateOf(0) } // 0=video 1=title 2=done
+
+    // Splash video player — plays once then triggers title phase
+    val videoPlayer = remember {
+        ExoPlayer.Builder(ctx).build().apply {
+            val uri = Uri.parse("android.resource://${ctx.packageName}/raw/splash_video")
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode    = Player.REPEAT_MODE_OFF
+            volume        = 1f
+            prepare()
+            playWhenReady = true
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_ENDED) phase = 1
+                }
+            })
+        }
+    }
+    DisposableEffect(Unit) { onDispose { videoPlayer.release() } }
+
+    // Title fade-in + glitch
+    val titleAlpha by animateFloatAsState(
+        targetValue  = if (phase == 1) 1f else 0f,
+        animationSpec = tween(1200, easing = EaseOutCubic),
+        label        = "title_alpha",
+        finishedListener = { if (phase == 1) phase = 2 }
+    )
+
+    // Auto-advance after title is shown
+    LaunchedEffect(phase) {
+        if (phase == 2) {
+            kotlinx.coroutines.delay(2000)
+            onDone()
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        // Full-screen video — RESIZE_MODE_ZOOM fills without black bars
+        AndroidView(
+            factory = { PlayerView(ctx).apply {
+                player         = videoPlayer
+                useController  = false
+                resizeMode     = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            }},
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Title overlay (fades in after video)
+        AnimatedVisibility(
+            visible = phase >= 1,
+            enter   = fadeIn(tween(1200)) + slideInVertically(tween(1200)) { it / 3 }
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(0.3f), Color.Black.copy(0.85f)))),
+                Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    val inf    = rememberInfiniteTransition(label = "title_glitch")
+                    val gI     by inf.animateFloat(0f, 1f,
+                        infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Reverse), "gi")
+
+                    GlitchText(
+                        text      = stringResource(R.string.splash_title),
+                        intensity = gI,
+                        fontSize  = 44,
+                        color     = Yellow
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text       = stringResource(R.string.splash_tagline),
+                        color      = CrtAmber.copy(0.9f),
+                        fontSize   = 13.sp,
+                        letterSpacing = 4.sp,
+                        fontWeight = FontWeight.Light
+                    )
+                    Spacer(Modifier.height(32.dp))
+                    Text(
+                        text       = stringResource(R.string.splash_presents),
+                        color      = TextSec.copy(0.8f),
+                        fontSize   = 11.sp,
+                        letterSpacing = 3.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Game Screen + ViewModel
 // ─────────────────────────────────────────────────────────────
 @HiltViewModel
 class GameScreenVM @Inject constructor(
-    val bridge                          : NativeBridge,
-    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
-    private val settingsRepo            : SettingsRepository
+    val bridge                  : NativeBridge,
+    @ApplicationContext private val appContext: android.content.Context,
+    private val settingsRepo    : SettingsRepository
 ) : ViewModel() {
 
     private val _camSnapshot = MutableStateFlow<CameraSnapshot?>(null)
     val camSnapshot: StateFlow<CameraSnapshot?> = _camSnapshot.asStateFlow()
 
-    // GameState SessionService'den ServiceConnection ile alınır.
-    // ViewModel'e direkt Service inject etmek Hilt scope'larını ihlal eder.
     private val _gameState = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
@@ -400,6 +542,8 @@ class GameScreenVM @Inject constructor(
             putExtra(SessionService.EXTRA_DIFFICULTY, difficulty)
             if (!isOnline) putExtra(SessionService.EXTRA_SEED, System.currentTimeMillis())
         }
+        // ── FIX: startForegroundService is safe here because we are always called from
+        // a user-visible activity (GameScreen composable is rendered in MainActivity).
         appContext.startForegroundService(intent)
         appContext.bindService(intent, serviceConnection, android.content.Context.BIND_AUTO_CREATE)
     }
@@ -409,8 +553,8 @@ class GameScreenVM @Inject constructor(
         appContext.stopService(android.content.Intent(appContext, SessionService::class.java))
     }
 
-    fun togglePause() {}
-    fun toggleFlashlight() {}
+    fun togglePause()        {}
+    fun toggleFlashlight()   {}
     fun onMove(fx: Float, fy: Float, fz: Float) { bridge.applyMovement(fx, fy, fz) }
     fun onLook(dx: Float, dy: Float)            { bridge.cameraLook(dx, dy, sensitivity) }
     fun onJump()                                { bridge.applyMovement(0f, 350f, 0f) }
@@ -426,7 +570,6 @@ fun GameScreen(
     vm         : GameScreenVM = hiltViewModel()
 ) {
     val gameState by vm.gameState.collectAsState()
-    val camSnap   by vm.camSnapshot.collectAsState()
 
     DisposableEffect(difficulty, isOnline) {
         vm.startGame(difficulty, isOnline)
@@ -453,28 +596,258 @@ fun GameScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Shared UI Components
+// Lobby Background — shared ExoPlayer passed in to avoid restart
 // ─────────────────────────────────────────────────────────────
 @Composable
-fun LobbyBackground() {
-    val ctx    = LocalContext.current
-    val player = remember {
-        ExoPlayer.Builder(ctx).build().apply {
-            val uri = Uri.parse("android.resource://${ctx.packageName}/raw/lobby_video")
-            setMediaItem(MediaItem.fromUri(uri))
-            repeatMode    = Player.REPEAT_MODE_ALL
-            volume        = 0f
-            prepare()
-            playWhenReady = true
-        }
-    }
-    DisposableEffect(Unit) { onDispose { player.release() } }
+fun LobbyBackground(player: ExoPlayer) {
+    val ctx = LocalContext.current
     AndroidView(
-        factory  = { PlayerView(ctx).apply { this.player = player; useController = false } },
+        factory = { PlayerView(ctx).apply {
+            this.player = player
+            useController = false
+            // RESIZE_MODE_ZOOM: video fills edge-to-edge, no black bars on sides
+            resizeMode    = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        }},
         modifier = Modifier.fillMaxSize().alpha(0.35f)
     )
 }
 
+// ─────────────────────────────────────────────────────────────
+// Lobby ambient hum: play on first composition, loop from native
+// ─────────────────────────────────────────────────────────────
+@Composable
+fun AmbientHumEffect(bridge: NativeBridge) {
+    LaunchedEffect(Unit) {
+        // Trigger a gentle ambient hum loop via the native audio engine.
+        // bridge.initSound() is a no-op if already initialized.
+        bridge.setHumVolume(0.25f)
+        bridge.setAmbienceLevel(0.3f)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Menu — single screen, no scroll, all items fit in one view
+// ─────────────────────────────────────────────────────────────
+@Composable
+fun Menu(
+    player    : ExoPlayer,
+    onNewGame : () -> Unit,
+    onSettings: () -> Unit,
+    onMarket  : () -> Unit,
+    onStory   : () -> Unit,
+    onLeader  : () -> Unit,
+    vm        : GameScreenVM = hiltViewModel()
+) {
+    val ctx = LocalContext.current
+
+    // Ambient hum starts when lobby is entered
+    LaunchedEffect(Unit) {
+        vm.bridge.setHumVolume(0.25f)
+        vm.bridge.setAmbienceLevel(0.3f)
+    }
+
+    Box(Modifier.fillMaxSize().background(DarkBg)) {
+        LobbyBackground(player)
+        CrtOverlay()
+
+        // Dark gradient overlay for readability
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Black.copy(0.4f), Color.Black.copy(0.7f)))
+            )
+        )
+
+        Column(
+            modifier            = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 32.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // ── Title ──────────────────────────────────────────
+            val inf    = rememberInfiniteTransition(label = "menu_glitch")
+            val gI     by inf.animateFloat(0f, 1f,
+                infiniteRepeatable(tween(3600, easing = LinearEasing), RepeatMode.Reverse), "gi")
+
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                GlitchText(
+                    text      = stringResource(R.string.splash_title),
+                    intensity = gI * 0.4f,
+                    fontSize  = 36,
+                    color     = Yellow
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text          = stringResource(R.string.splash_tagline),
+                    color         = CrtAmber.copy(0.7f),
+                    fontSize      = 11.sp,
+                    letterSpacing = 4.sp
+                )
+                // Player device ID name
+                val playerName = remember { buildPlayerName(ctx) }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text          = playerName,
+                    color         = TextSec,
+                    fontSize      = 10.sp,
+                    letterSpacing = 2.sp
+                )
+            }
+
+            DividerLine()
+
+            // ── Buttons ────────────────────────────────────────
+            Column(
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                MenuButton(stringResource(R.string.menu_new_game),    Icons.Default.PlayArrow, Yellow,       onNewGame)
+                MenuButton(stringResource(R.string.menu_market),      Icons.Default.Store,     CrtAmber,     onMarket)
+                MenuButton(stringResource(R.string.menu_story),       Icons.Default.MenuBook,  TextSec,      onStory)
+                MenuButton(stringResource(R.string.menu_leaderboard), Icons.Default.EmojiEvents, SouliumCol, onLeader)
+                MenuButton(stringResource(R.string.menu_settings),    Icons.Default.Settings,  TextDim,      onSettings)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuButton(
+    label  : String,
+    icon   : androidx.compose.ui.graphics.vector.ImageVector,
+    accent : Color,
+    onClick: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val inf    = rememberInfiniteTransition(label = "mb")
+    val glow   by inf.animateFloat(0.5f, 1.0f,
+        infiniteRepeatable(tween(1600, easing = EaseInOut), RepeatMode.Reverse), "g")
+
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue   = if (pressed) 0.96f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label         = "press_scale"
+    )
+
+    Row(
+        modifier = Modifier
+            .scale(scale)
+            .fillMaxWidth(0.72f)
+            .height(52.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Brush.horizontalGradient(listOf(MetalBg.copy(0.95f), Color(0xFF0D0D0A))))
+            .border(
+                1.dp,
+                Brush.horizontalGradient(listOf(accent.copy(0.15f), accent.copy(glow * 0.7f), accent.copy(0.15f))),
+                RoundedCornerShape(3.dp)
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication        = null
+            ) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                pressed = true
+                onClick()
+            },
+        verticalAlignment   = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Icon(icon, null, tint = accent, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+    }
+
+    // Reset press state
+    LaunchedEffect(pressed) { if (pressed) { kotlinx.coroutines.delay(300); pressed = false } }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Mode / Difficulty / Online screens — receive shared player
+// ─────────────────────────────────────────────────────────────
+@Composable
+fun ModeSelect(player: ExoPlayer, onOffline: () -> Unit, onOnline: () -> Unit, onBack: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(DarkBg)) {
+        LobbyBackground(player); CrtOverlay()
+        Column(Modifier.fillMaxSize()) {
+            TopBarBack(stringResource(R.string.mode_select_title), onBack); DividerLine()
+            Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
+                AnimatedMenuBtn(stringResource(R.string.mode_offline), Yellow,   onOffline)
+                Spacer(Modifier.height(20.dp))
+                AnimatedMenuBtn(stringResource(R.string.mode_online),  CrtAmber, onOnline)
+            }
+        }
+    }
+}
+
+@Composable
+fun DifficultySelect(player: ExoPlayer, onSelect: (String) -> Unit, onBack: () -> Unit) {
+    val items = listOf(
+        Triple("easy",   R.string.difficulty_easy,   SuccessGreen),
+        Triple("normal", R.string.difficulty_normal, Yellow),
+        Triple("hard",   R.string.difficulty_hard,   DangerRed)
+    )
+    Box(Modifier.fillMaxSize().background(DarkBg)) {
+        LobbyBackground(player); CrtOverlay()
+        Column(Modifier.fillMaxSize()) {
+            TopBarBack(stringResource(R.string.difficulty_title), onBack); DividerLine()
+            Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
+                items.forEachIndexed { i, (key, res, col) ->
+                    if (i > 0) Spacer(Modifier.height(18.dp))
+                    AnimatedMenuBtn(stringResource(res), col) { onSelect(key) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun OnlineSelect(player: ExoPlayer, onJoin: () -> Unit, onCreate: () -> Unit, onBack: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(DarkBg)) {
+        LobbyBackground(player); CrtOverlay()
+        Column(Modifier.fillMaxSize()) {
+            TopBarBack(stringResource(R.string.online_select_title), onBack); DividerLine()
+            Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
+                AnimatedMenuBtn(stringResource(R.string.online_find_room),   Yellow,   onJoin)
+                Spacer(Modifier.height(18.dp))
+                AnimatedMenuBtn(stringResource(R.string.online_create_room), CrtAmber, onCreate)
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PlayerProfile ViewModel
+// ─────────────────────────────────────────────────────────────
+@HiltViewModel
+class PlayerProfileVM @Inject constructor(
+    private val api         : ApiService,
+    private val settingsRepo: SettingsRepository
+) : ViewModel() {
+
+    private val _profile = MutableStateFlow(PlayerProfile())
+    val profile: StateFlow<PlayerProfile> = _profile.asStateFlow()
+
+    init { fetch() }
+
+    private fun fetch() {
+        viewModelScope.launch {
+            runCatching { api.getProfile() }.onSuccess { _profile.value = it }
+        }
+    }
+
+    fun updateName(name: String) {
+        viewModelScope.launch {
+            settingsRepo.saveName(name)
+            val updated = _profile.value.copy(name = name)
+            runCatching { api.updateProfile(updated) }.onSuccess { _profile.value = it }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Shared UI Components
+// ─────────────────────────────────────────────────────────────
 @Composable
 fun CrtOverlay(modifier: Modifier = Modifier) {
     val inf   = rememberInfiniteTransition(label = "crt")
@@ -517,6 +890,11 @@ fun GlitchText(
 }
 
 @Composable
+fun AnimatedMenuBtn(text: String, accent: Color = Yellow, onClick: () -> Unit) {
+    OmniButton(text, onClick, width = 260.dp, height = 60.dp, accent = accent)
+}
+
+@Composable
 fun OmniButton(
     text    : String,
     onClick : () -> Unit,
@@ -530,9 +908,18 @@ fun OmniButton(
     val inf    = rememberInfiniteTransition(label = "btn")
     val glow   by inf.animateFloat(0.6f, 1.0f,
         infiniteRepeatable(tween(1800, easing = EaseInOut), RepeatMode.Reverse), "glow")
+
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue   = if (pressed) 0.97f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label         = "btn_scale"
+    )
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
+            .scale(scale)
             .width(width).height(height)
             .clip(RoundedCornerShape(2.dp))
             .background(Brush.verticalGradient(listOf(MetalBg.copy(0.95f), Color(0xFF0D0D0A))))
@@ -543,11 +930,17 @@ fun OmniButton(
                 interactionSource = remember { MutableInteractionSource() },
                 indication        = null,
                 enabled           = enabled
-            ) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onClick() }
+            ) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                pressed = true
+                onClick()
+            }
     ) {
         Text(text, color = if (enabled) accent else TextDim, fontSize = 13.sp,
             fontWeight = FontWeight.Bold, letterSpacing = 2.sp, textAlign = TextAlign.Center)
     }
+
+    LaunchedEffect(pressed) { if (pressed) { kotlinx.coroutines.delay(300); pressed = false } }
 }
 
 @Composable
@@ -664,40 +1057,41 @@ fun GameHud(
     onInteract: () -> Unit
 ) {
     Box(Modifier.fillMaxSize()) {
+        // Status bars — top left
         Column(
             Modifier.align(Alignment.TopStart).padding(16.dp).width(160.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            StatusBar("HP",      gameState.playerHp / gameState.playerMaxHp,    DangerRed)
-            StatusBar("AKL",     gameState.sanity / 100f,                        SouliumCol)
-            StatusBar("STAMINA", gameState.stamina / gameState.staminaMax,       SuccessGreen)
-            StatusBar("PILLER",  gameState.flashlightBattery,                    CrtAmber)
+            StatusBar(stringResource(R.string.game_hud_hp),      gameState.playerHp / gameState.playerMaxHp, DangerRed)
+            StatusBar(stringResource(R.string.game_hud_sanity),  gameState.sanity / 100f,                    SouliumCol)
+            StatusBar(stringResource(R.string.game_hud_stamina), gameState.stamina / gameState.staminaMax,   SuccessGreen)
+            StatusBar(stringResource(R.string.game_hud_battery), gameState.flashlightBattery,                CrtAmber)
         }
 
+        // Pause / ping — top right
         Row(
             Modifier.align(Alignment.TopEnd).padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment     = Alignment.CenterVertically
         ) {
-            if (gameState.showPing)
-                HudBadge("? ms", SuccessGreen)
-            if (gameState.showFps)
-                HudBadge("60 FPS", Yellow)
+            if (gameState.showPing) HudBadge("? ms", SuccessGreen)
+            if (gameState.showFps)  HudBadge("60 FPS", Yellow)
             IconButton(onClick = onPause, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.Pause, null, tint = Yellow.copy(0.7f))
             }
         }
 
+        // Joystick + action buttons — bottom
         Row(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 16.dp, start = 16.dp, end = 16.dp),
             Arrangement.SpaceBetween, Alignment.Bottom
         ) {
             VirtualJoystick(Modifier.size(120.dp), onMove = { dx, dy -> onMove(dx, 0f, dy) })
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                HudButton(Icons.Default.FlashlightOn,      CrtAmber, onFlash)
-                HudButton(Icons.Default.NearMe,            TextSec,  onInteract)
-                HudButton(Icons.Default.KeyboardArrowUp,   Yellow,   onJump)
-                HudButton(Icons.Default.ArrowDownward,     TextSec,  onCrouch)
+                HudButton(Icons.Default.FlashlightOn,    CrtAmber, onFlash)
+                HudButton(Icons.Default.NearMe,          TextSec,  onInteract)
+                HudButton(Icons.Default.KeyboardArrowUp, Yellow,   onJump)
+                HudButton(Icons.Default.ArrowDownward,   TextSec,  onCrouch)
             }
         }
     }
@@ -737,7 +1131,7 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
                 detectDragGestures(
                     onDragEnd    = { knobX = 0f; knobY = 0f; onMove(0f, 0f) },
                     onDragCancel = { knobX = 0f; knobY = 0f; onMove(0f, 0f) },
-                    onDrag = { _: androidx.compose.ui.input.pointer.PointerInputChange, drag: androidx.compose.ui.geometry.Offset ->
+                    onDrag = { _, drag ->
                         knobX = (knobX + drag.x).coerceIn(-radius, radius)
                         knobY = (knobY + drag.y).coerceIn(-radius, radius)
                         onMove(knobX / radius, knobY / radius)
@@ -766,8 +1160,8 @@ fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit) {
             Text(stringResource(R.string.game_paused), color = Yellow, fontSize = 20.sp,
                 fontWeight = FontWeight.Black, letterSpacing = 4.sp)
             DividerLine()
-            OmniButton(stringResource(R.string.game_resume), onResume, width = 200.dp, height = 50.dp)
-            OmniButton(stringResource(R.string.game_exit_menu), onExit, width = 200.dp, height = 50.dp, accent = DangerRed)
+            OmniButton(stringResource(R.string.game_resume),    onResume, width = 200.dp, height = 50.dp)
+            OmniButton(stringResource(R.string.game_exit_menu), onExit,   width = 200.dp, height = 50.dp, accent = DangerRed)
         }
     }
 }
@@ -786,10 +1180,10 @@ fun GameOverOverlay(gameState: GameState, onExit: () -> Unit) {
             Text(stringResource(R.string.game_over_title), color = DangerRed.copy(pulse), fontSize = 28.sp,
                 fontWeight = FontWeight.Black, letterSpacing = 4.sp)
             DividerLine()
-            StatRow("Skor",      gameState.score.toString(),              Yellow)
-            StatRow("Öldürülen", gameState.kills.toString(),              DangerRed)
-            StatRow("Süre",      formatElapsed(gameState.sessionElapsed), TextSec)
-            StatRow("Zorluk",    gameState.difficulty.uppercase(),        CrtAmber)
+            StatRow(stringResource(R.string.game_stat_score),      gameState.score.toString(),              Yellow)
+            StatRow(stringResource(R.string.game_stat_kills),      gameState.kills.toString(),              DangerRed)
+            StatRow(stringResource(R.string.game_stat_time),       formatElapsed(gameState.sessionElapsed), TextSec)
+            StatRow(stringResource(R.string.game_stat_difficulty), gameState.difficulty.uppercase(),        CrtAmber)
             DividerLine()
             OmniButton(stringResource(R.string.game_exit_menu), onExit, width = 220.dp, height = 50.dp, accent = DangerRed)
         }
@@ -810,93 +1204,12 @@ fun EscapedOverlay(gameState: GameState, onExit: () -> Unit) {
             Text(stringResource(R.string.game_escaped_title), color = SuccessGreen.copy(glow), fontSize = 24.sp,
                 fontWeight = FontWeight.Black, letterSpacing = 3.sp)
             DividerLine()
-            StatRow("Skor",      gameState.score.toString(),              Yellow)
-            StatRow("Öldürülen", gameState.kills.toString(),              DangerRed)
-            StatRow("Süre",      formatElapsed(gameState.sessionElapsed), TextSec)
-            StatRow("Zorluk",    gameState.difficulty.uppercase(),        CrtAmber)
+            StatRow(stringResource(R.string.game_stat_score),      gameState.score.toString(),              Yellow)
+            StatRow(stringResource(R.string.game_stat_kills),      gameState.kills.toString(),              DangerRed)
+            StatRow(stringResource(R.string.game_stat_time),       formatElapsed(gameState.sessionElapsed), TextSec)
+            StatRow(stringResource(R.string.game_stat_difficulty), gameState.difficulty.uppercase(),        CrtAmber)
             DividerLine()
             OmniButton(stringResource(R.string.game_exit_menu), onExit, width = 220.dp, height = 50.dp, accent = SuccessGreen)
-        }
-    }
-}
-
-@Composable
-fun ModeSelect(onOffline: () -> Unit, onOnline: () -> Unit, onBack: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(DarkBg)) {
-        LobbyBackground(); CrtOverlay()
-        Column(Modifier.fillMaxSize()) {
-            TopBarBack(stringResource(R.string.mode_select_title), onBack); DividerLine()
-            Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(24.dp))
-                OmniButton(stringResource(R.string.mode_offline), onOffline, width = 260.dp, height = 64.dp, accent = Yellow)
-                Spacer(Modifier.height(20.dp))
-                OmniButton(stringResource(R.string.mode_online), onOnline, width = 260.dp, height = 64.dp, accent = CrtAmber)
-            }
-        }
-    }
-}
-
-@Composable
-fun DifficultySelect(onSelect: (String) -> Unit, onBack: () -> Unit) {
-    val difficulties = listOf(
-        Triple("easy",   R.string.difficulty_easy,   SuccessGreen),
-        Triple("normal", R.string.difficulty_normal, Yellow),
-        Triple("hard",   R.string.difficulty_hard,   DangerRed)
-    )
-    Box(Modifier.fillMaxSize().background(DarkBg)) {
-        CrtOverlay()
-        Column(Modifier.fillMaxSize()) {
-            TopBarBack(stringResource(R.string.difficulty_title), onBack); DividerLine()
-            Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
-                difficulties.forEachIndexed { i, (key, res, col) ->
-                    if (i > 0) Spacer(Modifier.height(18.dp))
-                    OmniButton(stringResource(res), { onSelect(key) }, width = 260.dp, height = 60.dp, accent = col)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun OnlineSelect(onJoin: () -> Unit, onCreate: () -> Unit, onBack: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(DarkBg)) {
-        CrtOverlay()
-        Column(Modifier.fillMaxSize()) {
-            TopBarBack(stringResource(R.string.online_select_title), onBack); DividerLine()
-            Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
-                OmniButton(stringResource(R.string.online_find_room),   onJoin,   width = 260.dp, height = 60.dp, accent = Yellow)
-                Spacer(Modifier.height(18.dp))
-                OmniButton(stringResource(R.string.online_create_room), onCreate, width = 260.dp, height = 60.dp, accent = CrtAmber)
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────
-// PlayerProfile ViewModel
-// ─────────────────────────────────────────────────────────────
-@HiltViewModel
-class PlayerProfileVM @Inject constructor(
-    private val api         : ApiService,
-    private val settingsRepo: SettingsRepository
-) : ViewModel() {
-
-    private val _profile = MutableStateFlow(PlayerProfile())
-    val profile: StateFlow<PlayerProfile> = _profile.asStateFlow()
-
-    init { fetch() }
-
-    private fun fetch() {
-        viewModelScope.launch {
-            runCatching { api.getProfile() }.onSuccess { _profile.value = it }
-        }
-    }
-
-    fun updateName(name: String) {
-        viewModelScope.launch {
-            settingsRepo.saveName(name)
-            val updated = _profile.value.copy(name = name)
-            runCatching { api.updateProfile(updated) }.onSuccess { _profile.value = it }
         }
     }
 }

@@ -2,27 +2,31 @@
 <resources>
 
     <!--
-        Pure Compose + Material3 projesi — AppCompat/MaterialComponents dependency yok.
-        Parent olarak platform teması kullanılır.
-        navigationBarContrastEnforced/statusBarContrastEnforced attr'ları
-        sadece MaterialComponents'ta var, bu yüzden kaldırıldı.
+        Theme.OmniBackrooms — full immersive game theme.
+        System status bar + navigation bar are hidden; game occupies the full display
+        including display cutout areas. enforceNavigationBarContrast=false prevents
+        the system from drawing a semi-transparent scrim behind the nav bar.
     -->
     <style name="Theme.OmniBackrooms" parent="android:Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">@color/backrooms_black</item>
-        <item name="android:statusBarColor">@color/transparent</item>
-        <item name="android:navigationBarColor">@color/transparent</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- API 28+: always extend into cutout -->
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>
+        <!-- API 30+: hide status and nav bars, sticky immersive -->
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:fitsSystemWindows">false</item>
     </style>
 
     <style name="Theme.OmniBackrooms.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/backrooms_black</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
-        <item name="windowSplashScreenAnimationDuration">1200</item>
+        <item name="windowSplashScreenAnimationDuration">800</item>
         <item name="postSplashScreenTheme">@style/Theme.OmniBackrooms</item>
     </style>
 

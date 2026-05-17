@@ -6,20 +6,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Audio / Voice -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-
     <!-- Hardware -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Foreground Services -->
+    <!-- Foreground Service — game session uses specialUse (no camera/mic/location needed) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- Notifications -->
+    <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Billing -->
@@ -27,8 +22,8 @@
 
     <!-- Hardware features -->
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
-    <uses-feature android:name="android.hardware.microphone"  android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:name=".App"
@@ -43,20 +38,17 @@
         android:theme="@style/Theme.OmniBackrooms"
         android:enableOnBackInvokedCallback="true"
         android:networkSecurityConfig="@xml/network_security_config"
-        tools:targetApi="36"
-        tools:replace="android:label,android:theme"
-        tools:overrideLibrary="io.agora.rtc,io.agora.rtc2,io.agora.rtc.voice,io.agora.rtc.basic,io.agora.rtc.ains,io.agora.rtc.audio_beauty,io.agora.rtc.spatial_audio,io.agora.rtc.aiaec,io.agora.rtc.full_voice_drive,io.agora.rtc.voice_rtc_basic">
+        tools:targetApi="36">
 
         <profileable
             android:shell="true"
             tools:targetApi="29" />
 
-        <!-- MainActivity -->
+        <!-- MainActivity — true immersive, no system UI -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|fontScale|density"
             android:exported="true"
-            android:immersive="true"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.OmniBackrooms.Splash"
@@ -68,19 +60,23 @@
             </intent-filter>
         </activity>
 
-        <!-- SessionService -->
+        <!--
+            SessionService — foregroundServiceType="specialUse"
+            Game session engine (physics, AI, audio) is not covered by any standard type.
+            specialUse is the correct type per Android 14+ requirements.
+            android:stopWithTask="true" ensures the service is cleaned up when the user
+            removes the app from recents — prevents orphaned foreground notifications.
+        -->
         <service
             android:name=".SessionService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"
-            android:stopWithTask="true" />
-
-        <!-- VoiceChatService -->
-        <service
-            android:name=".VoiceChatService"
-            android:exported="false"
-            android:foregroundServiceType="microphone"
-            android:stopWithTask="true" />
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="true">
+            <!-- Required by Google Play for specialUse approval -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="game_session_engine: manages physics, AI entities, and spatial audio for an active game session. No sensor, camera, microphone, or location data is accessed." />
+        </service>
 
         <!-- Firebase Messaging -->
         <service

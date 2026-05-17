@@ -26,16 +26,17 @@ android {
         targetSdk     = 36
         versionCode   = 1
         versionName   = "1.0.0"
+
+        // NDK 29 LTS — en son stable release (Mayıs 2026)
         ndkVersion    = "29.0.14206865"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
         vectorDrawables { useSupportLibrary = true }
 
         externalNativeBuild {
             cmake {
-                cppFlags    += "-std=c++26"
-                arguments   += listOf(
+                cppFlags  += "-std=c++26"
+                arguments += listOf(
                     "-DANDROID_STL=c++_shared",
                     "-DANDROID_PLATFORM=android-30",
                     "-DANDROID_ARM_NEON=TRUE",
@@ -44,22 +45,20 @@ android {
             }
         }
 
-        buildConfigField("String",  "API_BASE_URL",     "\"https://api.omnibackrooms.com/v1/\"")
-        buildConfigField("String",  "AGORA_TOKEN_URL",  "\"https://agora-token.shakeofangel.workers.dev\"")
-        buildConfigField("String",  "EXPECTED_SIG_HASH","\"\"")
-        buildConfigField("String",  "AGORA_APP_ID",     "\"\"")
-        buildConfigField("boolean", "ENABLE_GUARD",     "true")
+        buildConfigField("String",  "API_BASE_URL",      "\"https://api.omnibackrooms.com/v1/\"")
+        buildConfigField("String",  "EXPECTED_SIG_HASH", "\"\"")   // Prod imzadan doldurul
+        buildConfigField("boolean", "ENABLE_GUARD",      "true")
     }
 
     signingConfigs {
         create("release") {
             val storeFilePath = keystoreProps["storeFile"]?.toString()
                 ?: (findProperty("android.injected.signing.store.file") as? String)
-            val storePass = keystoreProps["storePassword"]?.toString()
+            val storePass     = keystoreProps["storePassword"]?.toString()
                 ?: (findProperty("android.injected.signing.store.password") as? String)
-            val keyAliasVal = keystoreProps["keyAlias"]?.toString()
+            val keyAliasVal   = keystoreProps["keyAlias"]?.toString()
                 ?: (findProperty("android.injected.signing.key.alias") as? String)
-            val keyPass = keystoreProps["keyPassword"]?.toString()
+            val keyPass       = keystoreProps["keyPassword"]?.toString()
                 ?: (findProperty("android.injected.signing.key.password") as? String)
 
             if (storeFilePath != null && storePass != null && keyAliasVal != null && keyPass != null) {
@@ -68,6 +67,7 @@ android {
                 keyAlias      = keyAliasVal
                 keyPassword   = keyPass
             }
+            // V3 + V4: Play Store zorunlu kılar, APK Signature Scheme V4 = incremental install
             enableV3Signing = true
             enableV4Signing = true
         }
@@ -82,19 +82,24 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // NDK crash stack trace için full sembol — Firebase Crashlytics NDK'ya gider
+            nativeDebugSymbolLevel = "FULL"
             buildConfigField("boolean", "ENABLE_GUARD", "true")
         }
         debug {
-            isMinifyEnabled     = false
+            isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix   = "-debug"
             buildConfigField("boolean", "ENABLE_GUARD", "false")
         }
     }
 
+    // JVM 21: LTS, Kotlin 2.x için önerilen minimum.
+    // Java 25 EA — Gradle toolchain ile sorunlu, henüz production'da kullanılmamalı.
     compileOptions {
-        sourceCompatibility = JavaVersion.toVersion(25)
-        targetCompatibility = JavaVersion.toVersion(25)
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
     }
-
     kotlin {
         jvmToolchain(25)
     }
@@ -104,7 +109,6 @@ android {
         buildConfig = true
     }
 
-    @Suppress("DEPRECATION")
     sourceSets {
         getByName("main") {
             java.srcDirs("Source/Main/Kotlin")
@@ -130,16 +134,15 @@ android {
                 "META-INF/INDEX.LIST"
             )
         }
+        // useLegacyPackaging=false: .so'lar APK içinde sıkıştırılmaz →
+        // kurulum hızlı, cihaz direkt mmap eder (API 23+)
         jniLibs {
             useLegacyPackaging = false
-            pickFirsts += setOf(
-                "lib/*/libagora_rtc_sdk.so",
-                "lib/*/libagora-fdkaac.so",
-                "lib/*/libagora-soundtouch.so"
-            )
         }
     }
 
+    // AAB (Play Store) için ABI split; splits.abi yerine bundle tercih edilmeli
+    // APK dağıtımı gerekiyorsa splits.abi bloğunu geri aç
     splits {
         abi {
             isEnable       = true
@@ -149,36 +152,31 @@ android {
         }
     }
 
-    lint {
-        abortOnError       = false
-        checkReleaseBuilds = true
-        warningsAsErrors   = false
-    }
-
     bundle {
         language { enableSplit = true }
         density  { enableSplit = true }
         abi      { enableSplit = true }
     }
-}
 
-// AGP 9.x: Agora voice-sdk sub-modülleri aynı namespace'i paylaşıyor.
-// full-voice-drive, ains, audio-beauty, spatial-audio, aiaec exclude ediliyor.
-// voice-rtc-basic EXCLUDE EDİLMİYOR — RtcEngine API sınıflarını sağlar.
-// Manifest namespace çakışması: voice-sdk vs voice-rtc-basic — bu Agora'nın bug'ı.
-// Çözüm: gradle.properties'de android.disableLibraryNamespaceCompilation=true
-configurations.all {
-    exclude(group = "io.agora.rtc", module = "ains")
-    exclude(group = "io.agora.rtc", module = "audio-beauty")
-    exclude(group = "io.agora.rtc", module = "spatial-audio")
-    exclude(group = "io.agora.rtc", module = "aiaec")
-    exclude(group = "io.agora.rtc", module = "full-voice-drive")
+    lint {
+        abortOnError       = false
+        checkReleaseBuilds = true
+        warningsAsErrors   = false
+        // Kullanılmayan kaynakları lint'e raporlat (shrinkResources zaten kaldırır)
+        checkGeneratedSources = false
+    }
 }
 
 dependencies {
+    // ── AndroidX core ────────────────────────────────────────
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
+
+    // ── Compose BOM ───────────────────────────────────────────
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -186,51 +184,63 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.lifecycle.runtime.compose)
+    debugImplementation(libs.androidx.ui.tooling)
 
+    // ── Hilt DI ───────────────────────────────────────────────
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)
 
+    // ── Kotlin ────────────────────────────────────────────────
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 
-    implementation(libs.androidx.datastore.preferences)
-
+    // ── Network ───────────────────────────────────────────────
     implementation(libs.retrofit)
     implementation(libs.okhttp)
     implementation(libs.retrofit.converter.kotlinx.serialization)
+    // logging interceptor sadece debug build'de — release APK'ya sızmaz
     debugImplementation(libs.okhttp.logging.interceptor)
 
-    implementation(libs.coil.compose)
-    implementation(libs.coil.video)
-
-    implementation(libs.media3.exoplayer)
-    implementation(libs.media3.ui)
-    implementation(libs.media3.exoplayer.hls)
-
+    // ── Storage ───────────────────────────────────────────────
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    implementation(libs.androidx.core.splashscreen)
+    // ── Media ─────────────────────────────────────────────────
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    // HLS: online oda stream'i için tutuldu; kullanılmıyorsa kaldır → APK ~1.2 MB küçülür
+    implementation(libs.media3.exoplayer.hls)
+
+    // ── Image ─────────────────────────────────────────────────
+    implementation(libs.coil.compose)
+    // coil-video: lobby video thumbnail preview için; ExoPlayer direkt kullanılıyorsa kaldırılabilir
+    implementation(libs.coil.video)
+
+    // ── UI extras ─────────────────────────────────────────────
     implementation(libs.lottie.compose)
+    // accompanist-permissions: bildirim izni (POST_NOTIFICATIONS) için
     implementation(libs.accompanist.permissions)
 
-    implementation(libs.agora.rtc.voice)
+    // ── Billing ───────────────────────────────────────────────
     implementation(libs.androidx.billing)
 
-    debugImplementation(libs.androidx.ui.tooling)
-
+    // ── Firebase ──────────────────────────────────────────────
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.crashlytics)
-    implementation(libs.firebase.crashlytics.ndk)
+    implementation(libs.firebase.crashlytics.ndk)   // Native crash stack trace
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.remote.config)
+
+    // ── Agora KALDIRILDI ──────────────────────────────────────
+    // Voice.kt ve Agora SDK tamamen çıkarıldı.
+    // Ses işleme native Sound.cpp (OpenSLES) üzerinden yapılıyor.
+    // Bağımlılık: libs.agora.rtc.voice → KULLANILMIYOR
 }

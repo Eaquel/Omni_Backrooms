@@ -2,11 +2,14 @@ package com.omni.backrooms
 
 import android.app.*
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import androidx.compose.ui.geometry.Offset
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -19,8 +22,7 @@ import javax.inject.Inject
 import okhttp3.MediaType.Companion.toMediaType
 
 // ─────────────────────────────────────────────────────────────
-// NativeBridge — Native_Bridge.kt dosyası kaldırıldı, buraya entegre edildi.
-// Tüm JNI çağrıları bu sınıf üzerinden yapılır.
+// NativeBridge — all JNI calls go through here
 // ─────────────────────────────────────────────────────────────
 class NativeBridge @Inject constructor() {
 
@@ -63,7 +65,6 @@ class NativeBridge @Inject constructor() {
     external fun initSocket(port: Int): Boolean
     external fun buildPosPacket(x: Float, y: Float, z: Float, yaw: Float, pitch: Float): ByteArray?
     external fun buildPingPacket(): ByteArray?
-    external fun buildVoicePacket(pcmData: ByteArray, pcmLen: Int): ByteArray?
     external fun drainRecvQueue(): Array<ByteArray>?
     external fun getLocalPing(): Int
     external fun getPeerCount(): Int
@@ -103,7 +104,7 @@ interface ApiService {
 
     @POST("rooms/{id}/join")
     suspend fun joinRoom(
-        @Path("id")       roomId  : String,
+        @Path("id")        roomId  : String,
         @Query("password") password: String?
     ): JoinRoomResponse
 
@@ -142,15 +143,6 @@ interface ApiService {
     @POST("player/score")
     suspend fun submitScore(@Body body: ScoreSubmitRequest): BaseResponse
 
-    @GET("events/active")
-    suspend fun getActiveEvents(): List<EventDto>
-
-    @GET("events/{id}")
-    suspend fun getEventDetail(@Path("id") eventId: String): EventDto
-
-    @POST("events/{id}/join")
-    suspend fun joinEvent(@Path("id") eventId: String): BaseResponse
-
     @POST("auth/google")
     suspend fun loginWithGoogle(@Body body: GoogleAuthRequest): AuthResponse
 
@@ -172,12 +164,6 @@ interface ApiService {
     @GET("market/daily")
     suspend fun getDailyDeals(): List<MarketItemDto>
 
-    @GET("maps")
-    suspend fun getMaps(): List<MapDto>
-
-    @GET("maps/{id}")
-    suspend fun getMapDetail(@Path("id") mapId: String): MapDto
-
     @GET("characters")
     suspend fun getCharacters(): List<CharacterDto>
 
@@ -186,9 +172,6 @@ interface ApiService {
 
     @POST("characters/{id}/unlock")
     suspend fun unlockCharacter(@Path("id") charId: String): BaseResponse
-
-    @GET("changelog")
-    suspend fun getChangelog(): List<ChangelogDto>
 
     @GET("story/chapters")
     suspend fun getStoryChapters(): List<StoryChapterDto>
@@ -304,16 +287,6 @@ data class LeaderboardEntry(
     val region     : String = "TR"
 )
 
-data class VoiceFrame(val peerId: Int, val pcmData: ByteArray) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-        other as VoiceFrame
-        return peerId == other.peerId && pcmData.contentEquals(other.pcmData)
-    }
-    override fun hashCode(): Int = 31 * peerId + pcmData.contentHashCode()
-}
-
 data class ChatMessage(
     val senderId   : Int,
     val senderName : String,
@@ -355,72 +328,42 @@ data class CameraSnapshot(
 }
 
 data class LevelSegment(
-    val posX          : Float,
-    val posY          : Float,
-    val width         : Float,
-    val length        : Float,
-    val height        : Float,
-    val lightPhase    : Float,
-    val lightIntensity: Float,
-    val lightSpeed    : Float,
-    val lightBroken   : Boolean,
-    val roomType      : Int,
-    val wallDamage    : Float,
-    val moisture      : Float,
-    val hasHazard     : Boolean,
-    val decalCount    : Int
+    val posX          : Float, val posY: Float,
+    val width         : Float, val length: Float, val height: Float,
+    val lightPhase    : Float, val lightIntensity: Float, val lightSpeed: Float,
+    val lightBroken   : Boolean, val roomType: Int,
+    val wallDamage    : Float, val moisture: Float,
+    val hasHazard     : Boolean, val decalCount: Int
 ) {
     companion object {
         fun fromFloatArray(data: FloatArray, index: Int): LevelSegment? {
             val base = index * 14
             if (base + 13 >= data.size) return null
             return LevelSegment(
-                posX           = data[base],
-                posY           = data[base + 1],
-                width          = data[base + 2],
-                length         = data[base + 3],
-                height         = data[base + 4],
-                lightPhase     = data[base + 5],
-                lightIntensity = data[base + 6],
-                lightSpeed     = data[base + 7],
-                lightBroken    = data[base + 8] > 0.5f,
-                roomType       = data[base + 9].toInt(),
-                wallDamage     = data[base + 10],
-                moisture       = data[base + 11],
-                hasHazard      = data[base + 12] > 0.5f,
-                decalCount     = data[base + 13].toInt()
+                posX=data[base], posY=data[base+1], width=data[base+2], length=data[base+3],
+                height=data[base+4], lightPhase=data[base+5], lightIntensity=data[base+6],
+                lightSpeed=data[base+7], lightBroken=data[base+8]>0.5f, roomType=data[base+9].toInt(),
+                wallDamage=data[base+10], moisture=data[base+11], hasHazard=data[base+12]>0.5f,
+                decalCount=data[base+13].toInt()
             )
         }
     }
 }
 
 data class EntityState(
-    val id              : Int,
-    val posX            : Float,
-    val posY            : Float,
-    val posZ            : Float,
-    val aiState         : Int,
-    val alertLevel      : Float,
-    val hpFraction      : Float,
-    val flickerInfluence: Float,
-    val typeId          : Int,
-    val isActive        : Boolean
+    val id: Int, val posX: Float, val posY: Float, val posZ: Float,
+    val aiState: Int, val alertLevel: Float, val hpFraction: Float,
+    val flickerInfluence: Float, val typeId: Int, val isActive: Boolean
 ) {
     companion object {
         fun fromFloatArray(data: FloatArray, index: Int, id: Int): EntityState? {
             val base = index * 10
             if (base + 9 >= data.size) return null
             return EntityState(
-                id               = id,
-                posX             = data[base],
-                posY             = data[base + 1],
-                posZ             = data[base + 2],
-                aiState          = data[base + 3].toInt(),
-                alertLevel       = data[base + 4],
-                hpFraction       = data[base + 5],
-                flickerInfluence = data[base + 6],
-                typeId           = data[base + 8].toInt(),
-                isActive         = data[base + 9] > 0.5f
+                id=id, posX=data[base], posY=data[base+1], posZ=data[base+2],
+                aiState=data[base+3].toInt(), alertLevel=data[base+4],
+                hpFraction=data[base+5], flickerInfluence=data[base+6],
+                typeId=data[base+8].toInt(), isActive=data[base+9]>0.5f
             )
         }
     }
@@ -439,95 +382,43 @@ data class PlayerInventory(
 }
 
 data class SessionStats(
-    val sessionId    : String,
-    val startMs      : Long,
-    val endMs        : Long    = 0L,
-    val difficulty   : String,
-    val mapId        : String,
-    val finalScore   : Long    = 0L,
-    val survived     : Boolean = false,
-    val kills        : Int     = 0,
-    val levelsReached: Int     = 0,
-    val peakSanity   : Float   = 100f,
-    val lowestHp     : Float   = 100f,
-    val totalDistance: Float   = 0f
-)
-
-data class AchievementDto(
-    val id          : String,
-    val nameTr      : String,
-    val nameEn      : String,
-    val descTr      : String,
-    val descEn      : String,
-    val isUnlocked  : Boolean,
-    val unlockedAtMs: Long?,
-    val iconUrl     : String?,
-    val rewardType  : String,
-    val rewardAmount: Long
+    val sessionId    : String, val startMs: Long, val endMs: Long = 0L,
+    val difficulty   : String, val mapId: String,
+    val finalScore   : Long = 0L, val survived: Boolean = false,
+    val kills        : Int = 0, val levelsReached: Int = 0,
+    val peakSanity   : Float = 100f, val lowestHp: Float = 100f,
+    val totalDistance: Float = 0f
 )
 
 data class CreateRoomRequest(
-    val name      : String,
-    val maxPlayers: Int,
-    val difficulty: String,
-    val password  : String?,
-    val language  : String = "TR",
-    val mapId     : String = "level_0"
+    val name: String, val maxPlayers: Int, val difficulty: String,
+    val password: String?, val language: String = "TR", val mapId: String = "level_0"
 )
 
 data class CreateRoomResponse(val roomId: String, val joinCode: String, val success: Boolean)
 data class JoinRoomResponse(val success: Boolean, val roomId: String?, val error: String?)
 
 data class RoomDetail(
-    val id            : String,
-    val name          : String,
-    val hostId        : String,
-    val currentPlayers: Int,
-    val maxPlayers    : Int,
-    val difficulty    : String,
-    val isLocked      : Boolean,
-    val language      : String,
-    val mapId         : String,
-    val players       : List<RoomPlayer>
+    val id: String, val name: String, val hostId: String,
+    val currentPlayers: Int, val maxPlayers: Int, val difficulty: String,
+    val isLocked: Boolean, val language: String, val mapId: String,
+    val players: List<RoomPlayer>
 )
 
 data class RoomPlayer(
-    val id       : Int,
-    val name     : String,
-    val avatarUrl: String?,
-    val isHost   : Boolean,
-    val isReady  : Boolean,
-    val ping     : Int
+    val id: Int, val name: String, val avatarUrl: String?,
+    val isHost: Boolean, val isReady: Boolean, val ping: Int
 )
 
 data class BaseResponse(val success: Boolean, val message: String?)
 data class AvatarRequest(val avatarId: String)
 data class PurchaseRequest(val itemType: String, val amount: Int)
 data class PurchaseResponse(val success: Boolean, val newBalance: Long, val currency: String)
-
 data class LeaderboardPage(val entries: List<LeaderboardEntry>, val total: Int, val myRank: Int?)
 
 data class ScoreSubmitRequest(
-    val level     : Int,
-    val score     : Long,
-    val survived  : Int,
-    val difficulty: String,
-    val sessionMs : Long,
-    val kills     : Int = 0
-)
-
-data class EventDto(
-    val id           : String,
-    val titleTr      : String,
-    val titleEn      : String,
-    val descriptionTr: String,
-    val descriptionEn: String,
-    val startMs      : Long,
-    val endMs        : Long,
-    val rewardType   : String,
-    val rewardAmount : Long,
-    val imageUrl     : String?,
-    val isActive     : Boolean
+    val level: Int, val score: Long, val survived: Int,
+    val difficulty: String, val sessionMs: Long, val kills: Int = 0
 )
 
 data class GoogleAuthRequest(val idToken: String)
@@ -537,63 +428,27 @@ data class AuthResponse(val accessToken: String, val refreshToken: String, val e
 data class MarketPage(val items: List<MarketItemDto>, val total: Int)
 
 data class MarketItemDto(
-    val id       : String,
-    val nameTr   : String,
-    val nameEn   : String,
-    val descTr   : String,
-    val descEn   : String,
-    val category : String,
-    val price    : Long,
-    val currency : String,
-    val imageUrl : String?,
-    val isOwned  : Boolean,
-    val isEquipped: Boolean,
-    val isLimited: Boolean,
-    val expiresMs: Long?
+    val id: String, val nameTr: String, val nameEn: String,
+    val descTr: String, val descEn: String,
+    val category: String, val price: Long, val currency: String,
+    val imageUrl: String?, val isOwned: Boolean, val isEquipped: Boolean,
+    val isLimited: Boolean, val expiresMs: Long?
 )
 
 data class BuyRequest(val itemId: String, val currency: String)
 data class BuyResponse(val success: Boolean, val newBalance: Long, val error: String?)
 
-data class MapDto(
-    val id          : String,
-    val nameTr      : String,
-    val nameEn      : String,
-    val level       : Int,
-    val descTr      : String,
-    val descEn      : String,
-    val thumbnailUrl: String?,
-    val isUnlocked  : Boolean,
-    val threatLevel : Int,
-    val entityTypes : List<Int>
-)
-
 data class CharacterDto(
-    val id         : String,
-    val nameTr     : String,
-    val nameEn     : String,
-    val clazz      : String,
-    val maxHp      : Float,
-    val baseSpeed  : Float,
-    val stealthMult: Float,
-    val staminaMult: Float,
-    val abilities  : List<String>,
-    val isUnlocked : Boolean,
-    val isEquipped : Boolean,
-    val imageUrl   : String?,
-    val price      : Long,
-    val currency   : String
+    val id: String, val nameTr: String, val nameEn: String,
+    val clazz: String, val maxHp: Float, val baseSpeed: Float,
+    val stealthMult: Float, val staminaMult: Float, val abilities: List<String>,
+    val isUnlocked: Boolean, val isEquipped: Boolean,
+    val imageUrl: String?, val price: Long, val currency: String
 )
-
-data class ChangelogDto(val version: String, val dateMs: Long, val changes: List<String>, val branch: String)
 
 data class StoryChapterDto(
-    val id       : Int,
-    val titleTr  : String,
-    val titleEn  : String,
-    val contentTr: String,
-    val contentEn: String,
-    val isUnlocked: Boolean
+    val id: Int, val titleTr: String, val titleEn: String,
+    val contentTr: String, val contentEn: String, val isUnlocked: Boolean
 )
 
 data class ReportRequest(val reportedId: Int, val reason: String, val details: String)
@@ -604,19 +459,27 @@ data class ReportRequest(val reportedId: Int, val reason: String, val details: S
 class RoomRepository @Inject constructor(private val api: ApiService) {
 
     suspend fun fetchRooms(
-        query   : String?,
-        locked  : Boolean?,
-        lang    : String?,
-        page    : Int,
-        pageSize: Int
+        query: String?, locked: Boolean?, lang: String?,
+        page: Int, pageSize: Int
     ): RoomPage = api.getRooms(query, locked, lang, page, pageSize)
 
     suspend fun createRoom(
-        name      : String,
-        maxPlayers: Int,
-        difficulty: String,
-        password  : String?
+        name: String, maxPlayers: Int, difficulty: String, password: String?
     ): String = api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password)).roomId
+}
+
+// ─────────────────────────────────────────────────────────────
+// GuardManager
+// ─────────────────────────────────────────────────────────────
+class GuardManager @Inject constructor(
+    private val ctx   : android.content.Context,
+    private val bridge: NativeBridge
+) {
+    fun init(expectedSigHash: String) = bridge.initGuard(ctx, expectedSigHash)
+    fun scan(): Int = bridge.runGuardScan()
+    fun flags(): Int = bridge.getGuardFlags()
+    fun report(): String = bridge.getThreatReport()
+    fun destroy() = bridge.destroyGuard()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -636,7 +499,7 @@ class SessionService : Service() {
     private val binder = LocalBinder()
     private val scope  = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val _gameState = MutableStateFlow(GameState())
+    private val _gameState      = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
     private val _chatMessages   = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -645,10 +508,10 @@ class SessionService : Service() {
     private val _networkPlayers = MutableStateFlow<List<NetworkPlayerState>>(emptyList())
     val networkPlayers: StateFlow<List<NetworkPlayerState>> = _networkPlayers.asStateFlow()
 
-    private var physicsJob: Job? = null
-    private var entityJob : Job? = null
-    private var networkJob: Job? = null
-    private var scoreJob  : Job? = null
+    private var physicsJob : Job? = null
+    private var entityJob  : Job? = null
+    private var networkJob : Job? = null
+    private var scoreJob   : Job? = null
     private var lastTickMs = 0L
     private var elapsedMs  = 0L
     private var score      = 0L
@@ -675,7 +538,19 @@ class SessionService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        startForeground(NOTIF_ID, buildNotif())
+        // ── FIX: Use ServiceCompat.startForeground which handles API differences correctly.
+        // foregroundServiceType = FOREGROUND_SERVICE_TYPE_SPECIAL_USE is mandatory on API 34+
+        // (matches android:foregroundServiceType="specialUse" in manifest).
+        // On API 33 and below, ServiceCompat gracefully falls back to the legacy call.
+        ServiceCompat.startForeground(
+            this,
+            NOTIF_ID,
+            buildNotif(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            else
+                0
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -738,7 +613,15 @@ class SessionService : Service() {
                 )
             }
 
-            _gameState.value = GameState(seed = seed, difficulty = difficulty, isOnline = false, mapId = mapId)
+            // ── FIX: game state is set AFTER bridge init, not before.
+            // Previously the state could be emitted before bridge was ready,
+            // causing GameScreen to read null native state and crash back to menu.
+            _gameState.value = GameState(
+                seed       = seed,
+                difficulty = difficulty,
+                isOnline   = false,
+                mapId      = mapId
+            )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
             startScoreAccumulator()
@@ -757,10 +640,13 @@ class SessionService : Service() {
             val cfg = assetManager.getSpawnConfig(difficulty)
             repeat(cfg.count) { i ->
                 bridge.spawnEntity(
-                    x = (Math.random() * 60 - 30).toFloat(), y = 0f,
-                    z = (Math.random() * 60 - 30).toFloat(),
-                    speed = 2.5f * cfg.speedMult, hear = 10f,
-                    sight = 16f * cfg.sightMult,  aggro = 8f,
+                    x      = (Math.random() * 60 - 30).toFloat(),
+                    y      = 0f,
+                    z      = (Math.random() * 60 - 30).toFloat(),
+                    speed  = 2.5f * cfg.speedMult,
+                    hear   = 10f,
+                    sight  = 16f * cfg.sightMult,
+                    aggro  = 8f,
                     typeId = i % 8
                 )
             }
@@ -787,7 +673,7 @@ class SessionService : Service() {
                 elapsedMs += (dt * 1000).toLong()
 
                 bridge.physicsTick(dt)
-                val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
+                val cam         = CameraSnapshot.fromFloatArray(bridge.getCameraState())
                 if (cam != null) bridge.setListenerPos(cam.posX, cam.posY, cam.posZ)
 
                 val entityData       = bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
@@ -822,10 +708,13 @@ class SessionService : Service() {
                     val typeId = (Math.random() * 8).toInt()
                     val entity = EntityType.entries.getOrNull(typeId) ?: EntityType.SMILER
                     bridge.spawnEntity(
-                        x = (Math.random() * 80 - 40).toFloat(), y = 0f,
-                        z = (Math.random() * 80 - 40).toFloat(),
+                        x      = (Math.random() * 80 - 40).toFloat(),
+                        y      = 0f,
+                        z      = (Math.random() * 80 - 40).toFloat(),
                         speed  = entity.baseSpeed * cfg.speedMult,
-                        hear   = 12f, sight = 18f * cfg.sightMult, aggro = 9f,
+                        hear   = 12f,
+                        sight  = 18f * cfg.sightMult,
+                        aggro  = 9f,
                         typeId = typeId
                     )
                 }
@@ -944,8 +833,11 @@ class SessionService : Service() {
     }
 
     private fun createChannel() {
-        val ch = NotificationChannel(CHANNEL_ID, getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW)
-            .apply { setShowBadge(false) }
+        val ch = NotificationChannel(
+            CHANNEL_ID,
+            getString(R.string.notif_channel_session),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
 
@@ -954,5 +846,7 @@ class SessionService : Service() {
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.loading_text))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setOngoing(true).setSilent(true).build()
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
 }
