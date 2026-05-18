@@ -80,10 +80,10 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDirs("Source/Main/Kotlin")
-            kotlin.srcDirs("Source/Main/Kotlin")
-            res.srcDirs("Source/Main/res")
-            assets.srcDirs("Source/Main/assets")
+            java.srcDirs.add(file("Source/Main/Kotlin"))
+            kotlin.srcDirs.add(file("Source/Main/Kotlin"))
+            res.srcDirs.add(file("Source/Main/res"))
+            assets.srcDirs.add(file("Source/Main/assets"))
             manifest.srcFile("Source/Main/AndroidManifest.xml")
         }
     }

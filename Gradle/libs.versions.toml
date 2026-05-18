@@ -72,6 +72,9 @@ firebase-firestore                       = { group = "com.google.firebase", name
 firebase-crashlytics                     = { group = "com.google.firebase", name = "firebase-crashlytics" }
 firebase-crashlytics-ndk                 = { group = "com.google.firebase", name = "firebase-crashlytics-ndk" }
 firebase-messaging                       = { group = "com.google.firebase", name = "firebase-messaging" }
+androidx-material-icons-extended     = { group = "androidx.compose.material", name = "material-icons-extended" }
+firebase-analytics                   = { group = "com.google.firebase", name = "firebase-analytics" }
+firebase-config                      = { group = "com.google.firebase", name = "firebase-config" }
 
 [plugins]
 android-application                      = { id = "com.android.application", version.ref = "agp" }
