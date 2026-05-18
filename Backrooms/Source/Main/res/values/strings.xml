@@ -151,6 +151,8 @@
     <string name="game_hud_stamina">STAMINA</string>
     <string name="game_hud_battery">PİL</string>
 
+    <string name="settings_tab_notif">Bildirimler</string>
+
     <string name="common_ok">Tamam</string>
     <string name="common_cancel">İptal</string>
     <string name="common_save">Kaydet</string>

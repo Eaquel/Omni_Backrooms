@@ -89,12 +89,7 @@ android {
     }
 
     externalNativeBuild {
-        cmake {
-            path    = file("Source/Main/Native/CMakeLists.txt")
-            // AGP resolves CMake by this version string — -Pandroid.cmake.dir is ignored by AGP.
-            // The binary must exist at $ANDROID_SDK_ROOT/cmake/4.3.2/
-            version = "4.3.2"
-        }
+        cmake { path = file("Source/Main/Native/CMakeLists.txt") }
     }
 
     packaging {
@@ -141,6 +136,9 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.config)
     implementation(libs.androidx.navigation.compose)
 
     implementation(libs.hilt.android)

@@ -301,7 +301,12 @@ data class EntityState(
 }
 
 data class InventoryItem(val itemId: String, val quantity: Int, val slotIndex: Int)
-data class PlayerInventory(val items: List<InventoryItem>=emptyList(), val maxSlots: Int=8, val weight: Float=0f, val maxWeight: Float=20f) {
+data class PlayerInventory(
+    val items     : List<InventoryItem> = emptyList(),
+    val maxSlots  : Int                 = 8,
+    val weight    : Float               = 0f,
+    val maxWeight : Float               = 20f
+) {
     val isFull      : Boolean get() = items.size>=maxSlots
     val isOverweight: Boolean get() = weight>maxWeight
 }
@@ -595,9 +600,37 @@ class SessionService : Service() {
             .setOngoing(true).setSilent(true).build()
 }
 
-data class RoomListUiState(val rooms: List<RoomInfo>=emptyList(), val query: String="", val filterLocked: Boolean?=null, val lang: String?=null, val page: Int=0, val totalPages: Int=1, val isLoading: Boolean=false, val error: String?=null)
-data class CreateRoomUiState(val name: String="", val nameError: Int?=null, val size: Int=2, val difficulty: String="normal", val passwordEnabled: Boolean=false, val password: String="", val mapId: String="level_0", val language: String="TR", val isCreating: Boolean=false, val createdRoomId: String?=null, val error: String?=null)
-data class RoomLobbyUiState(val detail: RoomDetail?=null, val isReady: Boolean=false, val allReady: Boolean=false, val countdown: Int?=null, val isLoading: Boolean=false, val peerPings: Map<Int,Int>=emptyMap())
+data class RoomListUiState(
+    val rooms        : List<RoomInfo> = emptyList(),
+    val query        : String         = "",
+    val filterLocked : Boolean?       = null,
+    val lang         : String?        = null,
+    val page         : Int            = 0,
+    val totalPages   : Int            = 1,
+    val isLoading    : Boolean        = false,
+    val error        : String?        = null
+)
+data class CreateRoomUiState(
+    val name            : String  = "",
+    val nameError       : Int?    = null,
+    val size            : Int     = 2,
+    val difficulty      : String  = "normal",
+    val passwordEnabled : Boolean = false,
+    val password        : String  = "",
+    val mapId           : String  = "level_0",
+    val language        : String  = "TR",
+    val isCreating      : Boolean = false,
+    val createdRoomId   : String? = null,
+    val error           : String? = null
+)
+data class RoomLobbyUiState(
+    val detail    : RoomDetail?      = null,
+    val isReady   : Boolean          = false,
+    val allReady  : Boolean          = false,
+    val countdown : Int?             = null,
+    val isLoading : Boolean          = false,
+    val peerPings : Map<Int, Int>    = emptyMap()
+)
 
 @kotlinx.coroutines.FlowPreview
 @HiltViewModel
