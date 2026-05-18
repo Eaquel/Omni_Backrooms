@@ -1,18 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="backrooms_black">#FF000000</color>
-    <color name="backrooms_yellow">#FFD4A84B</color>
-    <color name="backrooms_amber">#FFFFB347</color>
-    <color name="backrooms_metal">#FF1A1A14</color>
-    <color name="backrooms_panel">#CC121208</color>
-    <color name="backrooms_dark_bg">#FF0A0A08</color>
-    <color name="backrooms_text_sec">#FF8A7040</color>
-    <color name="backrooms_text_dim">#FF5A4A28</color>
-    <color name="backrooms_border">#FF2A2018</color>
-    <color name="backrooms_soulium">#FF7B68EE</color>
-    <color name="backrooms_omnium">#FF00E5FF</color>
-    <color name="backrooms_danger">#FFCC2200</color>
-    <color name="backrooms_success">#FF4CAF50</color>
+
+    <color name="black">#FF000000</color>
+
+    <color name="primary_yellow">#FFD4A84B</color>
+    <color name="accent_amber">#FFFFB347</color>
+
+    <color name="surface_dark">#FF0A0A08</color>
+    <color name="surface_metal">#FF1A1A14</color>
+    <color name="surface_panel">#CC121208</color>
+
+    <color name="border">#FF2A2018</color>
+
+    <color name="text_primary">#FFD4A84B</color>
+    <color name="text_secondary">#FF8A7040</color>
+    <color name="text_dim">#FF5A4A28</color>
+
+    <color name="accent_blue">#FF00E5FF</color>
+    <color name="accent_purple">#FF7B68EE</color>
+
+    <color name="danger">#FFCC2200</color>
+    <color name="success">#FF4CAF50</color>
+
     <color name="transparent">#00000000</color>
+
     <color name="notification_color">#FFD4A84B</color>
+
 </resources>

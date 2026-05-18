@@ -18,91 +18,10 @@ env:
 
 jobs:
 
-  build-debug:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          lfs: true
-
-      - uses: actions/setup-java@v5
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: temurin
-
-      - uses: android-actions/setup-android@v4
-
-      - name: Cache Gradle
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-v3-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
-          restore-keys: gradle-${{ runner.os }}-v3-
-
-      - name: Install NDK
-        run: |
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;${{ env.NDK_VERSION }}"
-
-      - name: Install CMake 4.3.2
-        run: |
-          curl -L -o cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v4.3.2/cmake-4.3.2-linux-x86_64.tar.gz
-          tar -xzf cmake.tar.gz
-          echo "$PWD/cmake-4.3.2-linux-x86_64/bin" >> $GITHUB_PATH
-          chmod +x $PWD/cmake-4.3.2-linux-x86_64/bin/cmake
-          cmake --version
-
-      - name: Cache NDK
-        uses: actions/cache@v5
-        with:
-          path: Backrooms/.cxx
-          key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}
-
-      - name: Prepare Gradle Wrapper
-        run: |
-          sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
-          chmod +x gradlew
-          grep "APP_HOME" gradlew
-          ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
-
-      - name: Inject google-services.json
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: |
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
-            python3 -c "import json; json.load(open('Backrooms/google-services.json')); print('google-services.json geçerli')"
-          else
-            echo "HATA: GOOGLE_SERVICES_JSON secret boş!"
-            exit 1
-          fi
-
-      - name: Clean KSP Generated Cache
-        run: |
-          rm -rf Backrooms/build
-          rm -rf ~/.gradle/caches
-          rm -rf ~/.gradle/configuration-cache
-
-      - run: ./gradlew clean --refresh-dependencies
-      - run: ./gradlew :Backrooms:lintDebug || true
-      - run: ./gradlew :Backrooms:assembleDebug
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: debug-apk
-          retention-days: 30
-          path: Backrooms/build/outputs/apk/debug/*.apk
-
-
   build-release:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
-    needs: build-debug
 
     steps:
       - uses: actions/checkout@v6
@@ -136,26 +55,17 @@ jobs:
           tar -xzf cmake.tar.gz
           echo "$PWD/cmake-4.3.2-linux-x86_64/bin" >> $GITHUB_PATH
           chmod +x $PWD/cmake-4.3.2-linux-x86_64/bin/cmake
-          cmake --version
 
       - name: Prepare Gradle Wrapper
         run: |
           sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
-          grep "APP_HOME" gradlew
-          ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - name: Inject google-services.json
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
-            python3 -c "import json; json.load(open('Backrooms/google-services.json')); print('JSON geçerli')"
-          else
-            echo "HATA: GOOGLE_SERVICES_JSON secret boş!"
-            exit 1
-          fi
+          echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
 
       - name: Decode Keystore
         env:
@@ -169,30 +79,19 @@ jobs:
             echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
           } > keystore.properties
 
-      - name: Clean KSP Generated Cache
-        run: |
-          rm -rf Backrooms/build
-          rm -rf ~/.gradle/caches
-          rm -rf ~/.gradle/configuration-cache
-          find ~/.gradle -name "voice-sdk*" -delete 2>/dev/null || true
-          find ~/.gradle -name "voice-rtc-basic*" -delete 2>/dev/null || true
-          find ~/.gradle -name "full-voice-drive*" -delete 2>/dev/null || true
+      - name: Clean
+        run: ./gradlew clean --refresh-dependencies
 
-      - run: ./gradlew clean --refresh-dependencies
-      - run: ./gradlew :Backrooms:bundleRelease
-      - run: ./gradlew :Backrooms:assembleRelease
+      - name: Build Release
+        run: ./gradlew :Backrooms:assembleRelease :Backrooms:bundleRelease
 
       - uses: actions/upload-artifact@v7
         with:
-          name: release-aab
+          name: release-build
           retention-days: 90
-          path: Backrooms/build/outputs/bundle/release/*.aab
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-apk
-          retention-days: 90
-          path: Backrooms/build/outputs/apk/release/*.apk
+          path: |
+            Backrooms/build/outputs/apk/release/*.apk
+            Backrooms/build/outputs/bundle/release/*.aab
 
       - run: ./gradlew :Backrooms:uploadCrashlyticsSymbolFileRelease || true
 
@@ -200,7 +99,6 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: build-debug
 
     steps:
       - uses: actions/checkout@v6
@@ -225,13 +123,5 @@ jobs:
         run: |
           sed -i "s|APP_HOME=.*|APP_HOME=\"$GITHUB_WORKSPACE\"|" gradlew
           chmod +x gradlew
-          grep "APP_HOME" gradlew
-          ls -lh "$GITHUB_WORKSPACE/Gradle/gradle-wrapper.jar"
 
       - run: ./gradlew :Backrooms:detekt || true
-
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: lint-results
-          path: Backrooms/build/reports/**

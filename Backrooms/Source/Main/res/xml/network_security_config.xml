@@ -10,16 +10,6 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">api.omnibackrooms.com</domain>
         <domain includeSubdomains="true">agora-token.shakeofangel.workers.dev</domain>
-        <trust-anchors>
-            <certificates src="system" />
-        </trust-anchors>
     </domain-config>
-
-    <debug-overrides>
-        <trust-anchors>
-            <certificates src="system" />
-            <certificates src="user" />
-        </trust-anchors>
-    </debug-overrides>
 
 </network-security-config>

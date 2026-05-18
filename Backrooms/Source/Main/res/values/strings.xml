@@ -1,21 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    DEFAULT LOCALE — Türkçe (tr)
-    Paralel İngilizce çeviri: res/values-en/strings.xml içinde tutulur.
-    Yalnızca bu iki dil şimdilik aktif; diğerleri sonradan eklenecek.
--->
 <resources>
 
     <string name="app_name">Omni Backrooms</string>
     <string name="app_version_prefix">v</string>
     <string name="androidx_startup" translatable="false">androidx.startup</string>
-
-    <!-- ── Splash / Intro ────────────────────────────────────── -->
     <string name="splash_presents">Eaquel tarafından sunuldu</string>
     <string name="splash_title">OMNI BACKROOMS</string>
     <string name="splash_tagline">Seviye 0 — Bekleme Odası</string>
 
-    <!-- ── Loading ───────────────────────────────────────────── -->
     <string name="loading_text">Yükleniyor…</string>
     <string name="loading_stage_shaders">Shader\'lar derleniyor…</string>
     <string name="loading_stage_assets">Varlıklar yükleniyor…</string>
@@ -23,19 +15,13 @@
     <string name="loading_stage_audio">Ses motoru başlatılıyor…</string>
     <string name="loading_stage_network">Ağ bağlantısı kontrol ediliyor…</string>
     <string name="loading_stage_done">Hazır.</string>
-
-    <!-- ── Story ─────────────────────────────────────────────── -->
     <string name="story_title">Hikaye</string>
     <string name="story_chapter_locked">Bu bölüm henüz kilitli.</string>
-
-    <!-- ── Menu ──────────────────────────────────────────────── -->
     <string name="menu_new_game">Yeni Oyun</string>
     <string name="menu_settings">Ayarlar</string>
     <string name="menu_story">Hikaye</string>
     <string name="menu_market">Market</string>
     <string name="menu_leaderboard">Liderlik</string>
-
-    <!-- ── Mode / Difficulty ─────────────────────────────────── -->
     <string name="mode_select_title">Oyun Modu</string>
     <string name="mode_offline">Çevrimdışı</string>
     <string name="mode_online">Çevrimiçi</string>
@@ -44,8 +30,6 @@
     <string name="difficulty_easy">Kolay</string>
     <string name="difficulty_normal">Normal</string>
     <string name="difficulty_hard">Zor</string>
-
-    <!-- ── Online / Room ─────────────────────────────────────── -->
     <string name="online_select_title">Çevrimiçi</string>
     <string name="online_find_room">Oda Bul</string>
     <string name="online_create_room">Oda Oluştur</string>
@@ -70,7 +54,6 @@
     <string name="room_name_error_length">Oda adı 4–12 karakter olmalıdır</string>
     <string name="room_name_error_chars">Emoji veya özel karakter kullanılamaz</string>
 
-    <!-- ── Settings ───────────────────────────────────────────── -->
     <string name="settings_title">Ayarlar</string>
     <string name="settings_tab_account">Hesap</string>
     <string name="settings_tab_graphics">Grafikler</string>
@@ -120,7 +103,6 @@
 
     <string name="notifications_label">Bildirimler</string>
 
-    <!-- ── Market ─────────────────────────────────────────────── -->
     <string name="market_title">Market</string>
     <string name="market_tab_boosts">Boostlar</string>
     <string name="market_tab_characters">Karakterler</string>
@@ -133,7 +115,6 @@
     <string name="market_confirm_title">Satın Al</string>
     <string name="market_purchase_success">satın alındı!</string>
 
-    <!-- ── Characters (Market tab) ───────────────────────────── -->
     <string name="char_default_name_prefix">Player</string>
     <string name="char_locked_label">KİLİTLİ</string>
     <string name="char_select_label">Seç</string>
@@ -145,7 +126,6 @@
     <string name="char_stats_stealth">Gizlilik</string>
     <string name="char_stats_stamina">Dayanıklılık</string>
 
-    <!-- ── Leaderboard ────────────────────────────────────────── -->
     <string name="leaderboard_title">Liderlik Tablosu</string>
     <string name="leaderboard_my_rank">Sıralaman: #%d</string>
     <string name="leaderboard_filter_all">Tümü</string>
@@ -153,12 +133,10 @@
     <string name="leaderboard_prev">Önceki</string>
     <string name="leaderboard_next">Sonraki</string>
 
-    <!-- ── Currency ───────────────────────────────────────────── -->
     <string name="currency_omnium">Omnium</string>
     <string name="currency_soulium">Soulium</string>
     <string name="player_level_prefix">Seviye </string>
 
-    <!-- ── Game HUD ───────────────────────────────────────────── -->
     <string name="game_paused">DURAKLANDI</string>
     <string name="game_resume">Devam Et</string>
     <string name="game_exit_menu">Ana Menü</string>
@@ -173,7 +151,6 @@
     <string name="game_hud_stamina">STAMINA</string>
     <string name="game_hud_battery">PİL</string>
 
-    <!-- ── Common ─────────────────────────────────────────────── -->
     <string name="common_ok">Tamam</string>
     <string name="common_cancel">İptal</string>
     <string name="common_save">Kaydet</string>
@@ -187,11 +164,9 @@
     <string name="common_percent">%d%%</string>
     <string name="common_offline_only">Çevrimdışı modda oynanıyor</string>
 
-    <!-- ── Guard ──────────────────────────────────────────────── -->
     <string name="guard_threat_title">Güvenlik Uyarısı</string>
     <string name="guard_threat_message">Bu cihazda yetkisiz yazılım tespit edildi.</string>
 
-    <!-- ── Notifications ──────────────────────────────────────── -->
     <string name="notif_channel_session">Omni Backrooms Oyun Oturumu</string>
 
 </resources>

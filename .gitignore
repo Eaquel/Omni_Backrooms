@@ -2,12 +2,21 @@
 build/
 */build/
 **/.cxx/
+.externalNativeBuild/
+
+# Artifacts
 *.apk
 *.aab
 *.ap_
 
-# Gradle
+# Native
+*.o
+*.obj
+*.a
+
+# Gradle / Kotlin
 .gradle/
+.kotlin/
 gradle-app.setting
 !gradle-wrapper.jar
 
@@ -16,8 +25,15 @@ gradle-app.setting
 *.iml
 .DS_Store
 
-# Local
+# Local Config
 local.properties
 keystore.properties
 *.jks
+
+# Firebase
 google-services.json
+
+# Profiling / Crash
+*.hprof
+*.trace
+tombstones/
