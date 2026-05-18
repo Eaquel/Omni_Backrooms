@@ -89,7 +89,14 @@ android {
     }
 
     externalNativeBuild {
-        cmake { path = file("Source/Main/Native/CMakeLists.txt") }
+        cmake {
+            path    = file("Source/Main/Native/CMakeLists.txt")
+            // Tells AGP which CMake binary to use.
+            // -Pandroid.cmake.dir is ignored by AGP; the version must be
+            // declared here so the SDK Manager / NDK side-channel picks the
+            // correct installation.
+            version = "4.3.2"
+        }
     }
 
     packaging {

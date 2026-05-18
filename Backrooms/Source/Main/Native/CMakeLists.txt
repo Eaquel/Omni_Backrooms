@@ -28,7 +28,11 @@ target_include_directories(omni_backrooms PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 
-target_compile_features(omni_backrooms PRIVATE cxx_std_26)
+# cxx_std_26 is not a known CMake compile-feature before CMake 3.38+.
+# CMAKE_CXX_STANDARD=26 + CMAKE_CXX_STANDARD_REQUIRED=ON (set above) already
+# instructs the toolchain to use C++26.  We also pass the flag explicitly so
+# that it survives any toolchain-file override.
+target_compile_options(omni_backrooms PRIVATE -std=c++26)
 
 set(BASE_FLAGS
     -O3
