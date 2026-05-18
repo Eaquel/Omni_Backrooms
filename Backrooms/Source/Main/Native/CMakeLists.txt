@@ -28,10 +28,7 @@ target_include_directories(omni_backrooms PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 
-# cxx_std_26 is not a known CMake compile-feature before CMake 3.38+.
-# CMAKE_CXX_STANDARD=26 + CMAKE_CXX_STANDARD_REQUIRED=ON (set above) already
-# instructs the toolchain to use C++26.  We also pass the flag explicitly so
-# that it survives any toolchain-file override.
+# C++26: CMAKE_CXX_STANDARD=26 + explicit flag (cxx_std_26 only known CMake ≥3.38)
 target_compile_options(omni_backrooms PRIVATE -std=c++26)
 
 set(BASE_FLAGS
@@ -39,9 +36,8 @@ set(BASE_FLAGS
     -DNDEBUG
     -DOMNI_RELEASE=1
     -fstack-protector-strong
-    -fstack-clash-protection
-    -D_FORTIFY_SOURCE=3
     -U_FORTIFY_SOURCE
+    -D_FORTIFY_SOURCE=3
     -fvisibility=hidden
     -fvisibility-inlines-hidden
     -ffunction-sections
@@ -58,6 +54,7 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
     list(APPEND BASE_FLAGS
         -march=armv8.2-a+simd+dotprod+fp16
         -mtune=cortex-a76
+        -fstack-clash-protection
     )
 elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
     list(APPEND BASE_FLAGS

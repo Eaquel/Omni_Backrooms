@@ -32,7 +32,7 @@
 
 namespace omni::entity {
 
-constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+[[maybe_unused]] constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
 
 struct Vec2i { int x,y; bool operator==(const Vec2i& o) const noexcept { return x==o.x&&y==o.y; } };
 struct Vec2f { float x,y; };
@@ -263,7 +263,7 @@ namespace omni::sound {
 
 constexpr int   kRate   = 44100;
 constexpr int   kFrames = 2048;
-constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+[[maybe_unused]] constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
 [[maybe_unused]] constexpr float kInv32767 = 1.0f/32767.0f;
 
 struct Vec3f { float x,y,z; };
@@ -542,11 +542,15 @@ Java_com_omni_backrooms_NativeBridge_initSound(JNIEnv*, jobject) {
     using namespace omni::sound;
     gSound.mixBuf.assign(kFrames,0.0f); gSound.outBuf.assign(kFrames*2,0);
     gSound.ambience.setLevel(0.4f);
+    // TODO: migrate to AAudio (NDK ≥29). OpenSL ES deprecated on API 30+.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     if(slCreateEngine(&gSound.obj,0,nullptr,0,nullptr,nullptr)!=SL_RESULT_SUCCESS){ LOGE_S("slCreateEngine failed"); return JNI_FALSE; }
+#pragma clang diagnostic pop
     (*gSound.obj)->Realize(gSound.obj,SL_BOOLEAN_FALSE);
     (*gSound.obj)->GetInterface(gSound.obj,SL_IID_ENGINE,&gSound.engine);
-    const SLInterfaceID mIds[]={};  const SLboolean mReq[]={};
-    (*gSound.engine)->CreateOutputMix(gSound.engine,&gSound.mixObj,0,mIds,mReq);
+    // Use nullptr directly — zero-length arrays are a Clang extension (-Wzero-length-array)
+    (*gSound.engine)->CreateOutputMix(gSound.engine,&gSound.mixObj,0,nullptr,nullptr);
     (*gSound.mixObj)->Realize(gSound.mixObj,SL_BOOLEAN_FALSE);
     SLDataLocator_AndroidSimpleBufferQueue bqLoc{SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE,2};
     SLDataFormat_PCM fmt{SL_DATAFORMAT_PCM,2,SL_SAMPLINGRATE_44_1,SL_PCMSAMPLEFORMAT_FIXED_16,SL_PCMSAMPLEFORMAT_FIXED_16,SL_SPEAKER_FRONT_LEFT|SL_SPEAKER_FRONT_RIGHT,SL_BYTEORDER_LITTLEENDIAN};
