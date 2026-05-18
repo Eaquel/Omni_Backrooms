@@ -1,21 +1,21 @@
-cmake_minimum_required(VERSION 4.3.2)
+cmake_minimum_required(VERSION 3.22)
 
 project("omni_backrooms" CXX)
 
-set(CMAKE_CXX_STANDARD 26)
+set(CMAKE_CXX_STANDARD          26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS        OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 
-find_library(log-lib      log)
-find_library(android-lib  android)
-find_library(opensl-lib   OpenSLES)
-find_library(gles-lib     GLESv3)
-find_library(egl-lib      EGL)
-find_library(dl-lib       dl)
-find_library(z-lib        z)
-find_library(jnigraphics  jnigraphics)
+find_library(log-lib     log)
+find_library(android-lib android)
+find_library(opensl-lib  OpenSLES)
+find_library(gles-lib    GLESv3)
+find_library(egl-lib     EGL)
+find_library(dl-lib      dl)
+find_library(z-lib       z)
+find_library(jnigraphics jnigraphics)
 
 add_library(
     omni_backrooms
@@ -27,6 +27,8 @@ add_library(
 target_include_directories(omni_backrooms PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
+
+target_compile_features(omni_backrooms PRIVATE cxx_std_26)
 
 set(BASE_FLAGS
     -O3
