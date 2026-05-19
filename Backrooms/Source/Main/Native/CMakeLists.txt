@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.22)
 
 project("omni_backrooms" CXX)
 
-set(CMAKE_CXX_STANDARD          26)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS        OFF)
+# C++26 standardı -std=c++26 flag ile doğrudan iletiliyor (aşağıda).
+# CMAKE_CXX_STANDARD=26 kullanılmıyor: CMake 3.22 CXX26 dialect'ini tanımıyor
+# ve "does not know the compile flags" hatasını veriyor.
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 
@@ -28,7 +29,7 @@ target_include_directories(omni_backrooms PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 
-# C++26: CMAKE_CXX_STANDARD=26 + explicit flag (cxx_std_26 only known CMake ≥3.38)
+# C++26 flag — CMake dialect mekanizması bypass edilerek doğrudan iletiliyor
 target_compile_options(omni_backrooms PRIVATE -std=c++26)
 
 set(BASE_FLAGS
