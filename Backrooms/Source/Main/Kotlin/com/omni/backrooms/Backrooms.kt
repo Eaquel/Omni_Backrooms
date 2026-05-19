@@ -186,8 +186,8 @@ object AppModule {
     fun provideRoomRepository(api: ApiService): RoomRepository = RoomRepository(api)
 
     @Provides @Singleton
-    fun provideSettingsRepository(store: DataStore<Preferences>, bridge: NativeBridge): SettingsRepository =
-        SettingsRepository(store, bridge)
+    fun provideSettingsRepository(store: DataStore<Preferences>): SettingsRepository =
+        SettingsRepository(store)
 }
 
 @AndroidEntryPoint
@@ -597,7 +597,7 @@ private fun MenuButton(label: String, icon: androidx.compose.ui.graphics.vector.
     val inf    = rememberInfiniteTransition(label = "mb")
     val glow   by inf.animateFloat(0.5f, 1.0f, infiniteRepeatable(tween(1600, easing = EaseInOut), RepeatMode.Reverse), "g")
     var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, spring(stiffness = Spring.StiffnessMediumLow), "ps")
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "ps")
     Row(
         modifier = Modifier
             .scale(scale).fillMaxWidth(0.72f).height(52.dp)
@@ -800,7 +800,7 @@ fun OmniButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     val inf    = rememberInfiniteTransition(label = "btn")
     val glow   by inf.animateFloat(0.6f, 1.0f, infiniteRepeatable(tween(1800, easing = EaseInOut), RepeatMode.Reverse), "glow")
     var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(stiffness = Spring.StiffnessMediumLow), "bs")
+    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "bs")
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier.scale(scale).width(width).height(height)
