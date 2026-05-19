@@ -11,9 +11,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.os.Bundle
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FirebaseFirestore
@@ -146,7 +147,9 @@ class MarketVM @Inject constructor(
                     val updated = _state.value.characters.map { c -> c.copy(isEquipped=c.id==charId) }
                     _state.update { it.copy(equipping=null, characters=updated) }
                     runCatching {
-                        FirebaseAnalytics.getInstance(appCtx).logEvent("character_equip") { param("char_id", charId) }
+                        FirebaseAnalytics.getInstance(appCtx).logEvent("character_equip", Bundle().apply {
+                            putString("char_id", charId)
+                        })
                         FirebaseFirestore.getInstance().collection("user_chars").document(charId).set(mapOf("equipped" to true))
                     }
                 }
@@ -174,12 +177,12 @@ class MarketVM @Inject constructor(
                         }
                     }
                     runCatching {
-                        FirebaseAnalytics.getInstance(appCtx).logEvent(FirebaseAnalytics.Event.PURCHASE) {
-                            param(FirebaseAnalytics.Param.ITEM_ID,   item.id)
-                            param(FirebaseAnalytics.Param.ITEM_NAME, item.nameTr)
-                            param(FirebaseAnalytics.Param.CURRENCY,  item.currency)
-                            param(FirebaseAnalytics.Param.VALUE,     item.price.toDouble())
-                        }
+                        FirebaseAnalytics.getInstance(appCtx).logEvent(FirebaseAnalytics.Event.PURCHASE, Bundle().apply {
+                            putString(FirebaseAnalytics.Param.ITEM_ID,   item.id)
+                            putString(FirebaseAnalytics.Param.ITEM_NAME, item.nameTr)
+                            putString(FirebaseAnalytics.Param.CURRENCY,  item.currency)
+                            putDouble(FirebaseAnalytics.Param.VALUE,     item.price.toDouble())
+                        })
                     }
                 }
                 .onFailure { e ->
