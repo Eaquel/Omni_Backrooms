@@ -32,9 +32,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.analytics.FirebaseAnalytics
-import com.google.firebase.analytics.logEvent
+import com.google.firebase.analytics.ktx.analytics
+import com.google.firebase.analytics.ktx.logEvent
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.ktx.Firebase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -86,8 +88,7 @@ data class MarketUiState(
 @HiltViewModel
 class MarketVM @Inject constructor(
     private val api         : ApiService,
-    private val assetManager: AssetManager,
-    @dagger.hilt.android.qualifiers.ApplicationContext private val appCtx: android.content.Context
+    private val assetManager: AssetManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MarketUiState())
@@ -147,8 +148,7 @@ class MarketVM @Inject constructor(
                     val updated = _state.value.characters.map { c -> c.copy(isEquipped=c.id==charId) }
                     _state.update { it.copy(equipping=null, characters=updated) }
                     runCatching {
-                        val analytics = FirebaseAnalytics.getInstance(appCtx)
-                        analytics.logEvent("character_equip") { param("char_id", charId) }
+                        Firebase.analytics.logEvent("character_equip") { param("char_id", charId) }
                         FirebaseFirestore.getInstance().collection("user_chars").document(charId).set(mapOf("equipped" to true))
                     }
                 }
@@ -176,8 +176,7 @@ class MarketVM @Inject constructor(
                         }
                     }
                     runCatching {
-                        val analytics = FirebaseAnalytics.getInstance(appCtx)
-                        analytics.logEvent(FirebaseAnalytics.Event.PURCHASE) {
+                        Firebase.analytics.logEvent(FirebaseAnalytics.Event.PURCHASE) {
                             param(FirebaseAnalytics.Param.ITEM_ID,   item.id)
                             param(FirebaseAnalytics.Param.ITEM_NAME, item.nameTr)
                             param(FirebaseAnalytics.Param.CURRENCY,  item.currency)
@@ -263,7 +262,7 @@ internal fun Market(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                 CurrencyBadge(s.souliumBal, SouliumCol, Icons.Default.AutoAwesome)
                 if (s.isVip) { Spacer(Modifier.width(8.dp)); VipBadge() }
             }
-            ScrollableTabRow(
+            PrimaryScrollableTabRow(
                 selectedTabIndex = s.tab.ordinal,
                 containerColor   = MetalBg.copy(0.5f),
                 contentColor     = Yellow,

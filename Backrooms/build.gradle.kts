@@ -108,10 +108,9 @@ android {
 
     splits {
         abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a")
-            isUniversalApk = false
+            // ABI splits disabled: incompatible with bundleRelease (AGP bug b/402800800).
+            // Per-ABI delivery is handled by bundle { abi { enableSplit = true } } below.
+            isEnable = false
         }
     }
 
