@@ -32,11 +32,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.analytics.FirebaseAnalytics
-import com.google.firebase.analytics.ktx.analytics
-import com.google.firebase.analytics.ktx.logEvent
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.ktx.Firebase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -88,7 +85,8 @@ data class MarketUiState(
 @HiltViewModel
 class MarketVM @Inject constructor(
     private val api         : ApiService,
-    private val assetManager: AssetManager
+    private val assetManager: AssetManager,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appCtx: android.content.Context
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MarketUiState())
@@ -148,7 +146,7 @@ class MarketVM @Inject constructor(
                     val updated = _state.value.characters.map { c -> c.copy(isEquipped=c.id==charId) }
                     _state.update { it.copy(equipping=null, characters=updated) }
                     runCatching {
-                        Firebase.analytics.logEvent("character_equip") { param("char_id", charId) }
+                        FirebaseAnalytics.getInstance(appCtx).logEvent("character_equip") { param("char_id", charId) }
                         FirebaseFirestore.getInstance().collection("user_chars").document(charId).set(mapOf("equipped" to true))
                     }
                 }
@@ -176,7 +174,7 @@ class MarketVM @Inject constructor(
                         }
                     }
                     runCatching {
-                        Firebase.analytics.logEvent(FirebaseAnalytics.Event.PURCHASE) {
+                        FirebaseAnalytics.getInstance(appCtx).logEvent(FirebaseAnalytics.Event.PURCHASE) {
                             param(FirebaseAnalytics.Param.ITEM_ID,   item.id)
                             param(FirebaseAnalytics.Param.ITEM_NAME, item.nameTr)
                             param(FirebaseAnalytics.Param.CURRENCY,  item.currency)
@@ -204,7 +202,7 @@ class MarketVM @Inject constructor(
     }
 
     fun getClassIcon(clazz: String): ImageVector = when (clazz.lowercase()) {
-        "scout"    -> Icons.Default.DirectionsRun; "survivor" -> Icons.Default.Shield
+        "scout"    -> Icons.AutoMirrored.Filled.DirectionsRun; "survivor" -> Icons.Default.Shield
         "engineer" -> Icons.Default.Build;         "ghost"    -> Icons.Default.BrightnessLow
         else       -> Icons.Default.Person
     }
@@ -266,7 +264,6 @@ internal fun Market(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                 selectedTabIndex = s.tab.ordinal,
                 containerColor   = MetalBg.copy(0.5f),
                 contentColor     = Yellow,
-                indicator        = { pos -> Box(Modifier.tabIndicatorOffset(pos[s.tab.ordinal]).height(2.dp).background(Yellow)) },
                 edgePadding      = 4.dp
             ) {
                 MarketTab.entries.forEach { t ->

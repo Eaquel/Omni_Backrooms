@@ -491,7 +491,7 @@ private fun ChapterCard(chapter: StoryChapterDto, onClick: () -> Unit) {
                 color=TextDim, fontSize=11.sp, maxLines=2, overflow=TextOverflow.Ellipsis, lineHeight=16.sp
             )
         }
-        Icon(if (locked) Icons.Default.Lock else Icons.Default.ArrowForward, null,
+        Icon(if (locked) Icons.Default.Lock else Icons.AutoMirrored.Filled.ArrowForward, null,
             tint=if (locked) TextDim else Yellow, modifier=Modifier.size(18.dp))
     }
 }

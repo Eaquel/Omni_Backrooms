@@ -76,7 +76,6 @@ import dagger.hilt.android.HiltAndroidApp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-@OptIn(kotlinx.coroutines.FlowPreview::class)
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.Json
@@ -584,7 +583,7 @@ fun Menu(
             Column(verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 MenuButton(stringResource(R.string.menu_new_game),    Icons.Default.PlayArrow,   Yellow,       onNewGame)
                 MenuButton(stringResource(R.string.menu_market),      Icons.Default.Store,       CrtAmber,     onMarket)
-                MenuButton(stringResource(R.string.menu_story),       Icons.Default.MenuBook,    TextSec,      onStory)
+                MenuButton(stringResource(R.string.menu_story),       Icons.AutoMirrored.Filled.MenuBook,    TextSec,      onStory)
                 MenuButton(stringResource(R.string.menu_leaderboard), Icons.Default.EmojiEvents, SouliumCol,   onLeader)
                 MenuButton(stringResource(R.string.menu_settings),    Icons.Default.Settings,    TextDim,      onSettings)
             }

@@ -309,7 +309,7 @@ class SettingsVM @Inject constructor(
 private enum class STab(val labelRes: Int, val icon: ImageVector) {
     Account (R.string.settings_tab_account,  Icons.Default.Person),
     Graphics(R.string.settings_tab_graphics, Icons.Default.Tune),
-    Audio   (R.string.settings_tab_audio,    Icons.Default.VolumeUp),
+    Audio   (R.string.settings_tab_audio,    Icons.AutoMirrored.Filled.VolumeUp),
     Controls(R.string.settings_tab_controls, Icons.Default.SportsEsports),
     Gameplay(R.string.settings_tab_gameplay, Icons.Default.VideogameAsset),
     Notif   (R.string.settings_tab_notif,    Icons.Default.Notifications)
