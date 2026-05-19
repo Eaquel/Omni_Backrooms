@@ -186,8 +186,8 @@ object AppModule {
     fun provideRoomRepository(api: ApiService): RoomRepository = RoomRepository(api)
 
     @Provides @Singleton
-    fun provideSettingsRepository(store: DataStore<Preferences>): SettingsRepository =
-        SettingsRepository(store)
+    fun provideSettingsRepository(store: DataStore<Preferences>, bridge: NativeBridge): SettingsRepository =
+        SettingsRepository(store, bridge)
 }
 
 @AndroidEntryPoint
