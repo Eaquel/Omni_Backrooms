@@ -52,9 +52,27 @@ jobs:
 
       - name: Install CMake ${{ env.CMAKE_VERSION }}
         run: |
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "cmake;${{ env.CMAKE_VERSION }}"
-          echo "SDK_CMAKE_DIR=$ANDROID_SDK_ROOT/cmake/${{ env.CMAKE_VERSION }}" >> $GITHUB_ENV
-          "$ANDROID_SDK_ROOT/cmake/${{ env.CMAKE_VERSION }}/bin/cmake" --version
+          CMAKE_DIR="$ANDROID_SDK_ROOT/cmake/${{ env.CMAKE_VERSION }}"
+          mkdir -p "$CMAKE_DIR"
+          curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${{ env.CMAKE_VERSION }}/cmake-${{ env.CMAKE_VERSION }}-linux-x86_64.tar.gz" \
+            | tar -xz --strip-components=1 -C "$CMAKE_DIR"
+          # AGP'nin cmake binary'sini bulması için package.xml gerekiyor
+          cat > "$CMAKE_DIR/package.xml" << 'XML'
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <ns2:repository xmlns:ns2="http://schemas.android.com/repository/android/common/02"
+                          xmlns:ns3="http://schemas.android.com/repository/android/generic/02"
+                          xmlns:ns4="http://schemas.android.com/sdk/android/repo/addon2/03"
+                          xmlns:ns5="http://schemas.android.com/sdk/android/repo/sys-img2/03"
+                          xmlns:ns6="http://schemas.android.com/sdk/android/repo/repository2/03">
+            <localPackage path="cmake;${{ env.CMAKE_VERSION }}" obsolete="false">
+              <type-details xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="ns3:genericDetailsType"/>
+              <revision><major>4</major><minor>3</minor><micro>2</micro></revision>
+              <display-name>CMake ${{ env.CMAKE_VERSION }}</display-name>
+            </localPackage>
+          </ns2:repository>
+          XML
+          echo "SDK_CMAKE_DIR=$CMAKE_DIR" >> $GITHUB_ENV
+          "$CMAKE_DIR/bin/cmake" --version
 
       - name: Prepare Gradle Wrapper
         run: |
