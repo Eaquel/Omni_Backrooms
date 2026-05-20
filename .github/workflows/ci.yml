@@ -77,7 +77,7 @@ jobs:
           echo "SDK_CMAKE_DIR=$CMAKE_DIR" >> "$GITHUB_ENV"
           "$CMAKE_DIR/bin/cmake" --version
 
-      - name: Generate gradlew + gradle.properties
+      - name: Setup gradle.properties
         run: |
           cat > gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
@@ -92,35 +92,20 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
-          # gradle-wrapper.jar'i resmi Gradle dagitim ZIP'inden cek
-          mkdir -p Gradle
-          curl -fsSL \
-            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
-            -o /tmp/gradle-bin.zip
-          unzip -jo /tmp/gradle-bin.zip \
-            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
-            -d /tmp/gradle-wrapper-extracted
-          cp /tmp/gradle-wrapper-extracted/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
-          rm -rf /tmp/gradle-bin.zip /tmp/gradle-wrapper-extracted
-
+      - name: Generate gradlew
+        run: |
           cat > gradlew << 'GRADLEW'
           #!/bin/sh
-          APP_NAME="Gradle"
-          APP_BASE_NAME=$(basename "$0")
           APP_HOME=$(dirname "$(readlink -f "$0")" 2>/dev/null || cd "$(dirname "$0")" && pwd)
           CLASSPATH=$APP_HOME/Gradle/gradle-wrapper.jar
           exec java $JAVA_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
           GRADLEW
           chmod +x gradlew
 
+          # Gradle wrapper'in Gradle/gradle-wrapper.properties'i okuyabilmesi icin
+          # standart gradle/wrapper/ yoluna da kopyala
           mkdir -p gradle/wrapper
-          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-9.5.0-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
+          cp Gradle/gradle-wrapper.properties gradle/wrapper/gradle-wrapper.properties
 
       - name: Inject google-services.json
         env:
@@ -188,7 +173,7 @@ jobs:
           key: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
           restore-keys: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-
 
-      - name: Generate gradlew + gradle.properties
+      - name: Setup gradle.properties
         run: |
           cat > gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
@@ -203,21 +188,10 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
-          # gradle-wrapper.jar'i resmi Gradle dagitim ZIP'inden cek
-          mkdir -p Gradle
-          curl -fsSL \
-            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
-            -o /tmp/gradle-bin.zip
-          unzip -jo /tmp/gradle-bin.zip \
-            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
-            -d /tmp/gradle-wrapper-extracted
-          cp /tmp/gradle-wrapper-extracted/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
-          rm -rf /tmp/gradle-bin.zip /tmp/gradle-wrapper-extracted
-
+      - name: Generate gradlew
+        run: |
           cat > gradlew << 'GRADLEW'
           #!/bin/sh
-          APP_NAME="Gradle"
-          APP_BASE_NAME=$(basename "$0")
           APP_HOME=$(dirname "$(readlink -f "$0")" 2>/dev/null || cd "$(dirname "$0")" && pwd)
           CLASSPATH=$APP_HOME/Gradle/gradle-wrapper.jar
           exec java $JAVA_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
@@ -225,13 +199,7 @@ jobs:
           chmod +x gradlew
 
           mkdir -p gradle/wrapper
-          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-9.5.0-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
+          cp Gradle/gradle-wrapper.properties gradle/wrapper/gradle-wrapper.properties
 
       - name: Lint + Detekt
         run: ./gradlew :Backrooms:detekt || true
