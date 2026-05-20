@@ -171,4 +171,29 @@
 
     <string name="notif_channel_session">Omni Backrooms Oyun Oturumu</string>
 
+    <string name="menu_play_offline">Çevrimdışı Oyna</string>
+    <string name="menu_play_online">Çevrimiçi Oyna</string>
+    <string name="menu_profile">Profil</string>
+
+    <string name="quality_low">Düşük</string>
+    <string name="quality_medium">Orta</string>
+    <string name="quality_high">Yüksek</string>
+    <string name="quality_ultra">Ultra</string>
+
+    <string name="graphics_resolution_scale">Çözünürlük Ölçeği</string>
+    <string name="audio_master_volume">Ana Ses</string>
+    <string name="settings_vibration">Titreşim</string>
+
+    <string name="account_player_name">Oyuncu Adı</string>
+    <string name="account_connect_google">Google ile Bağla</string>
+    <string name="account_sync">Senkronize Et</string>
+    <string name="account_reset">Sıfırla</string>
+    <string name="account_remote_config_active">Uzak yapılandırma aktif</string>
+
+    <string name="settings_color_blind">Renk Körlüğü Modu</string>
+    <string name="settings_fps_limit">FPS Limiti</string>
+
+    <string name="notif_push_toggle">Anlık Bildirimler</string>
+    <string name="notif_info_text">Bildirimler, yeni sezonlar ve özel etkinlikler için gönderilir.</string>
+
 </resources>

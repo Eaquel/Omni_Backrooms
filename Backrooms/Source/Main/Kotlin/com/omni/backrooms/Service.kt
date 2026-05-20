@@ -57,9 +57,6 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.*
 import javax.inject.Inject
 
-// ═════════════════════════════════════════════════════════════
-//  NativeBridge — libil2cpp.so JNI interface
-// ═════════════════════════════════════════════════════════════
 class NativeBridge @Inject constructor() {
     external fun initCore(seed: Long)
     external fun getFlicker(phase: Float, t: Float, broken: Boolean): Float
@@ -112,9 +109,6 @@ class NativeBridge @Inject constructor() {
     external fun destroyGuard()
 }
 
-// ═════════════════════════════════════════════════════════════
-//  API Service — Retrofit interface
-// ═════════════════════════════════════════════════════════════
 interface ApiService {
     @GET("rooms")
     suspend fun getRooms(@Query("q") query: String?, @Query("locked") locked: Boolean?, @Query("lang") language: String?, @Query("page") page: Int, @Query("pageSize") pageSize: Int): RoomPage
@@ -172,9 +166,6 @@ interface ApiService {
     suspend fun reportPlayer(@Body body: ReportRequest): BaseResponse
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Domain Data Models
-// ═════════════════════════════════════════════════════════════
 data class PlayerProfile(
     val id            : String  = "",
     val name          : String  = "Wanderer",
@@ -322,7 +313,6 @@ data class SessionStats(
     val peakSanity: Float = 100f, val lowestHp: Float = 100f, val totalDistance: Float = 0f
 )
 
-// ── API DTOs ──────────────────────────────────────────────────
 data class CreateRoomRequest(val name: String, val maxPlayers: Int, val difficulty: String, val password: String?, val language: String = "TR", val mapId: String = "level_0")
 data class CreateRoomResponse(val roomId: String, val joinCode: String, val success: Boolean)
 data class JoinRoomResponse(val success: Boolean, val roomId: String?, val error: String?)
@@ -346,9 +336,6 @@ data class StoryChapterDto(val id: Int, val titleTr: String, val titleEn: String
 data class EventDto(val id: String, val titleTr: String, val titleEn: String, val descriptionTr: String, val descriptionEn: String, val rewardType: String, val rewardAmount: Long, val endMs: Long, val isActive: Boolean)
 data class ReportRequest(val reportedId: Int, val reason: String, val details: String)
 
-// ═════════════════════════════════════════════════════════════
-//  Room Repository
-// ═════════════════════════════════════════════════════════════
 class RoomRepository @Inject constructor(private val api: ApiService) {
     suspend fun fetchRooms(query: String?, locked: Boolean?, lang: String?, page: Int, pageSize: Int): RoomPage =
         api.getRooms(query, locked, lang, page, pageSize)
@@ -356,9 +343,6 @@ class RoomRepository @Inject constructor(private val api: ApiService) {
         api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password)).roomId
 }
 
-// ═════════════════════════════════════════════════════════════
-//  SessionService — Foreground game loop service
-// ═════════════════════════════════════════════════════════════
 @AndroidEntryPoint
 class SessionService : Service() {
 
@@ -652,9 +636,6 @@ class SessionService : Service() {
             .setOngoing(true).setSilent(true).build()
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Room UI State & ViewModels
-// ═════════════════════════════════════════════════════════════
 data class RoomListUiState(
     val rooms       : List<RoomInfo> = emptyList(),
     val query       : String         = "",
@@ -714,7 +695,7 @@ class RoomListVM @Inject constructor(private val repo: RoomRepository) : ViewMod
             val s = _state.value; _state.update { it.copy(isLoading = true) }
             runCatching { repo.fetchRooms(s.query, s.filterLocked, s.lang, s.page, 20) }
                 .onSuccess { r -> _state.update { it.copy(isLoading = false, rooms = r.rooms, totalPages = maxOf(1, (r.total + 19) / 20)) } }
-                .onFailure {     _state.update { it.copy(isLoading = false)) } }
+                .onFailure {     _state.update { it.copy(isLoading = false) } }
         }
     }
 }
@@ -787,9 +768,6 @@ class RoomLobbyVM @Inject constructor(private val api: ApiService, private val b
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Room UI Composables
-// ═════════════════════════════════════════════════════════════
 @kotlinx.coroutines.FlowPreview
 @Composable
 fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewModel()) {
@@ -887,7 +865,6 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
     }
 }
 
-// ── Private Room Sub-Composables ──────────────────────────────
 @Composable
 private fun RoomRow(room: RoomInfo, onClick: () -> Unit) {
     Row(

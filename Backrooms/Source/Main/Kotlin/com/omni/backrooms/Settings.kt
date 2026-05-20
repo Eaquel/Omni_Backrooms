@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,9 +47,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
 
-// ═════════════════════════════════════════════════════════════
-//  SettingsRepository — DataStore + Native bridge + Firebase RC
-// ═════════════════════════════════════════════════════════════
 @Singleton
 class SettingsRepository @Inject constructor(
     private val store : DataStore<Preferences>,
@@ -75,7 +73,6 @@ class SettingsRepository @Inject constructor(
         val KEY_COLOR_BLIND  = stringPreferencesKey("color_blind_mode")
     }
 
-    // ── Observe ───────────────────────────────────────────────
     fun observe(): Flow<GameSettings> = store.data.map { p ->
         GameSettings(
             playerName        = p[KEY_NAME]         ?: "Wanderer",
@@ -104,7 +101,6 @@ class SettingsRepository @Inject constructor(
     fun observeVoice()  : Flow<Float>   = store.data.map { it[KEY_VOICE]   ?: 0.8f     }
     fun observeQuality(): Flow<String>  = store.data.map { it[KEY_QUALITY] ?: "medium" }
 
-    // ── Persist ───────────────────────────────────────────────
     suspend fun saveName(v: String)          { store.edit { it[KEY_NAME]         = v }; syncToFirestore("player_name", v) }
     suspend fun saveQuality(v: String)       { store.edit { it[KEY_QUALITY]      = v } }
     suspend fun saveVhs(v: Boolean)          { store.edit { it[KEY_VHS]          = v } }
@@ -154,7 +150,6 @@ class SettingsRepository @Inject constructor(
         }
     }
 
-    // ── Remote Config ────────────────────────────────────────
     suspend fun fetchFromRemoteConfig(): Map<String, Any> = withContext(Dispatchers.IO) {
         runCatching {
             val rc = FirebaseRemoteConfig.getInstance()
@@ -185,9 +180,6 @@ class SettingsRepository @Inject constructor(
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  SettingsUiState
-// ═════════════════════════════════════════════════════════════
 data class SettingsUiState(
     val playerName        : String          = "Wanderer",
     val graphicsQuality   : String          = "medium",
@@ -212,9 +204,6 @@ data class SettingsUiState(
     val remoteOverrides   : Map<String,Any> = emptyMap()
 )
 
-// ═════════════════════════════════════════════════════════════
-//  SettingsVM
-// ═════════════════════════════════════════════════════════════
 @HiltViewModel
 class SettingsVM @Inject constructor(
     private val repo: SettingsRepository,
@@ -225,7 +214,7 @@ class SettingsVM @Inject constructor(
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init {
-        // Observe DataStore
+
         viewModelScope.launch {
             repo.observe().collect { g ->
                 _state.update {
@@ -252,7 +241,7 @@ class SettingsVM @Inject constructor(
                 }
             }
         }
-        // Firebase Remote Config overrides
+
         viewModelScope.launch(Dispatchers.IO) {
             val overrides = repo.fetchFromRemoteConfig()
             if (overrides.isNotEmpty()) {
@@ -265,7 +254,6 @@ class SettingsVM @Inject constructor(
         }
     }
 
-    // ── Handlers ─────────────────────────────────────────────
     fun onName(v: String)          { _state.update { it.copy(playerName        = v) }; save { repo.saveName(v) } }
     fun onQuality(v: String)       { _state.update { it.copy(graphicsQuality   = v) }; save { repo.saveQuality(v) } }
     fun onVhs(v: Boolean)          { _state.update { it.copy(vhsEnabled        = v) }; save { repo.saveVhs(v) } }
@@ -312,7 +300,7 @@ class SettingsVM @Inject constructor(
             )
             runCatching { repo.syncAllToServer(api, gs) }
                 .onSuccess { _state.update { it.copy(isSyncing = false, syncSuccess = true) } }
-                .onFailure { _state.update { it.copy(isSyncing = false)) } }
+                .onFailure { _state.update { it.copy(isSyncing = false) } }
         }
     }
 
@@ -328,9 +316,6 @@ class SettingsVM @Inject constructor(
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  SettingsScreen
-// ═════════════════════════════════════════════════════════════
 @Composable
 fun SettingsScreen(
     onBack    : () -> Unit,
@@ -353,7 +338,6 @@ fun SettingsScreen(
         CrtOverlay()
         Column(Modifier.fillMaxSize()) {
 
-            // ── Top bar ─────────────────────────────────────
             Row(
                 Modifier.fillMaxWidth().background(Color.Black.copy(0.65f)).padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -366,7 +350,6 @@ fun SettingsScreen(
             }
             DividerLine()
 
-            // ── Tab row ──────────────────────────────────────
             ScrollableTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor   = Color.Transparent,
@@ -396,7 +379,6 @@ fun SettingsScreen(
             }
             DividerLine()
 
-            // ── Tab content ──────────────────────────────────
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 16.dp),
@@ -415,9 +397,6 @@ fun SettingsScreen(
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Tab Composables
-// ═════════════════════════════════════════════════════════════
 @Composable
 private fun GraphicsTab(
     s           : SettingsUiState,
@@ -432,7 +411,6 @@ private fun GraphicsTab(
 ) {
     SLabel(stringResource(R.string.settings_tab_graphics))
 
-    // Graphics quality chips
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(R.string.quality_low to "low", R.string.quality_medium to "medium", R.string.quality_high to "high", R.string.quality_ultra to "ultra")
             .forEach { (res, key) ->
@@ -497,7 +475,6 @@ private fun AccountTab(
 ) {
     SLabel(stringResource(R.string.settings_tab_account))
 
-    // Player name field
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(stringResource(R.string.account_player_name), color = TextDim, fontSize = 10.sp, letterSpacing = 1.sp)
         Box(
@@ -521,7 +498,6 @@ private fun AccountTab(
 
     DividerLine()
 
-    // Google bağlantısı
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp)).background(MetalBg)
             .border(1.dp, BorderCol, RoundedCornerShape(2.dp))
@@ -536,13 +512,11 @@ private fun AccountTab(
 
     DividerLine()
 
-    // Sync + Reset
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         OmniButton(stringResource(R.string.account_sync), onSync,  width = 150.dp, height = 46.dp, accent = OmniumCol)
         OmniButton(stringResource(R.string.account_reset), onReset, width = 150.dp, height = 46.dp, accent = DangerRed)
     }
 
-    // Remote config overrides badge
     if (s.remoteOverrides.isNotEmpty()) {
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp)).background(SouliumCol.copy(0.1f))
@@ -609,9 +583,6 @@ private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Shared Settings Sub-Composables
-// ═════════════════════════════════════════════════════════════
 @Composable
 private fun SLabel(text: String) {
     Text(text, color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
@@ -659,9 +630,6 @@ private fun SSlider(
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  UiEditorVM + UiEditor
-// ═════════════════════════════════════════════════════════════
 private data class DragBtn(val id: String, val labelRes: Int, var ox: Float, var oy: Float)
 
 @HiltViewModel

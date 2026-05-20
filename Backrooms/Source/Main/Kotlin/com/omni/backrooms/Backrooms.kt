@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,9 +122,6 @@ import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-// ═════════════════════════════════════════════════════════════
-//  Design Tokens
-// ═════════════════════════════════════════════════════════════
 val Yellow       = Color(0xFFD4A84B)
 val YellowDim    = Color(0x80D4A84B)
 val DarkBg       = Color(0xFF0A0A08)
@@ -144,16 +142,13 @@ fun buildPlayerName(ctx: Context): String {
     return "Player$androidId"
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Application
-// ═════════════════════════════════════════════════════════════
 @HiltAndroidApp
 class App : Application() {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
-        // libil2cpp.so — Unity IL2CPP Runtime (Omni Engine)
+
         System.loadLibrary("il2cpp")
         appScope.launch(Dispatchers.IO) {
             val bridge = NativeBridge()
@@ -168,14 +163,8 @@ class App : Application() {
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  DataStore Extension
-// ═════════════════════════════════════════════════════════════
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "omni_prefs")
 
-// ═════════════════════════════════════════════════════════════
-//  Hilt DI Module
-// ═════════════════════════════════════════════════════════════
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -234,9 +223,6 @@ object AppModule {
         SettingsRepository(store, bridge)
 }
 
-// ═════════════════════════════════════════════════════════════
-//  MainActivity
-// ═════════════════════════════════════════════════════════════
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -252,9 +238,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Navigation
-// ═════════════════════════════════════════════════════════════
 private object Route {
     const val MENU        = "menu"
     const val GAME        = "game"
@@ -295,9 +278,6 @@ fun OmniBackroomsApp() {
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Asset Manager (from Assets.kt)
-// ═════════════════════════════════════════════════════════════
 enum class EntityType(
     val typeId    : Int,
     val baseSpeed : Float,
@@ -403,9 +383,6 @@ class AssetManager @Inject constructor(@ApplicationContext private val ctx: Cont
     }.flowOn(Dispatchers.IO)
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Guard Manager (from Assets.kt)
-// ═════════════════════════════════════════════════════════════
 enum class ThreatLevel { CLEAN, SUSPICIOUS, HIGH, CRITICAL }
 
 data class GuardReport(
@@ -516,9 +493,6 @@ object IntegrityChecker {
     ).any { pkg -> runCatching { ctx.packageManager.getPackageInfo(pkg, 0); true }.getOrElse { false } }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Guard ViewModel
-// ═════════════════════════════════════════════════════════════
 @HiltViewModel
 class GuardVM @Inject constructor(private val guardManager: GuardManager) : ViewModel() {
     val report     : StateFlow<GuardReport>  = guardManager.report
@@ -538,9 +512,6 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
     fun verifySignature(): Boolean = guardManager.verifyApkSignature()
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Market (from Market.kt) — State + ViewModel
-// ═════════════════════════════════════════════════════════════
 enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
     Boosts    (R.string.market_tab_boosts,     Icons.Default.Bolt),
     Characters(R.string.market_tab_characters, Icons.Default.Person),
@@ -681,9 +652,6 @@ class MarketVM @Inject constructor(
     )
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Story ViewModel
-// ═════════════════════════════════════════════════════════════
 data class StoryUiState(
     val chapters   : List<StoryChapterDto> = emptyList(),
     val selected   : StoryChapterDto?      = null,
@@ -730,9 +698,6 @@ class StoryVM @Inject constructor(
     fun exitReading() { _state.update { it.copy(readingMode = false, selected = null) } }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Game ViewModel
-// ═════════════════════════════════════════════════════════════
 @HiltViewModel
 class GameVM @Inject constructor(
     private val bridge      : NativeBridge,
@@ -881,9 +846,6 @@ class GameVM @Inject constructor(
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Leaderboard & Profile ViewModels (stub — native side handles)
-// ═════════════════════════════════════════════════════════════
 @HiltViewModel
 class LeaderboardVM @Inject constructor(private val api: ApiService) : ViewModel() {
     private val _entries = MutableStateFlow<List<LeaderboardEntry>>(emptyList())
@@ -898,11 +860,6 @@ class ProfileVM @Inject constructor(private val api: ApiService) : ViewModel() {
     init { viewModelScope.launch { runCatching { api.getProfile() }.onSuccess { _profile.value = it } } }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  UI Screens
-// ═════════════════════════════════════════════════════════════
-
-// ── Main Menu ────────────────────────────────────────────────
 @Composable
 fun MainMenu(
     onPlay       : () -> Unit,
@@ -941,7 +898,6 @@ fun MainMenu(
     }
 }
 
-// ── Game Screen ───────────────────────────────────────────────
 @Composable
 fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel()) {
     val state by vm.state.collectAsState()
@@ -968,7 +924,6 @@ fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel()) {
     }
 }
 
-// ── Market Screen ────────────────────────────────────────────
 @Composable
 fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
     val s by vm.state.collectAsState()
@@ -1085,7 +1040,6 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
     }
 }
 
-// ── Story Screen ─────────────────────────────────────────────
 @Composable
 fun Story(onBack: () -> Unit, vm: StoryVM = hiltViewModel()) {
     val s by vm.state.collectAsState()
@@ -1097,7 +1051,6 @@ fun Story(onBack: () -> Unit, vm: StoryVM = hiltViewModel()) {
     }
 }
 
-// ── Leaderboard Screen ───────────────────────────────────────
 @Composable
 fun LeaderboardScreen(onBack: () -> Unit, vm: LeaderboardVM = hiltViewModel()) {
     val entries by vm.entries.collectAsState()
@@ -1123,7 +1076,6 @@ fun LeaderboardScreen(onBack: () -> Unit, vm: LeaderboardVM = hiltViewModel()) {
     }
 }
 
-// ── Profile Screen ───────────────────────────────────────────
 @Composable
 fun ProfileScreen(onBack: () -> Unit, vm: ProfileVM = hiltViewModel()) {
     val profile by vm.profile.collectAsState()
@@ -1142,9 +1094,6 @@ fun ProfileScreen(onBack: () -> Unit, vm: ProfileVM = hiltViewModel()) {
     }
 }
 
-// ═════════════════════════════════════════════════════════════
-//  Shared Composable Components
-// ═════════════════════════════════════════════════════════════
 @Composable
 fun OmniButton(
     text   : String,
@@ -1384,7 +1333,6 @@ fun EscapedOverlay(gameState: GameState, onExit: () -> Unit) {
     }
 }
 
-// ── Story Composables ─────────────────────────────────────────
 @Composable
 private fun ChapterListView(state: StoryUiState, onBack: () -> Unit, onSelect: (StoryChapterDto) -> Unit) {
     Box(Modifier.fillMaxSize().background(Color(0xFF050503))) {
@@ -1465,7 +1413,6 @@ private fun BookReadingView(chapter: StoryChapterDto, onClose: () -> Unit) {
     }
 }
 
-// ── Canvas Composables ────────────────────────────────────────
 @Composable
 fun CorridorCanvas(pan: Float, flicker: Float, modifier: Modifier) {
     androidx.compose.foundation.Canvas(modifier) {
@@ -1497,7 +1444,6 @@ fun CarpetProgressBar(progress: Float, modifier: Modifier) {
     }
 }
 
-// ── Market Sub-Composables ───────────────────────────────────
 @Composable
 private fun MarketCard(item: MarketItemDto, isPurchasing: Boolean, onBuy: () -> Unit) {
     val currencyColor = when (item.currency.lowercase()) { "omnium" -> OmniumCol; "soulium" -> SouliumCol; "tl" -> SuccessGreen; else -> CrtAmber }
@@ -1600,7 +1546,6 @@ private fun PlayerCard(profile: PlayerProfile) {
     }
 }
 
-// ── Utility ───────────────────────────────────────────────────
 @Composable
 private fun StatRow(label: String, value: String, color: Color) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
@@ -1620,7 +1565,6 @@ fun formatElapsed(ms: Long): String {
     return "%02d:%02d".format(m, s)
 }
 
-// Extension properties for GameState
 private val GameState.vhsEnabled: Boolean get() = true
 private val GameState.showFps   : Boolean get() = false
 private val GameState.showPing  : Boolean get() = true
