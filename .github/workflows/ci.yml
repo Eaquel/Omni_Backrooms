@@ -92,10 +92,16 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
+          # gradle-wrapper.jar'i resmi Gradle dagitim ZIP'inden cek
           mkdir -p Gradle
           curl -fsSL \
-            "https://raw.githubusercontent.com/gradle/gradle/v${{ env.GRADLE_VERSION }}/gradle/wrapper/gradle-wrapper.jar" \
-            -o Gradle/gradle-wrapper.jar
+            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
+            -o /tmp/gradle-bin.zip
+          unzip -jo /tmp/gradle-bin.zip \
+            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
+            -d /tmp/gradle-wrapper-extracted
+          cp /tmp/gradle-wrapper-extracted/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
+          rm -rf /tmp/gradle-bin.zip /tmp/gradle-wrapper-extracted
 
           cat > gradlew << 'GRADLEW'
           #!/bin/sh
@@ -197,10 +203,16 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
+          # gradle-wrapper.jar'i resmi Gradle dagitim ZIP'inden cek
           mkdir -p Gradle
           curl -fsSL \
-            "https://raw.githubusercontent.com/gradle/gradle/v${{ env.GRADLE_VERSION }}/gradle/wrapper/gradle-wrapper.jar" \
-            -o Gradle/gradle-wrapper.jar
+            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
+            -o /tmp/gradle-bin.zip
+          unzip -jo /tmp/gradle-bin.zip \
+            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
+            -d /tmp/gradle-wrapper-extracted
+          cp /tmp/gradle-wrapper-extracted/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
+          rm -rf /tmp/gradle-bin.zip /tmp/gradle-wrapper-extracted
 
           cat > gradlew << 'GRADLEW'
           #!/bin/sh
