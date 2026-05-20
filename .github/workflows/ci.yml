@@ -77,8 +77,9 @@ jobs:
           echo "SDK_CMAKE_DIR=$CMAKE_DIR" >> "$GITHUB_ENV"
           "$CMAKE_DIR/bin/cmake" --version
 
-      - name: Setup gradle.properties
+      - name: Setup Gradle
         run: |
+          # gradle.properties olustur
           cat > gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
           org.gradle.parallel=true
@@ -92,8 +93,19 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
-      - name: Generate gradlew
-        run: |
+          # gradle-wrapper.jar'i Gradle dagitim ZIP'inden cek
+          # (jar binary oldugundan git'e yuklenemez, CI'da olusturmak gerekiyor)
+          curl -fsSL \
+            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
+            -o /tmp/gradle-bin.zip
+          unzip -jo /tmp/gradle-bin.zip \
+            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
+            -d /tmp/gwjar
+          mkdir -p Gradle
+          cp /tmp/gwjar/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
+          rm -rf /tmp/gradle-bin.zip /tmp/gwjar
+
+          # gradlew olustur — Gradle/ klasorunu isaret ediyor
           cat > gradlew << 'GRADLEW'
           #!/bin/sh
           APP_HOME=$(dirname "$(readlink -f "$0")" 2>/dev/null || cd "$(dirname "$0")" && pwd)
@@ -102,8 +114,7 @@ jobs:
           GRADLEW
           chmod +x gradlew
 
-          # Gradle wrapper'in Gradle/gradle-wrapper.properties'i okuyabilmesi icin
-          # standart gradle/wrapper/ yoluna da kopyala
+          # GradleWrapperMain properties dosyasini standart yoldan okur
           mkdir -p gradle/wrapper
           cp Gradle/gradle-wrapper.properties gradle/wrapper/gradle-wrapper.properties
 
@@ -173,7 +184,7 @@ jobs:
           key: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
           restore-keys: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-
 
-      - name: Setup gradle.properties
+      - name: Setup Gradle
         run: |
           cat > gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
@@ -188,8 +199,16 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
-      - name: Generate gradlew
-        run: |
+          curl -fsSL \
+            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
+            -o /tmp/gradle-bin.zip
+          unzip -jo /tmp/gradle-bin.zip \
+            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
+            -d /tmp/gwjar
+          mkdir -p Gradle
+          cp /tmp/gwjar/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
+          rm -rf /tmp/gradle-bin.zip /tmp/gwjar
+
           cat > gradlew << 'GRADLEW'
           #!/bin/sh
           APP_HOME=$(dirname "$(readlink -f "$0")" 2>/dev/null || cd "$(dirname "$0")" && pwd)
