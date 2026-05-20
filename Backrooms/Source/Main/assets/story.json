@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "chapters": [
+    {
+      "id": 1,
+      "title_tr": "Başlangıç",
+      "title_en": "The Beginning",
+      "unlocked": true,
+      "paragraphs_tr": [
+        "Yanlış gitmişsin. Gerçeklik seni bir an için terk etti ve şimdi burada — Omni Backrooms'dasın. Sonsuz sarı duvarlı koridorlar, nemli halı kokusu ve floresan lambaların kesintisiz vızıltısı. Zaman yok. Yön yok. Çıkış var mı?",
+        "Backrooms, bilinen evrenin altında var olan paralel bir uzamdır. Kuantum kayması, rüya sızması veya ani bir bilinç kopuşu yoluyla girebilirsin. Burası harita değil; sonsuz bir labirentin fraktal yankısıdır.",
+        "Level 0'dan başladın. Her koşun seni farklı bir seviyeye götürebilir — bazıları sessiz, bazıları… değil.",
+        "\"Eğer bunu okuyorsan, hâlâ bir şansın var. Kaç. Dur. Dinle. Ve asla geriye bakma.\"\n— Anonim Hayatta Kalan"
+      ],
+      "paragraphs_en": [
+        "You have slipped through. Reality abandoned you for a moment and now you are here — in the Omni Backrooms. Endless yellow-walled corridors, the smell of damp carpet and the unceasing hum of fluorescent lights. No time. No direction. Is there an exit?",
+        "The Backrooms is a parallel space that exists beneath the known universe. You can enter through quantum tunnelling, dream leakage, or a sudden break in consciousness. This is not a map; it is the fractal echo of an infinite labyrinth.",
+        "You started at Level 0. Every run may take you to a different level — some silent, some… not.",
+        "\"If you are reading this, you still have a chance. Run. Stop. Listen. And never look back.\"\n— Anonymous Survivor"
+      ]
+    },
+    {
+      "id": 2,
+      "title_tr": "İlk Karşılaşma",
+      "title_en": "First Encounter",
+      "unlocked": true,
+      "paragraphs_tr": [
+        "Onları ilk gördüğümde sadece bir gölgeydiler. Koridorun sonunda, floresan ışığın titreştiği noktada… Duruyorlardı. Bekleyerek.",
+        "Smiler diyorlar onlara. İsmi çok uygun. Gülümsüyorlar, evet — ama gülüşleri hiçbir zaman gözlerine ulaşmıyor. Gözleri boş. Sonsuz derecede boş.",
+        "Onlardan kaçmanın tek yolu sessizlik. Ve hız. Bir kez bakışlarını sana kilitlerlerse, koşmaktan başka çare kalmaz.",
+        "İlk gece — ya da ne kadar sürdüğünü bilmiyorum, zira burada zaman yok — bir rafın arkasına saklandım ve nefesimi tutmaya çalıştım. Geçip gittiler. Ama koridorun ötesinden seslerini hâlâ duyuyordum.",
+        "\"Gözlerini kaçırma. Ama asla direkt bakma.\"\n— Hayatta Kalan #7"
+      ],
+      "paragraphs_en": [
+        "When I first saw them they were just shadows. At the end of the corridor, at the point where the fluorescent light flickered… They were standing. Waiting.",
+        "They call them Smilers. The name is fitting. They smile, yes — but their smiles never reach their eyes. Their eyes are empty. Infinitely empty.",
+        "The only way to escape them is silence. And speed. Once they lock their gaze on you, there is nothing left to do but run.",
+        "The first night — or however long it lasted, since there is no time here — I hid behind a shelf and tried to hold my breath. They passed by. But I could still hear them from beyond the corridor.",
+        "\"Avoid eye contact. But never stare directly.\"\n— Survivor #7"
+      ]
+    },
+    {
+      "id": 3,
+      "title_tr": "Seviyeler Arası",
+      "title_en": "Between Levels",
+      "unlocked": false,
+      "paragraphs_tr": [
+        "Bir Backrooms seviyesinden diğerine geçiş tesadüfi değil. Ya da en azından öyle düşünmek istiyorum. Duvarlar bazen farklı bir doku alıyor; halı kaybolup yerini beton ya da metal zemine bırakıyor.",
+        "Level 1 daha karanlık. Işıklar daha az güvenilir. Gürültü daha fazla. Ve varlıklar… daha çok.",
+        "Bazı hayatta kalanlar haritalar çizmiş. Koridorları, odaları, çıkmaz sokakları. Ama Backrooms'un coğrafyası değişiyor. Her zaman. Hiçbir harita geçerli değil.",
+        "Yine de umut ediyoruz. Çünkü umut, bu koridorlarda sahip olduğumuz tek sabit şey.",
+        "\"Duvarları dinle. Bazen sana bir şey söylemek isterler.\"\n— Hayatta Kalan #12"
+      ],
+      "paragraphs_en": [
+        "Transitioning from one Backrooms level to another is not random. Or at least I want to believe so. The walls sometimes take on a different texture; the carpet disappears and is replaced by concrete or metal floor.",
+        "Level 1 is darker. The lights are less reliable. There is more noise. And the entities… there are more of them.",
+        "Some survivors have drawn maps. Corridors, rooms, dead ends. But the geography of the Backrooms changes. Always. No map is valid.",
+        "Yet we hope. Because hope is the only constant thing we have in these corridors.",
+        "\"Listen to the walls. Sometimes they want to tell you something.\"\n— Survivor #12"
+      ]
+    },
+    {
+      "id": 4,
+      "title_tr": "Hayatta Kalanlar",
+      "title_en": "The Survivors",
+      "unlocked": false,
+      "paragraphs_tr": [
+        "Onları bulduk — ya da onlar bizi buldu. Küçük bir grup; beş kişi. Her birinin farklı bir hikayesi var. Farklı bir giriş noktası.",
+        "Mia fizikçi. 'Kuantum tünel etkisi' diyor giriş için. Carlos inanmıyor buna; 'Bu bir lanet' diyor sessizce. Jin sadece kodlara bakıyor — duvarlardaki şifreleri çözmeye çalışıyor. Yuki hiç konuşmuyor. Ve ben… ben sadece kayıt tutuyorum.",
+        "Birlikte daha güçlüyüz. Birinin nöbet tuttuğu saatlerde diğerleri uyuyor. Birinin kaybettiğinde diğerleri arıyor.",
+        "Ama Backrooms insanları değiştiriyor. Yavaş yavaş. Sessizce. Ve bazen çevresine bakındığında tanıdığın yüzlerin artık o olmadığını fark ediyorsun.",
+        "\"Burada insanları kaybetmek, entity'lere yenilmekten daha korkunç.\"\n— Mia, Gün 47"
+      ],
+      "paragraphs_en": [
+        "We found them — or they found us. A small group; five people. Each with a different story. A different entry point.",
+        "Mia is a physicist. She calls it 'quantum tunnelling'. Carlos doesn't believe that; he says quietly 'This is a curse'. Jin just stares at codes — trying to decipher the ciphers on the walls. Yuki never speaks. And I… I just keep records.",
+        "Together we are stronger. While one keeps watch, the others sleep. When one gets lost, the others search.",
+        "But the Backrooms changes people. Slowly. Silently. And sometimes when you look around you realise the familiar faces are no longer who they were.",
+        "\"Losing people here is more terrifying than being defeated by entities.\"\n— Mia, Day 47"
+      ]
+    },
+    {
+      "id": 5,
+      "title_tr": "Çıkış Teorisi",
+      "title_en": "Exit Theory",
+      "unlocked": false,
+      "paragraphs_tr": [
+        "Yüzlerce leveli geçtikten sonra bir şeyin farkına vardım: Backrooms bir sistem. Kaotik görünüyor ama aslında bir mantığı var. Labirentin içinde labirent.",
+        "Jin'in çözmeye çalıştığı şifreler tesadüf değil. Koordinatlar. Sayılar. Yönler. Backrooms'un kendi dilinde yazılmış bir harita.",
+        "Ve her labirentin bir çıkışı olmalı. Olmak zorunda. Evrenin temel geometrisi bunu gerektirir.",
+        "Koridorun sonunda gördüm — hafif bir ışık. İnsan yapımı değil. Doğal değil. Farklı bir şey. Sanki gerçekliğin kendisi orada biraz incelmiş gibi.",
+        "Mia'ya söylediğimde gözleri doldu. Carlos ayağa kalktı. Jin kodu kapattı. Yuki ilk kez konuştu: 'Ne zaman?'",
+        "\"Çıkış teorik olarak var. Pratik olarak da var. Sadece onu bulmak için hayatta kalmak gerekiyor.\"\n— Jin, Gün 89"
+      ],
+      "paragraphs_en": [
+        "After passing through hundreds of levels I realised something: the Backrooms is a system. It looks chaotic but it has a logic. A labyrinth within a labyrinth.",
+        "The ciphers Jin has been trying to solve are not random. Coordinates. Numbers. Directions. A map written in the Backrooms' own language.",
+        "And every labyrinth must have an exit. It has to. The fundamental geometry of the universe requires it.",
+        "I saw it at the end of the corridor — a faint light. Not man-made. Not natural. Something different. As if reality itself had thinned a little there.",
+        "When I told Mia her eyes filled with tears. Carlos stood up. Jin closed the code. Yuki spoke for the first time: 'When?'",
+        "\"The exit exists theoretically. It exists practically too. You just need to stay alive long enough to find it.\"\n— Jin, Day 89"
+      ]
+    },
+    {
+      "id": 6,
+      "title_tr": "Entity Ansiklopedisi",
+      "title_en": "Entity Encyclopedia",
+      "unlocked": false,
+      "paragraphs_tr": [
+        "Karşılaştığımız varlıkları kayıt altına almak için bir sistem geliştirdim. Jin'in şifrelerinden ilham alarak her birine bir sınıflandırma numarası verdim.",
+        "Smiler (E-001): En yaygın varlık. Hareket tetikleyicisi: ses ve ışık. Zayıf noktası: doğrudan karanlık. Karşılaşma protokolü: sessiz kalış, yavaş geri çekilme.",
+        "Howler (E-002): Ses üreten varlık. Çığlığı yakınlarındaki diğer entity'leri aktive eder. Karşılaşma protokolü: kaçış yönünü önceden belirle, asla dönüp bakma.",
+        "Dulller (E-003): Yavaş ama inanılmaz dayanıklı. Duvarlardan geçebilir. Karşılaşma protokolü: uzak mesafe koru, ışıklarını kullan.",
+        "Partygoer (E-004): Görünüşte zararsız. Ama partinin ne zaman biteceğini asla bilemezsin.",
+        "\"Varlıkları anlamak, onlardan korkandan çok daha zordur. Ama hayat kurtarır.\"\n— Hayatta Kalan Arşivi, Gün 134"
+      ],
+      "paragraphs_en": [
+        "I developed a system to document the entities we encounter. Drawing inspiration from Jin's ciphers I gave each one a classification number.",
+        "Smiler (E-001): Most common entity. Movement trigger: sound and light. Weakness: direct darkness. Encounter protocol: stay silent, retreat slowly.",
+        "Howler (E-002): Sound-producing entity. Its scream activates other nearby entities. Encounter protocol: predetermine escape route, never look back.",
+        "Dulller (E-003): Slow but incredibly resilient. Can pass through walls. Encounter protocol: maintain long distance, use your lights.",
+        "Partygoer (E-004): Seemingly harmless. But you can never know when the party will end.",
+        "\"Understanding entities is far harder than fearing them. But it saves lives.\"\n— Survivor Archive, Day 134"
+      ]
+    },
+    {
+      "id": 7,
+      "title_tr": "Son Mesaj",
+      "title_en": "The Final Message",
+      "unlocked": false,
+      "paragraphs_tr": [
+        "Buraya ulaştıysan, kayıtlarımın bir işe yaradığı anlamına geliyor. İyi.",
+        "Beni bulmaya çalışma. Muhtemelen artık burada değilim. Ya çıktım — ya da yutuldum.",
+        "Ama şunu bil: Backrooms yenilebilir. Eğer kurallarını öğrenirsen. Eğer korkuna rağmen düşünmeye devam edersen. Eğer yalnız değilsen.",
+        "Işıklar söndüğünde, o vızıltı durduğunda — panikleyeme. Bu anın geçeceğini bil. Her an geçer.",
+        "Ve çıkış ışığını gördüğünde, ne olursa olsun, dur. Bir nefes al. Çünkü o ışığın gerçek olup olmadığından emin olman gerekiyor.",
+        "Gerçekse: geç.",
+        "Değilse: kaç.",
+        "İyi şanslar, gezgin.\n— Eaquel, Gün Bilinmiyor"
+      ],
+      "paragraphs_en": [
+        "If you have reached here, it means my records were of some use. Good.",
+        "Don't try to find me. I'm probably not here anymore. Either I got out — or I was swallowed.",
+        "But know this: the Backrooms can be beaten. If you learn its rules. If you keep thinking despite your fear. If you are not alone.",
+        "When the lights go out, when that hum stops — don't panic. Know that this moment will pass. Every moment passes.",
+        "And when you see the exit light, whatever happens, stop. Take a breath. Because you need to make sure that light is real.",
+        "If it is: go through.",
+        "If not: run.",
+        "Good luck, wanderer.\n— Eaquel, Day Unknown"
+      ]
+    }
+  ]
+}
