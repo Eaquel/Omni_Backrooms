@@ -16,11 +16,6 @@ env:
   NDK_VERSION:  "29.0.14206865"
   CMAKE_VERSION: "4.3.2"
   GRADLE_VERSION: "9.5.0"
-  GRADLE_OPTS: >-
-    -Dorg.gradle.daemon=false
-    -Dorg.gradle.parallel=true
-    -Dorg.gradle.configureondemand=true
-    -Xmx6g
 
 jobs:
 
@@ -41,13 +36,11 @@ jobs:
 
       - uses: android-actions/setup-android@v4
 
-      - uses: actions/cache@v5
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
-          restore-keys: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-
+          gradle-version: ${{ env.GRADLE_VERSION }}
+          cache-read-only: false
 
       - name: Install NDK
         run: |
@@ -77,9 +70,8 @@ jobs:
           echo "SDK_CMAKE_DIR=$CMAKE_DIR" >> "$GITHUB_ENV"
           "$CMAKE_DIR/bin/cmake" --version
 
-      - name: Setup Gradle
+      - name: Setup gradle.properties
         run: |
-          # gradle.properties olustur
           cat > gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
           org.gradle.parallel=true
@@ -92,31 +84,6 @@ jobs:
           kotlin.incremental=true
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
-
-          # gradle-wrapper.jar'i Gradle dagitim ZIP'inden cek
-          # (jar binary oldugundan git'e yuklenemez, CI'da olusturmak gerekiyor)
-          curl -fsSL \
-            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
-            -o /tmp/gradle-bin.zip
-          unzip -jo /tmp/gradle-bin.zip \
-            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
-            -d /tmp/gwjar
-          mkdir -p Gradle
-          cp /tmp/gwjar/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
-          rm -rf /tmp/gradle-bin.zip /tmp/gwjar
-
-          # gradlew olustur — Gradle/ klasorunu isaret ediyor
-          cat > gradlew << 'GRADLEW'
-          #!/bin/sh
-          APP_HOME=$(dirname "$(readlink -f "$0")" 2>/dev/null || cd "$(dirname "$0")" && pwd)
-          CLASSPATH=$APP_HOME/Gradle/gradle-wrapper.jar
-          exec java $JAVA_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
-          GRADLEW
-          chmod +x gradlew
-
-          # GradleWrapperMain properties dosyasini standart yoldan okur
-          mkdir -p gradle/wrapper
-          cp Gradle/gradle-wrapper.properties gradle/wrapper/gradle-wrapper.properties
 
       - name: Inject google-services.json
         env:
@@ -136,11 +103,11 @@ jobs:
           } > keystore.properties
 
       - name: Clean
-        run: ./gradlew clean --refresh-dependencies
+        run: gradle clean --refresh-dependencies
 
       - name: Build Release APK + AAB
         run: |
-          ./gradlew \
+          gradle \
             :Backrooms:assembleRelease \
             :Backrooms:bundleRelease
 
@@ -159,7 +126,7 @@ jobs:
             Backrooms/build/outputs/bundle/release/*.aab
 
       - name: Upload Crashlytics NDK Symbols
-        run: ./gradlew :Backrooms:uploadCrashlyticsSymbolFileRelease || true
+        run: gradle :Backrooms:uploadCrashlyticsSymbolFileRelease || true
 
 
   analyze:
@@ -176,15 +143,13 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
 
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-${{ hashFiles('**/*.toml', '**/*.gradle.kts', '**/*.kt') }}
-          restore-keys: gradle-${{ runner.os }}-${{ env.GRADLE_VERSION }}-
-
       - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+          cache-read-only: false
+
+      - name: Setup gradle.properties
         run: |
           cat > gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
@@ -199,32 +164,11 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
-          curl -fsSL \
-            "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip" \
-            -o /tmp/gradle-bin.zip
-          unzip -jo /tmp/gradle-bin.zip \
-            "gradle-${{ env.GRADLE_VERSION }}/lib/plugins/gradle-wrapper-*.jar" \
-            -d /tmp/gwjar
-          mkdir -p Gradle
-          cp /tmp/gwjar/gradle-wrapper-*.jar Gradle/gradle-wrapper.jar
-          rm -rf /tmp/gradle-bin.zip /tmp/gwjar
-
-          cat > gradlew << 'GRADLEW'
-          #!/bin/sh
-          APP_HOME=$(dirname "$(readlink -f "$0")" 2>/dev/null || cd "$(dirname "$0")" && pwd)
-          CLASSPATH=$APP_HOME/Gradle/gradle-wrapper.jar
-          exec java $JAVA_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
-          GRADLEW
-          chmod +x gradlew
-
-          mkdir -p gradle/wrapper
-          cp Gradle/gradle-wrapper.properties gradle/wrapper/gradle-wrapper.properties
-
       - name: Lint + Detekt
-        run: ./gradlew :Backrooms:detekt || true
+        run: gradle :Backrooms:detekt || true
 
       - name: Android Lint
-        run: ./gradlew :Backrooms:lintRelease || true
+        run: gradle :Backrooms:lintRelease || true
 
       - uses: actions/upload-artifact@v4
         if: always()
