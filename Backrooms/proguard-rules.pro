@@ -1,18 +1,11 @@
 -keepattributes *Annotation*,Signature,Exceptions,InnerClasses,EnclosingMethod,RuntimeVisibleAnnotations
 
 -keep class com.omni.backrooms.NativeBridge { native <methods>; }
+
 -keep class com.omni.backrooms.App { *; }
 -keep class com.omni.backrooms.MainActivity { *; }
 -keep class com.omni.backrooms.SessionService { *; }
 -keep class com.omni.backrooms.OmniMessagingService { *; }
-
--keep @dagger.hilt.android.lifecycle.HiltViewModel class * { *; }
--keep @dagger.hilt.android.AndroidEntryPoint class * { *; }
--keep @dagger.hilt.InstallIn class * { *; }
--keep class dagger.hilt.** { *; }
--keep class javax.inject.** { *; }
--keep class **_HiltComponents$* { *; }
--keep class **_HiltModules$* { *; }
 
 -keep class kotlin.Metadata { *; }
 -keepclassmembers class kotlin.Lazy { *; }
@@ -23,8 +16,6 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 -dontwarn kotlinx.serialization.**
-
--keepclassmembers interface * { @retrofit2.http.* <methods>; }
 
 -keep @androidx.room.Entity class * { *; }
 -keep @androidx.room.Dao class * { *; }

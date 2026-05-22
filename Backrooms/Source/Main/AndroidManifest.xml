@@ -12,8 +12,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
-    <uses-feature android:name="android.hardware.vulkan.version" android:required="false" android:version="0x00400000" />
+    <uses-feature android:glEsVersion="0x00030002" android:required="true" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:required="true" android:version="0x00400003" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
@@ -27,16 +27,17 @@
         android:theme="@style/Theme.OmniBackrooms"
         android:supportsRtl="false"
         android:usesCleartextTraffic="false"
-        android:networkSecurityConfig="@xml/network_security_config"
         android:enableOnBackInvokedCallback="true"
-        android:largeHeap="false"
+        android:largeHeap="true"
+        android:allowAudioPlaybackCapture="false"
+        android:requestRawExternalStorageAccess="false"
         tools:targetApi="36">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".Backrooms"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="landscape"
+            android:screenOrientation="userLandscape"
             android:resizeableActivity="false"
             android:windowSoftInputMode="adjustNothing"
             android:theme="@style/Theme.OmniBackrooms.Splash"
@@ -49,7 +50,7 @@
         </activity>
 
         <service
-            android:name=".SessionService"
+            android:name=".Service"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

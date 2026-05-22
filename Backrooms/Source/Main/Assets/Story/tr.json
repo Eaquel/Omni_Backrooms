@@ -1,0 +1,368 @@
+{
+  "version": 2,
+  "language": "tr",
+  "meta": {
+    "title": "Omni Backrooms: Gezgin Günlükleri",
+    "author": "Eaquel",
+    "description": "Backrooms'da hayatta kalanların kayıtları. Level 0'dan başlayan, sonsuz koridorlarda ilerleyen bir varoluş hikayesi.",
+    "last_updated": "Gün Bilinmiyor"
+  },
+  "chapters": [
+    {
+      "id": 1,
+      "title": "Başlangıç",
+      "subtitle": "Level 0 — Lobi",
+      "unlocked": true,
+      "level_info": {
+        "level_id": 0,
+        "code_name": "Sarı Cehennem",
+        "tehlike_sinifi": "Sınıf 1 — Güvenli / Güvenli / Minimal Varlık Sayısı",
+        "entite_oran": "%0.05",
+        "aciklama": "Sonsuz, Öklid-dışı bir perakende ofisinin arka koridorlarını andıran uzam. Sarı duvar kağıdı, nemli halı, tutarsız yerleştirilmiş floresan lambalar. Giriş kolaydır; çıkış ise teorik."
+      },
+      "paragraphs": [
+        "Yanlış gitmişsin. Gerçeklik seni bir an için terk etti — bir duvara yaslandın, yürüdün, ya da sadece var olmayı bıraktın — ve şimdi buradasın. Omni Backrooms'da. Sonsuz sarı duvarlı koridorlar, nemli halı kokusu ve floresan lambaların kesintisiz vızıltısı seni karşılıyor. Zaman yok. Yön yok. Çıkış var mı?",
+
+        "Backrooms, bilinen evrenin altında var olan paralel bir uzamdır. Bilim insanları buna 'kuantum kayması' ya da 'no-clip olgusu' diyor — gerçekliğin katı sınırlarından düşüp bu boyuta geçme hali. Ama sen bir bilim insanı değilsin. Sen bir gezginsin. Ve burada, Level 0'da, her şey hem çok basit hem de çok tehlikeli görünüyor.",
+
+        "Level 0 — 'Lobi' olarak da bilinir — Backrooms'un ilk ve en iyi belgelenmiş seviyesidir. M.E.G. (Büyük Kaşifler Grubu) kayıtlarına göre burası sonsuz bir ofis arka koridoru kompleksidir: her oda sarı duvar kağıdıyla kaplı, halı nemli ve belirsiz bir sıvıyla ıslanmış, lambalar ise hep titreşiyor. Hiçbir iki oda birbirinin aynısı değil — ama hepsi aynı korkutucu tekdüzeliğe sahip.",
+
+        "Bir uyarı: Halıdaki sıvıyı içme. Su değil. Almond Water de değil. Ne olduğu bilinmiyor — ama öldürüyor.",
+
+        "Isolation Effect denen bir fenomen var. Level 0'a girerken bir grupsa bile — birbirinden kopar. Bu seviye her gezgin için ayrı bir boyutta var olur. Yani koridorlarda yürürken biri ile karşılaşırsan — gerçek olmayabilir. M.E.G. raporları net: 'Eğer bir insan gördüğünü düşünüyorsan, muhtemelen değildir.' Dikkatli ol.",
+
+        "Floresan lambaların vızıltısı sabit bir frekansta titreşiyor — normal lambalardan çok daha yüksek. Bu ses baş ağrısına, ardından halüsinasyonlara yol açabiliyor. Duyacaksın: duvarların arkasında böcek sesi. Kapı sesleri. Bazen kendi adını. Hiçbirine gitme.",
+
+        "Level 0'dan başladın. Her koşun seni farklı bir seviyeye götürebilir — bazıları sessiz, bazıları… değil. Titreyen bir duvarı bul. İçinden geç. Umut et.",
+
+        "\"Eğer bunu okuyorsan, hâlâ bir şansın var. Kaç. Dur. Dinle. Ve asla geriye bakma.\"\n— Anonim Gezgin, No-Clip Tarihi Bilinmiyor"
+      ],
+      "survival_tips": [
+        "Halıdaki sıvıyı kesinlikle içme.",
+        "Işık kaynağını koru — karanlık, Smiler'ları çekiyor.",
+        "Titreyen duvarlar bir sonraki seviyeye geçişi işaret edebilir.",
+        "Halüsinasyon görürsen dur, derin nefes al, gözlerini kapat ve say.",
+        "Bir insan gördüğünü sanıyorsan — hızla uzaklaş ve bakma."
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Isolation",
+      "subtitle": "Yalnızlık Fenomeni ve İlk Saatler",
+      "unlocked": true,
+      "paragraphs": [
+        "İlk saat en kötüsü. Çünkü beynin henüz inanmıyor. 'Bu bir rüya' diyorsun. 'Gözlerimi açarsam geçer' diyorsun. Ama gözlerini açıyorsun ve sarı duvar kağıdı hâlâ orada. Lambalar hâlâ vızıldıyor. Ve sen hâlâ buradasın.",
+
+        "Isolation Effect'i anlamak hayati önem taşıyor. Level 0, her gezgin için ayrı ayrı var oluyor — bu bir teoriden ibaret değil, M.E.G.'in onlarca yıllık gözlemine dayanan kanıtlanmış bir olgudur. Seninle birlikte no-clip olan biri olsa bile, o kendi Level 0'ında, sen kendi Level 0'ında kaybolursunuz. Yollarınız hiçbir zaman kesişmeyebilir.",
+
+        "Ama ben şanslıydım. Ya da öyle düşünüyordum.",
+
+        "Dördüncü saatte — ya da belki beşinci, zira zaman burada farklı akıyor — bir not gördüm. Halının üzerinde, dikkatli bir el yazısıyla kırmızı mürekkeple yazılmış: 'Kuzey duvarını izle. Titreşmeye başlarsa, geç.' Altında imza yoktu. Sadece küçük bir çizim: bir kapı silüeti.",
+
+        "O not beni kurtardı. Birinin, bir noktada, aynı koridorda durduğu ve bu bilgiyi bıraktığı anlamına geliyordu. Belki çoktan gitmişti. Belki ölmüştü. Belki hâlâ bu sarı labirentin başka bir yerinde dolaşıyordu. Ama en azından bir iz bırakmıştı.",
+
+        "Ben de iz bırakmaya karar verdim. Bu kayıtların başlangıcı o andı.",
+
+        "\"Level 0'da hayatta kalmanın en zor kısmı varlıklar değil. En zor kısmı kendi zihnin. Yalnızlık, karanlıktan daha hızlı öldürür.\"\n— M.E.G. Arşivi, Gezgin Psikolojisi Raporu #7"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "İlk Karşılaşma",
+      "subtitle": "Smiler — Entite #003",
+      "unlocked": true,
+      "entity_log": {
+        "entite_no": "E-003",
+        "bilimsel_ad": "Subridens tenebris bestia",
+        "tehlike_seviyesi": "Ölümcül",
+        "habitat": "Karanlık köşeler, loş koridorlar, titrek ışık bölgeleri",
+        "davranis": "Pasif-Saldırgan — Hareketsiz bekler, provoke edilirse kovalamaca",
+        "zayif_nokta": "Doğrudan güçlü ışık",
+        "protokol": "Göz teması kur, yavaşça geri çekil, ses çıkarma"
+      },
+      "paragraphs": [
+        "Onları ilk gördüğümde sadece bir gölgeydiler. Koridorun sonunda, floresan ışığın titreştiği noktada… Duruyorlardı. Bekleyerek. Ve gülümsüyorlardı.",
+
+        "Smiler'lar. İsim çok uygun. Gülümsüyorlar, evet — ama gülüşleri hiçbir zaman gözlerine ulaşmıyor. Gözleri parlak, beyaz, ve sonsuz derecede boş. Bedenlerini göremiyorsun; karanlık onların bedeni gibi. Sadece o ışıklı gülümseme ve iki beyaz nokta — gözler — karanlığın içinde süzülüyor.",
+
+        "M.E.G. bilim insanları yıllarca bu yaratıkları inceledi. Bilimsel adları Subridens tenebris bestia — karanlığın gülen canavarı. Şekil değiştirebiliyorlar, hem insansı hem de köpeksivari formlar alabiliyorlar. Ama her zaman o iki özellik sabit: parlayan gülümseme ve beyaz gözler.",
+
+        "Onlardan kaçmanın tek yolu: Panik yapma. Sessiz kal. Ve — bu en zor kısmı — göz teması kur. Evet, baktığında için donuyor. Ama bakmazsan, seni takip edip etmediğini bilemezsin. Yavaşça geri çekil. Ses çıkarma. Işığı söndürme — karanlık onların evi.",
+
+        "İlk geceyi — ya da ne kadar sürdüğünü bilmiyorum, zira burada zaman yok — bir rafın arkasına saklanarak geçirdim. Nefesimi tutmaya çalıştım. Geçip gittiler. Ama koridorun ötesinden seslerini hâlâ duyuyordum: yumuşak, neredeyse insan gibi bir hışırtı.",
+
+        "Smiler'lar korkudan besleniyor. Daha doğrusu — 'bilinmeyenden duyulan korku' onları çekiyor. Level 0'a yeni giren, panik içindeki bir gezgin, onlar için bir fener gibi parlıyor. Sakin kal. Bu hem en basit hem de en zor kuraldır.",
+
+        "\"Gözlerini kaçırma. Ama asla direkt bakma — bir saniye fazla bakarsın, o an aralarında bir bağ kurulur ve o artık seni seçmiş demektir.\"\n— Hayatta Kalan #7, M.E.G. Arşivi"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "No-Clip Fiziği",
+      "subtitle": "Backrooms'a Nasıl Girilir ve Çıkılır",
+      "unlocked": true,
+      "paragraphs": [
+        "No-clip. Oyun dünyasından ödünç alınan bir terim — gerçekliğin katı sınırlarından düşme hali. Ama bu sadece bir metafor değil. Fiziksel bir süreç.",
+
+        "Mia bunu bana ilk kez açıkladığında inanmak istemedim. Mia bir kuantum fizikçisi — ya da öyleydi, gerçek dünyada. 'Evrenin dokusu,' dedi, 'her yerde eşit kalınlıkta değil. Bazı noktalar, özellikle insanların çok az zaman geçirdiği yerler — ofis koridorları, alışveriş merkezi arka girişleri, boş otoparklar — orada doku inceliyor. Ve bazen, doğru açıda, doğru hızda, doğru psikolojik durumda — düşüyorsun.'",
+
+        "M.E.G. bu 'ince noktalara' Eşik (Threshold) diyor. Tüm dünyada mevcut. Çoğu zaman fark etmeden yanlarından geçiyoruz. Ama zaman zaman — özellikle stres altında, uyku yoksunluğuyla ya da garip bir dikkat kaymasında — içine giriyoruz.",
+
+        "Level 0'dan çıkmanın yolu: Titreyen bir duvar bul. Bu titreşme, duvarın ötesinde başka bir seviyenin varlığını işaret eder. İçinden geçmek için koşman gerekiyor — tereddüt edersen geri çıkarsın. Ve her geçiş seni rastgele bir seviyeye götürür.",
+
+        "'Rastgele mi?' diye sordum Mia'ya. 'Değil,' dedi sessizce. 'Backrooms'un bir mantığı var. Sadece henüz anlamadık.'",
+
+        "Carlos inanmıyor bunların hiçbirine. 'Bu bir lanet,' diyor hâlâ. 'Fizik değil, lanet.' Belki ikisi de doğrudur.",
+
+        "\"No-clip teorik olarak tersinellenebilir. Pratikte — kimse geri döndüğünde gerçekten ne hissettiğini anlatmadı. Belki anlatamıyorlar. Belki anlatmak istemiyorlar.\"\n— Mia, Kuantum Tünel Etkisi Notları"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Seviyeler Arası",
+      "subtitle": "Level 0'dan Level 1'e Geçiş",
+      "unlocked": false,
+      "paragraphs": [
+        "Bir Backrooms seviyesinden diğerine geçiş tesadüfi değil. Ya da en azından öyle düşünmek istiyorum. Duvarlar bazen farklı bir doku alıyor; halı kaybolup yerini beton ya da metal zemine bırakıyor. Işıklar daha da titreşiyor — ta ki söne kadar.",
+
+        "Level 1 daha karanlık. M.E.G. kayıtlarına göre burası devasa depo komplekslerine benziyor — uzun koridorlar, yüksek raflar, kasvetli ışık. Varlık sayısı daha fazla. Ve M.E.G.'in Ana Üssü buraya yakın bir yerde: Base Alpha. İlk kez insan sesini orada duydum.",
+
+        "Bazı hayatta kalanlar haritalar çizmiş. Koridorları, odaları, çıkmaz sokakları. Ama Backrooms'un coğrafyası değişiyor. Her zaman. M.E.G.'in kendi navigasyon sistemi bile — MajorNav diyorlar buna — kesin değil. Sadece tahmin.",
+
+        "Yine de umut ediyoruz. Çünkü umut, bu koridorlarda sahip olduğumuz tek sabit şey.",
+
+        "Jin, Level 0'da ilk şifreli notu bulduğunda hepimize baktı. Duvara kazınmıştı: koordinatlar ve sayılar. 'Bu bir harita parçası,' dedi. 'Birileri bizi bir yerlere götürmeye çalışıyor.' Kim? Bilmiyoruz. Ama bu da bir umut.",
+
+        "\"Duvarları dinle. Bazen sana bir şey söylemek isterler. Özellikle Level 0'da — bazen duvarlar konuşur. Kelimeler değil. Ama bir his. Bir yön. Güven buna.\"\n— Hayatta Kalan #12, M.E.G. Sözlü Tarihi"
+      ],
+      "survival_tips": [
+        "Level 1'de her zaman bir ışık kaynağın olsun — Smiler'lar burada daha aktif.",
+        "M.E.G. Base Alpha'ya ulaşmaya çalış — orada diğer insanlar var.",
+        "Haritaya güvenme. Yön duyguna güven.",
+        "Depo raflarının arkasına saklanmak Smiler karşılaşmalarında işe yarıyor."
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Hayatta Kalanlar",
+      "subtitle": "Ekip: Mia, Carlos, Jin, Yuki ve Ben",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "Mia",
+          "text": "Burası bir ceza değil. Bir anomali. Ve her anomalinin bir çözümü var.",
+          "context": "Level 1, Depo Koridoru, Gün 3"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "Senin 'anomalin' dün gece neredeyse beni yedi. Defolsun kuantum teorin.",
+          "context": "Mia'nın açıklamasına yanıt"
+        },
+        {
+          "speaker": "Jin",
+          "text": "Sessiz olur musunuz ikisi de? Şu duvardaki şifreyi çözmeye çalışıyorum ve gürültü konsantrasyonumu bozuyor.",
+          "context": "Depo rafının önünde, not defteri elinde"
+        },
+        {
+          "speaker": "Yuki",
+          "text": "...",
+          "context": "Yuki hiç konuşmuyor. Ama her tehlikeden önce yavaşlıyor. Biz bunu öğrendik."
+        }
+      ],
+      "paragraphs": [
+        "Onları Level 1'de bulduk — ya da onlar bizi buldu. Küçük bir grup; beş kişi. Her birinin farklı bir hikayesi var, farklı bir giriş noktası, farklı bir önceki hayatı.",
+
+        "Mia bir kuantum fizikçisi. Backrooms'u bir sistem olarak görüyor, çözülmesi gereken bir denklem. İlk günden beri not alıyor — Level geçişlerini, Smiler davranışlarını, duvar dokularını. 'Veri yeterince birikince,' diyor, 'bir çıkış yolu bulacağız.' Ben de ona inanmak istiyorum.",
+
+        "Carlos bir müzisyen. Backrooms öncesi İstanbul'da caz barı işletiyordu. Şimdi varlıklardan kaçarken bile mırıldanıyor — bazen bu müzik bizi sakinleştiriyor, bazen Smiler'ları çektiğinden korkuyoruz. 'Eğer müziği bırakırsam, kim olduğumu unuturum,' diyor. Buna karşı çıkamıyorum.",
+
+        "Jin bir kriptograf. Duvarlardaki şifreleri çözüyor — Level 0'dan beri. Her geçiş noktasında bir not, bir koordinat, bir işaret var. 'Backrooms kendi dilini konuşuyor,' diyor. 'Biz sadece dinlemeyi öğreneceğiz.'",
+
+        "Yuki hiç konuşmuyor. Ama tehlikeyi en önce o hissediyor. Adımları yavaşlıyor, nefesi kesiliyor — ve biz duruyoruz. Her seferinde doğru çıkıyor. Yuki'nin sezgisi bizi birçok kez kurtardı.",
+
+        "Ben kayıt tutuyorum. Bu benim rolüm. Belki birileri bulur bu notları. Belki faydalanır. Belki sadece benim için yazıyorum — hayatta olduğumu kanıtlamak için.",
+
+        "Birlikte daha güçlüyüz. Birinin nöbet tuttuğu saatlerde diğerleri uyuyor. Birinin kaybettiğinde diğerleri arıyor. Ama Backrooms insanları değiştiriyor. Yavaş yavaş. Sessizce.",
+
+        "\"Burada insanları kaybetmek, entitelere yenilmekten daha korkunç. Çünkü bir entite sadece bedenini alır. Ama bu yer — bu sarı, sonsuz yer — zihnini alır.\"\n— Mia, Gün 47"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "M.E.G. ile Temas",
+      "subtitle": "Büyük Kaşifler Grubu — Base Alpha",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "M.E.G. Muhafızı",
+          "text": "Dur. Yavaş yürü. Ellerini göster. Smiler var mı arkanızda?",
+          "context": "Base Alpha girişi, Level 1"
+        },
+        {
+          "speaker": "Mia",
+          "text": "Hayır. Temiziz. Beş kişiyiz. Level 0'dan geliyoruz, dört gündür yürüyoruz.",
+          "context": "Elleri havada, sakin"
+        },
+        {
+          "speaker": "M.E.G. Muhafızı",
+          "text": "Dört gün mü? Level 0'da mı? Ve hepiniz sağ mısınız?",
+          "context": "İnanamamış bir bakış"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "Hepimiz. Ama tekrar sormasan iyi olur — morali bozuyor.",
+          "context": "Yorgun bir gülümsemeyle"
+        }
+      ],
+      "paragraphs": [
+        "M.E.G. — Büyük Kaşifler Grubu — Backrooms'daki en büyük insan organizasyonu. 2002 yılında kuruldu, ama kimi kayıtlar 1885'e kadar uzandığını söylüyor. Ana üsleri Level 1'de: Base Alpha. Yaklaşık 25.000 üye, 30.000 sivil. Gerçek bir toplum.",
+
+        "Base Alpha'ya ilk girdiğimde ağladım. Uzun zaman sonra ilk kez elektrik ışığı — Backrooms'un titreşen floresanı değil, sıcak, sarı, insan yapımı ışık. İlk kez başka insanların sesi. İlk kez kapı vardığında 'buyrun' diyen biri.",
+
+        "M.E.G.'in bir görevi var: Backrooms'u keşfetmek, belgelemek ve gezginleri güvende tutmak. Varlıkları sınıflandırdılar — 'E numaraları' olarak. Seviyeleri haritalandırdılar — yüzlercesini. Almond Water dağıtıyorlar — buradaki tek güvenli içecek. Ve en önemlisi: umut satıyorlar.",
+
+        "'Çıkış var mı?' diye sordum M.E.G.'in Arşivci'sine. Uzun süre baktı bana. 'Teorik olarak evet,' dedi sonunda. 'Pratik olarak — kimse geri dönüp bize anlatmadı. Ama bu onların başaramadığı anlamına gelmiyor.' O cümle beni o günden beri ayakta tutuyor.",
+
+        "\"M.E.G. bir kurtuluş örgütü değil. Bir hayatta kalma örgütü. Aradaki fark küçük görünüyor ama burada her şey değişiyor.\"\n— M.E.G. Arşivci, Base Alpha"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Entite Ansiklopedisi",
+      "subtitle": "Level 0 ve Level 1 Tehditleri",
+      "unlocked": false,
+      "entities": [
+        {
+          "id": "E-001",
+          "name": "Duller",
+          "threat": "Orta",
+          "habitat": "Level 0, Level 1",
+          "description": "Yavaş, küt görünümlü insansı varlık. Duvarlardan geçebilir. Doğrudan saldırmaz ama yakınında kalmak tehlikeli — zamanla zihinsel bozulmaya yol açıyor.",
+          "protocol": "Uzak mesafe koru. Işık kaynaklarını kullan. Kaçmak için hız değil, yön önemli."
+        },
+        {
+          "id": "E-002",
+          "name": "Clump",
+          "threat": "Yüksek",
+          "habitat": "Level 0 (nadiren), Level 1",
+          "description": "Birden fazla bedenin birbiriyle kaynaşmış hali. Hareket ederken çıkardığı ses tuhaf ve organik. Işığa karşı tepki verir.",
+          "protocol": "Duyduğunda dur ve bekle. Hareketsiz kalırsan genellikle geçip gider."
+        },
+        {
+          "id": "E-003",
+          "name": "Smiler",
+          "threat": "Ölümcül",
+          "habitat": "Tüm karanlık bölgeler",
+          "description": "Karanlığın içinde parlayan gülümseme ve gözler. Şekil değiştirebilir — insansı ya da köpeksivari form alır. Korkudan beslenir.",
+          "protocol": "Göz teması kur. Yavaş geri çekil. Ses çıkarma. Asla koşma — hareket onları aktive eder."
+        },
+        {
+          "id": "E-004",
+          "name": "Howler",
+          "threat": "Çok Yüksek",
+          "habitat": "Level 1, Level 2",
+          "description": "Ses üreten varlık. Çığlığı yakınlardaki diğer entiteleri aktive eder. Tek başına tehlikeli, ama çığrı attığında bölgedeki tüm entiteler uyanır.",
+          "protocol": "Kaçış yönünü önceden belirle. Duyduğunda zaten geç — ama yine de koş."
+        },
+        {
+          "id": "E-005",
+          "name": "Faceling",
+          "threat": "Düşük",
+          "habitat": "Level 0 (yuvalar), Level 1",
+          "description": "İnsansı görünümlü, ama yüzü boş — hiçbir özellik yok. M.E.G. kayıtlarına göre genellikle saldırmıyor. Ama gözlerinin olmadığı bir yüzle bakan bir şeyin yakınında durmak… zorlu.",
+          "protocol": "Görmezden gel. Doğrudan baktıysan yürümeye devam et, bekleme."
+        },
+        {
+          "id": "E-006",
+          "name": "Partygoer",
+          "threat": "Belirsiz",
+          "habitat": "Level Fun, Level 1 (nadir)",
+          "description": "Görünüşte zararsız, renkli bir balonlu yaratık. Parti şapkası takıyor. Gülüyor. Sana katılmak istiyor. Ama partinin ne zaman biteceğini asla bilemezsin.",
+          "protocol": "Kibarca reddet. Kaçma — merak uyandırırsın. Nezaket protokolü."
+        }
+      ],
+      "paragraphs": [
+        "Karşılaştığım varlıkları kayıt altına almak için bir sistem geliştirdim. Jin'in şifrelerinden ilham alarak her birine bir sınıflandırma numarası verdim. M.E.G.'in resmi sistemine paralel ama daha kişisel — her birinin davranış notlarını kendim ekledim.",
+
+        "Smiler en çok karşılaşılan. Duller ise en sinsi — çünkü yakınında olduğunu fark ettiğinde zaten etki altına girmiş olabilirsin. Howler ise gerçek bir zincir reaksiyonun tetikleyicisi — birini duyduysan, bulunduğun bölgeyi terk et.",
+
+        "Ama en korkutucusu Faceling. Çünkü insan gibi görünüyor. Ve insan olmayan bir şeyin insan gibi görünmesi — bu Backrooms'un sana yaptığı en acımasız şaka.",
+
+        "\"Varlıkları anlamak, onlardan korkmaktan çok daha zordur. Ama hayat kurtarır.\"\n— Hayatta Kalan Arşivi, Gün 134"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Çıkış Teorisi",
+      "subtitle": "Jin'in Şifreleri ve Işığın Anlamı",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "Jin",
+          "text": "Bu bir koordinat. Bakın — bu sayılar Backrooms'un kendi dilinde yazılmış. Her seviye geçişinde bir parça daha eklenmiş. Bu bir harita.",
+          "context": "Not defterini ekibe gösterirken, Gün 72"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "Harita nereye gidiyor?",
+          "context": "Şüpheyle"
+        },
+        {
+          "speaker": "Jin",
+          "text": "Bir yere. Ve Backrooms'da 'bir yer' demek… her şey demek.",
+          "context": "Sessizce"
+        },
+        {
+          "speaker": "Yuki",
+          "text": "Ne zaman?",
+          "context": "İlk kez konuştu. Sesi çok alçak ama hepimiz duyduk."
+        }
+      ],
+      "paragraphs": [
+        "Yüzlerce koridoru geçtikten sonra bir şeyin farkına vardım: Backrooms bir sistem. Kaotik görünüyor ama aslında bir mantığı var. Labirentin içinde labirent.",
+
+        "Jin'in çözmeye çalıştığı şifreler tesadüf değil. Her seviye geçişinde, her duvarda kazınmış, her notun kenarında gizlenmiş — koordinatlar. Sayılar. Yönler. Backrooms'un kendi dilinde yazılmış bir harita. Ve bu harita bir yere işaret ediyor.",
+
+        "M.E.G. bunu 'Çıkış Noktası Teorisi' olarak belgeliyor. Her labirentin bir çıkışı olmalı. Olmak zorunda. Evrenin temel geometrisi bunu gerektirir. Ve eğer Backrooms gerçekten bir sistem ise — sistemin dışına çıkmanın bir yolu da olmalı.",
+
+        "Koridorun sonunda gördüm — hafif bir ışık. İnsan yapımı değil. Doğal değil. Farklı bir şey. Sanki gerçekliğin kendisi orada biraz incelmiş gibi. Mia yanıma geldi ve baktı. 'Bu bir Threshold,' dedi. 'Ama hangi yönde?' Bilmiyoruz. Dışarıya mı? Başka bir seviyeye mi?",
+
+        "Mia'ya söylediğimde gözleri doldu. Carlos ayağa kalktı. Jin kodu kapattı. Yuki ilk kez konuştu: 'Ne zaman?'",
+
+        "Cevap vermedim. Çünkü cevabı bilmiyordum. Ama ilk kez — gerçekten ilk kez — bunun mümkün olduğunu hissettim.",
+
+        "\"Çıkış teorik olarak var. Pratik olarak da var. Sadece onu bulmak için hayatta kalmak gerekiyor.\"\n— Jin, Gün 89"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Son Mesaj",
+      "subtitle": "Eaquel'den Sana",
+      "unlocked": false,
+      "paragraphs": [
+        "Buraya ulaştıysan, kayıtlarımın bir işe yaradığı anlamına geliyor. İyi.",
+
+        "Beni bulmaya çalışma. Muhtemelen artık burada değilim. Ya çıktım — ya da yutuldum. Her ikisi de bir tür son.",
+
+        "Ama şunu bil: Backrooms yenilebilir. Eğer kurallarını öğrenirsen. Eğer korkuna rağmen düşünmeye devam edersen. Eğer yalnız değilsen. Bu üç şey — bilgi, akıl, bağ — bu sarı cehennemde seni ayakta tutar.",
+
+        "Mia hâlâ not alıyordur. Carlos hâlâ mırıldanıyordur. Jin hâlâ şifre çözüyordur. Yuki hâlâ tehlikeyi hissediyordur. Ve ben — ben bu satırları yazıyorum ve birisinin okumasını umuyorum.",
+
+        "Işıklar söndüğünde, o vızıltı durduğunda — panikleyeme. Bu anın geçeceğini bil. Her an geçer. Level 0'da bile. Belki özellikle Level 0'da.",
+
+        "Ve çıkış ışığını gördüğünde, ne olursa olsun, dur. Bir nefes al. Çünkü o ışığın gerçek olup olmadığından emin olman gerekiyor. Backrooms sana yalanlar söyler. Kapılar görürsün — yok. Merdivenler görürsün — yok. Işıklar görürsün. Çoğu yok.",
+
+        "Ama bazıları var.",
+
+        "Gerçekse: geç.",
+        "Değilse: kaç.",
+
+        "Ve eğer şüphe ediyorsan — koy elini duvara. Gerçek bir çıkış titreşir. Sıcaklık hissettirdiğinde — o gerçek.",
+
+        "İyi şanslar, gezgin. Bu koridorlar sonsuz ama sen sonsuz değilsin. Bu bir zayıflık değil — bu seni insan yapan şey. Ve Backrooms'da insan olmak — bazen en güçlü silahtır.\n— Eaquel, Gün Bilinmiyor",
+
+        "\"Hayatta kalmak için kaç. İnsan kalmak için dur. Bu ikisi arasındaki denge — işte asıl labirent bu.\"\n— Son Not, Duvar Kazıması, Level 0 Koridoru 7-G"
+      ]
+    }
+  ]
+}

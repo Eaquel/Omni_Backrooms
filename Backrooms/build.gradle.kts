@@ -5,7 +5,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.crashlytics)
@@ -80,8 +79,8 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.setSrcDirs(listOf("Source/Main/Kotlin"))
-            kotlin.setSrcDirs(listOf("Source/Main/Kotlin"))
+            java.setSrcDirs(listOf("Source/Main/kotlin"))
+            kotlin.setSrcDirs(listOf("Source/Main/kotlin"))
             res.setSrcDirs(listOf("Source/Main/res"))
             assets.setSrcDirs(listOf("Source/Main/assets"))
             manifest.srcFile("Source/Main/AndroidManifest.xml")
@@ -108,7 +107,6 @@ android {
 
     splits {
         abi {
-            // Disabled: incompatible with bundleRelease (AGP bug b/402800800)
             isEnable = false
         }
     }
@@ -138,33 +136,17 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.config)
     implementation(libs.androidx.navigation.compose)
-
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.android.compiler)
-    implementation(libs.hilt.navigation.compose)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    implementation(libs.retrofit)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging.interceptor)
-    implementation(libs.retrofit.converter.kotlinx.serialization)
-    implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.androidx.datastore.preferences)
-    implementation(libs.coil.compose)
-
-    implementation(libs.media3.exoplayer)
-    implementation(libs.media3.ui)
-    implementation(libs.media3.exoplayer.hls)
-
+    
     implementation(libs.androidx.billing)
 
     implementation(platform(libs.firebase.bom))
@@ -173,4 +155,6 @@ dependencies {
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.crashlytics.ndk)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.config)
 }

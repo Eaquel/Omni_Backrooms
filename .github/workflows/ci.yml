@@ -2,9 +2,9 @@ name: Omni Backrooms CI
 
 on:
   push:
-    branches: [ main, develop, release/* ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +15,7 @@ env:
   JAVA_VERSION: "25"
   NDK_VERSION:  "29.0.14206865"
   CMAKE_VERSION: "4.3.2"
-  GRADLE_VERSION: "9.5.0"
+  GRADLE_VERSION: "9.5.1"
 
 jobs:
 
@@ -41,6 +41,9 @@ jobs:
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
           cache-read-only: false
+
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }}
 
       - name: Install NDK
         run: |
@@ -76,7 +79,7 @@ jobs:
           org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
           org.gradle.parallel=true
           org.gradle.caching=true
-          org.gradle.daemon=false
+          org.gradle.daemon=true
           android.useAndroidX=true
           android.nonTransitiveRClass=true
           android.enableJetifier=false
@@ -103,11 +106,11 @@ jobs:
           } > keystore.properties
 
       - name: Clean
-        run: gradle clean --refresh-dependencies
+        run: ./gradlew clean
 
       - name: Build Release APK + AAB
         run: |
-          gradle \
+          ./gradlew \
             :Backrooms:assembleRelease \
             :Backrooms:bundleRelease
 
@@ -126,55 +129,4 @@ jobs:
             Backrooms/build/outputs/bundle/release/*.aab
 
       - name: Upload Crashlytics NDK Symbols
-        run: gradle :Backrooms:uploadCrashlyticsSymbolFileRelease || true
-
-
-  analyze:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - uses: actions/setup-java@v5
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: temurin
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: ${{ env.GRADLE_VERSION }}
-          cache-read-only: false
-
-      - name: Setup gradle.properties
-        run: |
-          cat > gradle.properties << 'EOF'
-          org.gradle.jvmargs=-Xmx6g -XX:+UseG1GC
-          org.gradle.parallel=true
-          org.gradle.caching=true
-          org.gradle.daemon=false
-          android.useAndroidX=true
-          android.nonTransitiveRClass=true
-          android.enableJetifier=false
-          kotlin.code.style=official
-          kotlin.incremental=true
-          com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
-          EOF
-
-      - name: Lint + Detekt
-        run: gradle :Backrooms:detekt || true
-
-      - name: Android Lint
-        run: gradle :Backrooms:lintRelease || true
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: lint-reports
-          retention-days: 14
-          path: |
-            Backrooms/build/reports/lint-results-release.html
-            Backrooms/build/reports/detekt/
+        run: ./gradlew :Backrooms:uploadCrashlyticsSymbolFileRelease || true

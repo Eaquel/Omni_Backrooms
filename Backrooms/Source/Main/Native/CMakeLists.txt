@@ -1,7 +1,9 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 4.3.2)
 
 project("il2cpp" CXX)
 
+set(CMAKE_CXX_STANDARD 26)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
@@ -25,8 +27,6 @@ target_include_directories(il2cpp PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 
-target_compile_options(il2cpp PRIVATE -std=c++26)
-
 set(BASE_FLAGS
     -O3
     -DNDEBUG
@@ -48,9 +48,10 @@ set(BASE_FLAGS
 
 if(ANDROID_ABI STREQUAL "arm64-v8a")
     list(APPEND BASE_FLAGS
-        -march=armv8.2-a+simd+dotprod+fp16
-        -mtune=cortex-a76
+        -march=armv8.5-a+simd+dotprod+fp16+sha3
+        -mtune=cortex-x1
         -fstack-clash-protection
+        -mbranch-protection=standard
     )
 elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
     list(APPEND BASE_FLAGS

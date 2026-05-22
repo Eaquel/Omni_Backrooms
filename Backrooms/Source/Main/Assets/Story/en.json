@@ -1,0 +1,368 @@
+{
+  "version": 2,
+  "language": "en",
+  "meta": {
+    "title": "Omni Backrooms: Wanderer's Journals",
+    "author": "Eaquel",
+    "description": "Records of Backrooms survivors. An existence story beginning at Level 0, advancing through endless corridors.",
+    "last_updated": "Day Unknown"
+  },
+  "chapters": [
+    {
+      "id": 1,
+      "title": "The Beginning",
+      "subtitle": "Level 0 — The Lobby",
+      "unlocked": true,
+      "level_info": {
+        "level_id": 0,
+        "code_name": "The Yellow Hell",
+        "danger_class": "Class 1 — Safe / Secure / Minimal Entity Count",
+        "entity_rate": "0.05%",
+        "description": "An infinite, non-Euclidean space resembling the back rooms of a dated retail outlet. Yellow wallpaper, moist carpet, inconsistently placed fluorescent lighting. Entry is easy; exit is theoretical."
+      },
+      "paragraphs": [
+        "You have slipped through. Reality abandoned you for a moment — you leaned into a wall, kept walking, or simply ceased to exist — and now you are here. In the Omni Backrooms. Endless yellow-walled corridors, the smell of damp carpet, and the unceasing hum of fluorescent lights greet you. No time. No direction. Is there an exit?",
+
+        "The Backrooms is a parallel space that exists beneath the known universe. Scientists call it 'quantum tunnelling' or the 'no-clip phenomenon' — the state of falling through the rigid boundaries of reality into this dimension. But you are not a scientist. You are a wanderer. And here, in Level 0, everything looks both very simple and very dangerous.",
+
+        "Level 0 — also known as 'The Lobby' — is the first and most thoroughly documented level of the Backrooms. According to M.E.G. (Major Explorer Group) records, this is an infinite complex of back corridors resembling a dated office: every room covered in yellow wallpaper, carpet moist with an unidentified liquid, and lights always flickering. No two rooms are alike — yet all share the same unsettling monotony.",
+
+        "A warning: Do not drink the liquid in the carpet. It is not water. It is not Almond Water. Its nature is unknown — but it kills.",
+
+        "There is a phenomenon called the Isolation Effect. Even if you enter Level 0 as a group — you separate. This level exists in a separate dimension for each wanderer. So if you encounter someone in the corridors — they may not be real. M.E.G. reports are clear: 'If you think you see a human, it probably isn't one.' Be careful.",
+
+        "The fluorescent lights hum at a constant frequency — far louder than ordinary lights. This sound can lead to headaches, then hallucinations. You will hear: insect sounds behind the walls. Door sounds. Sometimes your own name. Follow none of them.",
+
+        "You started at Level 0. Every run may take you to a different level — some silent, some… not. Find a flickering wall. Pass through it. Hope.",
+
+        "\"If you are reading this, you still have a chance. Run. Stop. Listen. And never look back.\"\n— Anonymous Wanderer, No-Clip Date Unknown"
+      ],
+      "survival_tips": [
+        "Never drink the liquid in the carpet.",
+        "Preserve your light source — darkness attracts Smilers.",
+        "Flickering walls may indicate a passage to the next level.",
+        "If you experience hallucinations: stop, breathe deeply, close your eyes and count.",
+        "If you think you see a human — move away quickly and do not look."
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Isolation",
+      "subtitle": "The Isolation Phenomenon and the First Hours",
+      "unlocked": true,
+      "paragraphs": [
+        "The first hour is the worst. Because your brain does not believe it yet. 'This is a dream,' you say. 'If I open my eyes it will pass,' you say. But you open your eyes and the yellow wallpaper is still there. The lights are still humming. And you are still here.",
+
+        "Understanding the Isolation Effect is vitally important. Level 0 exists separately for each wanderer — this is not mere theory, it is a proven phenomenon based on decades of M.E.G. observation. Even if someone no-clipped alongside you, they are lost in their own Level 0, and you in yours. Your paths may never cross.",
+
+        "But I was lucky. Or so I thought.",
+
+        "At the fourth hour — or perhaps the fifth, since time flows differently here — I saw a note. On the carpet, written in red ink in careful handwriting: 'Watch the north wall. When it begins to vibrate, go through.' There was no signature below. Only a small drawing: the silhouette of a door.",
+
+        "That note saved me. It meant that someone, at some point, had stood in this same corridor and left this information. Perhaps they had already gone. Perhaps they were dead. Perhaps they were still wandering somewhere else in this yellow labyrinth. But at least they had left a trace.",
+
+        "I decided to leave a trace too. That moment was the beginning of these records.",
+
+        "\"The hardest part of surviving Level 0 is not the entities. The hardest part is your own mind. Loneliness kills faster than darkness.\"\n— M.E.G. Archive, Wanderer Psychology Report #7"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "First Encounter",
+      "subtitle": "Smiler — Entity #003",
+      "unlocked": true,
+      "entity_log": {
+        "entity_no": "E-003",
+        "scientific_name": "Subridens tenebris bestia",
+        "threat_level": "Lethal",
+        "habitat": "Dark corners, dim corridors, flickering light zones",
+        "behavior": "Passive-Aggressive — waits motionless, pursues if provoked",
+        "weakness": "Direct powerful light",
+        "protocol": "Maintain eye contact, retreat slowly, make no sound"
+      },
+      "paragraphs": [
+        "When I first saw them they were just shadows. At the end of the corridor, at the point where the fluorescent light flickered… They were standing. Waiting. And smiling.",
+
+        "Smilers. The name is very fitting. They smile, yes — but their smiles never reach their eyes. Their eyes are bright, white, and infinitely empty. You cannot see their bodies; darkness is their body. Only that luminescent smile and two white dots — eyes — float within the darkness.",
+
+        "M.E.G. scientists studied these creatures for years. Their scientific name is Subridens tenebris bestia — the smiling monster of darkness. They can shapeshift, taking both humanoid and canine forms. But two traits are always constant: the glowing smile and white eyes.",
+
+        "The only way to escape them: Do not panic. Stay silent. And — this is the hardest part — maintain eye contact. Yes, everything inside you freezes when you look. But if you do not look, you cannot know whether they are following you. Retreat slowly. Make no sound. Do not extinguish your light — darkness is their home.",
+
+        "I spent the first night — or however long it lasted, since there is no time here — hiding behind a shelf. I tried to hold my breath. They passed by. But I could still hear them from beyond the corridor: a soft, almost human rustling.",
+
+        "Smilers feed on fear. More precisely — 'fear of the unknown' attracts them. A wanderer who has just entered Level 0, gripped by panic, shines like a lantern to them. Stay calm. This is both the simplest and the hardest rule.",
+
+        "\"Do not avert your gaze. But never stare directly — one second too long and a bond forms between you, meaning it has already chosen you.\"\n— Survivor #7, M.E.G. Archive"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "No-Clip Physics",
+      "subtitle": "How to Enter and Exit the Backrooms",
+      "unlocked": true,
+      "paragraphs": [
+        "No-clip. A term borrowed from the gaming world — the state of falling through the rigid boundaries of reality. But this is not merely a metaphor. It is a physical process.",
+
+        "When Mia first explained this to me I did not want to believe it. Mia is a quantum physicist — or was, in the real world. 'The fabric of the universe,' she said, 'is not of equal thickness everywhere. Some points, particularly places where people spend very little time — office corridors, mall back entrances, empty car parks — the fabric thins there. And sometimes, at the right angle, at the right speed, in the right psychological state — you fall through.'",
+
+        "M.E.G. calls these 'thin points' Thresholds. They exist all over the world. Most of the time we pass by them without noticing. But occasionally — especially under stress, with sleep deprivation or in a strange moment of distracted attention — we fall in.",
+
+        "The way out of Level 0: Find a flickering wall. This flickering indicates the presence of another level on the other side of the wall. You need to run through it — if you hesitate you come back out. And every crossing takes you to a random level.",
+
+        "'Random?' I asked Mia. 'No,' she said quietly. 'The Backrooms has a logic. We just haven't understood it yet.'",
+
+        "Carlos believes none of this. He still says 'This is a curse. Not physics, a curse.' Perhaps both are true.",
+
+        "\"No-clip is theoretically reversible. In practice — no one who has returned has ever told us what they really felt. Perhaps they cannot say. Perhaps they do not want to.\"\n— Mia, Quantum Tunnelling Notes"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Between Levels",
+      "subtitle": "Transitioning from Level 0 to Level 1",
+      "unlocked": false,
+      "paragraphs": [
+        "Transitioning from one Backrooms level to another is not random. Or at least I want to believe so. The walls sometimes take on a different texture; the carpet disappears and is replaced by concrete or metal floor. The lights flicker even more — until they go out.",
+
+        "Level 1 is darker. According to M.E.G. records this resembles massive warehouse complexes — long corridors, tall shelves, oppressive light. There are more entities. And M.E.G.'s main base is somewhere near here: Base Alpha. It was there I heard a human voice for the first time.",
+
+        "Some survivors have drawn maps. Corridors, rooms, dead ends. But the geography of the Backrooms changes. Always. Even M.E.G.'s own navigation system — they call it MajorNav — is not precise. Only an estimate.",
+
+        "Yet we hope. Because hope is the only constant thing we have in these corridors.",
+
+        "When Jin found the first coded note in Level 0 he looked at all of us. It had been carved into the wall: coordinates and numbers. 'This is a map fragment,' he said. 'Someone is trying to lead us somewhere.' Who? We do not know. But that too is a kind of hope.",
+
+        "\"Listen to the walls. Sometimes they want to tell you something. Especially in Level 0 — sometimes the walls speak. Not words. But a feeling. A direction. Trust it.\"\n— Survivor #12, M.E.G. Oral History"
+      ],
+      "survival_tips": [
+        "Always have a light source in Level 1 — Smilers are more active here.",
+        "Try to reach M.E.G. Base Alpha — there are other people there.",
+        "Do not trust the map. Trust your sense of direction.",
+        "Hiding behind warehouse shelves works in Smiler encounters."
+      ]
+    },
+    {
+      "id": 6,
+      "title": "The Survivors",
+      "subtitle": "The Team: Mia, Carlos, Jin, Yuki and Me",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "Mia",
+          "text": "This is not a punishment. It is an anomaly. And every anomaly has a solution.",
+          "context": "Level 1, Warehouse Corridor, Day 3"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "Your 'anomaly' nearly ate me last night. Keep your quantum theory.",
+          "context": "In response to Mia's explanation"
+        },
+        {
+          "speaker": "Jin",
+          "text": "Can you two be quiet? I'm trying to solve the cipher on that wall and the noise is breaking my concentration.",
+          "context": "In front of a warehouse shelf, notebook in hand"
+        },
+        {
+          "speaker": "Yuki",
+          "text": "...",
+          "context": "Yuki never speaks. But she slows down before every danger. We have learned this."
+        }
+      ],
+      "paragraphs": [
+        "We found them in Level 1 — or they found us. A small group; five people. Each with a different story, a different entry point, a different former life.",
+
+        "Mia is a quantum physicist. She sees the Backrooms as a system, an equation to be solved. She has been taking notes since the first day — level transitions, Smiler behaviour, wall textures. 'When enough data accumulates,' she says, 'we will find a way out.' I want to believe her.",
+
+        "Carlos is a musician. Before the Backrooms he ran a jazz bar in Istanbul. Now even while fleeing entities he hums — sometimes this music calms us, sometimes we fear it will attract Smilers. 'If I abandon the music, I will forget who I am,' he says. I cannot argue with that.",
+
+        "Jin is a cryptographer. He has been solving the ciphers on the walls since Level 0. At every transition point there is a note, a coordinate, a sign. 'The Backrooms speaks its own language,' he says. 'We just need to learn to listen.'",
+
+        "Yuki never speaks. But she senses danger before anyone. Her steps slow, her breathing stops — and we halt. She is right every time. Yuki's instinct has saved us many times.",
+
+        "I keep records. This is my role. Perhaps someone will find these notes. Perhaps they will be useful. Perhaps I am only writing for myself — to prove that I am still alive.",
+
+        "Together we are stronger. While one keeps watch, the others sleep. When one gets lost, the others search. But the Backrooms changes people. Slowly. Silently.",
+
+        "\"Losing people here is more terrifying than being defeated by entities. Because an entity only takes your body. But this place — this yellow, infinite place — takes your mind.\"\n— Mia, Day 47"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Contact with M.E.G.",
+      "subtitle": "Major Explorer Group — Base Alpha",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "M.E.G. Guard",
+          "text": "Stop. Walk slowly. Show your hands. Any Smilers behind you?",
+          "context": "Base Alpha entrance, Level 1"
+        },
+        {
+          "speaker": "Mia",
+          "text": "No. We are clean. Five of us. Coming from Level 0, we have been walking for four days.",
+          "context": "Hands raised, calm"
+        },
+        {
+          "speaker": "M.E.G. Guard",
+          "text": "Four days? In Level 0? And you are all alive?",
+          "context": "An incredulous look"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "All of us. But best not ask again — bad for morale.",
+          "context": "With a tired smile"
+        }
+      ],
+      "paragraphs": [
+        "M.E.G. — the Major Explorer Group — is the largest human organisation in the Backrooms. Founded in 2002, though some records trace it back to 1885. Their main base is in Level 1: Base Alpha. Approximately 25,000 members, 30,000 civilians. A real society.",
+
+        "When I first entered Base Alpha I cried. The first time in a long while I saw electric light — not the Backrooms' flickering fluorescent, but warm, yellow, man-made light. The first time I heard other people's voices. The first time someone said 'come in' when you knocked on a door.",
+
+        "M.E.G. has a mission: to explore, document and keep wanderers safe within the Backrooms. They have classified entities — as 'E numbers'. They have mapped levels — hundreds of them. They distribute Almond Water — the only safe drink here. And most importantly: they sell hope.",
+
+        "'Is there an exit?' I asked M.E.G.'s Archivist. He looked at me for a long time. 'Theoretically, yes,' he finally said. 'Practically — no one has returned to tell us. But that does not mean they failed.' That sentence has kept me going ever since.",
+
+        "\"M.E.G. is not a rescue organisation. It is a survival organisation. The difference seems small but here it changes everything.\"\n— M.E.G. Archivist, Base Alpha"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Entity Encyclopedia",
+      "subtitle": "Level 0 and Level 1 Threats",
+      "unlocked": false,
+      "entities": [
+        {
+          "id": "E-001",
+          "name": "Duller",
+          "threat": "Medium",
+          "habitat": "Level 0, Level 1",
+          "description": "Slow, blunt-looking humanoid entity. Can pass through walls. Does not attack directly but staying near one is dangerous — it gradually causes mental deterioration.",
+          "protocol": "Maintain long distance. Use light sources. For escape, direction matters more than speed."
+        },
+        {
+          "id": "E-002",
+          "name": "Clump",
+          "threat": "High",
+          "habitat": "Level 0 (rarely), Level 1",
+          "description": "Multiple bodies fused together. The sound it makes while moving is strange and organic. Reacts to light.",
+          "protocol": "When you hear it, stop and wait. If you remain motionless it generally passes by."
+        },
+        {
+          "id": "E-003",
+          "name": "Smiler",
+          "threat": "Lethal",
+          "habitat": "All dark zones",
+          "description": "A glowing smile and eyes in the darkness. Can shapeshift — takes humanoid or canine form. Feeds on fear.",
+          "protocol": "Maintain eye contact. Retreat slowly. Make no sound. Never run — movement activates them."
+        },
+        {
+          "id": "E-004",
+          "name": "Howler",
+          "threat": "Very High",
+          "habitat": "Level 1, Level 2",
+          "description": "A sound-producing entity. Its scream activates other nearby entities. Dangerous alone, but when it cries all entities in the area awaken.",
+          "protocol": "Predetermine your escape route. When you hear it, it is already late — but run anyway."
+        },
+        {
+          "id": "E-005",
+          "name": "Faceling",
+          "threat": "Low",
+          "habitat": "Level 0 (dens), Level 1",
+          "description": "Human-looking, but its face is blank — no features at all. According to M.E.G. records it generally does not attack. But standing near something that watches you with a face that has no eyes… is taxing.",
+          "protocol": "Ignore it. If it has already seen you, keep walking; do not stop."
+        },
+        {
+          "id": "E-006",
+          "name": "Partygoer",
+          "threat": "Uncertain",
+          "habitat": "Level Fun, Level 1 (rare)",
+          "description": "A seemingly harmless creature carrying a colourful balloon. It wears a party hat. It laughs. It wants to join you. But you can never know when the party will end.",
+          "protocol": "Politely decline. Do not run — it sparks curiosity. Courtesy protocol."
+        }
+      ],
+      "paragraphs": [
+        "I developed a system to document the entities I encountered. Drawing inspiration from Jin's ciphers I gave each one a classification number. Parallel to M.E.G.'s official system but more personal — I added my own behavioural notes for each.",
+
+        "Smiler is the most commonly encountered. Duller is the most insidious — because by the time you realise it is near, you may already be under its influence. Howler is the trigger of a real chain reaction — if you hear one, abandon the area you are in.",
+
+        "But the most frightening is the Faceling. Because it looks human. And something non-human that looks human — that is the Backrooms' cruelest joke.",
+
+        "\"Understanding entities is far harder than fearing them. But it saves lives.\"\n— Survivor Archive, Day 134"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Exit Theory",
+      "subtitle": "Jin's Ciphers and the Meaning of the Light",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "Jin",
+          "text": "This is a coordinate. Look — these numbers are written in the Backrooms' own language. A piece has been added at each level transition. This is a map.",
+          "context": "Showing his notebook to the team, Day 72"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "Where does the map lead?",
+          "context": "Sceptically"
+        },
+        {
+          "speaker": "Jin",
+          "text": "Somewhere. And in the Backrooms, 'somewhere' means… everything.",
+          "context": "Quietly"
+        },
+        {
+          "speaker": "Yuki",
+          "text": "When?",
+          "context": "She spoke for the first time. Her voice very low but we all heard it."
+        }
+      ],
+      "paragraphs": [
+        "After passing through hundreds of corridors I realised something: the Backrooms is a system. It looks chaotic but it has a logic. A labyrinth within a labyrinth.",
+
+        "The ciphers Jin has been trying to solve are not random. At every level transition, carved into every wall, hidden at the edge of every note — coordinates. Numbers. Directions. A map written in the Backrooms' own language. And this map points somewhere.",
+
+        "M.E.G. documents this as 'Exit Point Theory'. Every labyrinth must have an exit. It has to. The fundamental geometry of the universe requires it. And if the Backrooms is truly a system — there must also be a way out of the system.",
+
+        "At the end of the corridor I saw it — a faint light. Not man-made. Not natural. Something different. As if reality itself had thinned a little there. Mia came beside me and looked. 'This is a Threshold,' she said. 'But in which direction?' We do not know. Outward? To another level?",
+
+        "When I told Mia her eyes filled with tears. Carlos stood up. Jin closed the code. Yuki spoke for the first time: 'When?'",
+
+        "I did not answer. Because I did not know the answer. But for the first time — truly the first time — I felt that this was possible.",
+
+        "\"The exit exists theoretically. It exists practically too. You just need to stay alive long enough to find it.\"\n— Jin, Day 89"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "The Final Message",
+      "subtitle": "From Eaquel to You",
+      "unlocked": false,
+      "paragraphs": [
+        "If you have reached here, it means my records were of some use. Good.",
+
+        "Do not try to find me. I am probably not here anymore. Either I got out — or I was swallowed. Both are a kind of ending.",
+
+        "But know this: the Backrooms can be beaten. If you learn its rules. If you keep thinking despite your fear. If you are not alone. These three things — knowledge, reason, connection — keep you standing in this yellow hell.",
+
+        "Mia will still be taking notes. Carlos will still be humming. Jin will still be solving ciphers. Yuki will still be sensing danger. And I — I am writing these lines hoping that someone will read them.",
+
+        "When the lights go out, when that hum stops — do not panic. Know that this moment will pass. Every moment passes. Even in Level 0. Perhaps especially in Level 0.",
+
+        "And when you see the exit light, whatever happens, stop. Take a breath. Because you need to make sure that light is real. The Backrooms tells you lies. You see doors — they are not there. You see stairs — they are not there. You see lights. Most are not there.",
+
+        "But some are.",
+
+        "If it is real: go through.",
+        "If not: run.",
+
+        "And if you are in doubt — put your hand on the wall. A real exit vibrates. When you feel warmth — that is real.",
+
+        "Good luck, wanderer. These corridors are infinite but you are not. That is not a weakness — it is what makes you human. And in the Backrooms, being human — is sometimes the most powerful weapon.\n— Eaquel, Day Unknown",
+
+        "\"Run to survive. Stop to remain human. The balance between those two — that is the real labyrinth.\"\n— Final Note, Wall Carving, Level 0 Corridor 7-G"
+      ]
+    }
+  ]
+}
