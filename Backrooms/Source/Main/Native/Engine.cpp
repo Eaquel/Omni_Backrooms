@@ -36,6 +36,7 @@
 #include <string_view>
 #include <sys/prctl.h>
 #include <sys/ptrace.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/system_properties.h>
@@ -725,7 +726,7 @@ public:
 private:
     void loop() {
         prctl(PR_SET_NAME,"omni_guard_wt",0,0,0);
-        android::os::Process::setThreadPriority(THREAD_PRIORITY_BACKGROUND);
+        setpriority(PRIO_PROCESS,0,10);
         RootDetector root; FridaDetector frida; DebugDetector debug; EmulatorDetector emu;
         int cycle=0;
         while(running_.load(std::memory_order_acquire)){
@@ -1085,10 +1086,6 @@ static omni::guard::GuardState       gGuard;
 static omni::entity::EntitySystem    gEntitySys;
 static omni::sound::SoundEngine      gSound;
 
-static AAudioErrorCallback aaudioErrorCallback = [](AAudioStream*, void*, aaudio_result_t err){
-    LOGE_S("AAudio stream error: %d", err);
-};
-
 static aaudio_data_callback_result_t aaudioDataCallback(
         AAudioStream*, void* userData, void* audioData, int32_t numFrames) {
     auto* eng = static_cast<omni::sound::SoundEngine*>(userData);
@@ -1108,7 +1105,7 @@ static aaudio_data_callback_result_t aaudioDataCallback(
 
 static void recvLoop() {
     using namespace omni::net;
-    android::os::Process::setThreadPriority(THREAD_PRIORITY_BACKGROUND);
+    setpriority(PRIO_PROCESS,0,10);
     while(gNet.running.load()){
         sockaddr_in from{};
         int n=gNet.sock.recvFrom(gNet.recvBuf,sizeof(gNet.recvBuf),from);
@@ -1320,7 +1317,7 @@ JNIEXPORT jboolean JNICALL
 Java_com_omni_backrooms_NativeBridge_initSound(JNIEnv*, jobject) {
     gSound.running.store(false);
     if(gSound.stream){ AAudioStream_close(gSound.stream); gSound.stream=nullptr; }
-    if(gSound.builder){ AAudio_deleteStreamBuilder(gSound.builder); gSound.builder=nullptr; }
+    if(gSound.builder){ AAudioStreamBuilder_delete(gSound.builder); gSound.builder=nullptr; }
 
     AAudio_createStreamBuilder(&gSound.builder);
     if(!gSound.builder){ LOGE_S("AAudioStreamBuilder failed"); return JNI_FALSE; }
@@ -1332,9 +1329,15 @@ Java_com_omni_backrooms_NativeBridge_initSound(JNIEnv*, jobject) {
     AAudioStreamBuilder_setSharingMode(gSound.builder,AAUDIO_SHARING_MODE_EXCLUSIVE);
     AAudioStreamBuilder_setFramesPerDataCallback(gSound.builder,omni::sound::kFrames);
     AAudioStreamBuilder_setDataCallback(gSound.builder,aaudioDataCallback,&gSound);
-    AAudioStreamBuilder_setErrorCallback(gSound.builder,aaudioErrorCallback,nullptr);
+    AAudioStreamBuilder_setErrorCallback(
+        gSound.builder,
+        [](AAudioStream*,void*,aaudio_result_t e){ LOGE_S("AAudio error: %d",e); },
+        nullptr
+    );
 
     aaudio_result_t res=AAudioStreamBuilder_openStream(gSound.builder,&gSound.stream);
+    AAudioStreamBuilder_delete(gSound.builder);
+    gSound.builder=nullptr;
     if(res!=AAUDIO_OK){ LOGE_S("AAudio openStream: %s",AAudio_convertResultToText(res)); return JNI_FALSE; }
 
     gSound.ambience.setLevel(0.4f);
@@ -1375,7 +1378,7 @@ Java_com_omni_backrooms_NativeBridge_destroySound(JNIEnv*, jobject) {
         gSound.stream=nullptr;
     }
     if(gSound.builder){
-        AAudio_deleteStreamBuilder(gSound.builder);
+        AAudioStreamBuilder_delete(gSound.builder);
         gSound.builder=nullptr;
     }
     LOGI_S("Sound destroyed");
