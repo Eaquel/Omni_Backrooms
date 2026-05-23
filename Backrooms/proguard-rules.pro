@@ -37,6 +37,14 @@
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
+-keep class dagger.hilt.** { *; }
+-keep class javax.inject.** { *; }
+-keep class * extends dagger.hilt.android.internal.managers.ActivityComponentManager { *; }
+-keepclasseswithmembers class * {
+    @dagger.hilt.android.AndroidEntryPoint <init>(...);
+}
+-dontwarn dagger.hilt.**
+
 -keep class androidx.credentials.** { *; }
 -keep class com.google.android.libraries.identity.googleid.** { *; }
 -dontwarn androidx.credentials.**
