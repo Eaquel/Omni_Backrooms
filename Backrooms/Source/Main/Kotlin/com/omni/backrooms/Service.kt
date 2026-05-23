@@ -10,6 +10,9 @@ import android.graphics.Bitmap
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -111,57 +115,94 @@ class NativeBridge @Inject constructor() {
 
 interface ApiService {
     @GET("rooms")
-    suspend fun getRooms(@Query("q") query: String?, @Query("locked") locked: Boolean?, @Query("lang") language: String?, @Query("page") page: Int, @Query("pageSize") pageSize: Int): RoomPage
+    suspend fun getRooms(
+        @Query("q") query: String?,
+        @Query("locked") locked: Boolean?,
+        @Query("lang") language: String?,
+        @Query("page") page: Int,
+        @Query("pageSize") pageSize: Int
+    ): RoomPage
+
     @POST("rooms")
     suspend fun createRoom(@Body body: CreateRoomRequest): CreateRoomResponse
+
     @POST("rooms/{id}/join")
     suspend fun joinRoom(@Path("id") roomId: String, @Query("password") password: String?): JoinRoomResponse
+
     @DELETE("rooms/{id}")
     suspend fun deleteRoom(@Path("id") roomId: String): BaseResponse
+
     @GET("rooms/{id}")
     suspend fun getRoomDetail(@Path("id") roomId: String): RoomDetail
+
     @POST("rooms/{id}/kick/{peerId}")
     suspend fun kickPlayer(@Path("id") roomId: String, @Path("peerId") peerId: Int): BaseResponse
+
     @GET("player/profile")
     suspend fun getProfile(): PlayerProfile
+
     @PUT("player/profile")
     suspend fun updateProfile(@Body profile: PlayerProfile): PlayerProfile
+
     @PUT("player/avatar")
     suspend fun updateAvatar(@Body body: AvatarRequest): PlayerProfile
+
     @POST("player/currency/purchase")
     suspend fun purchaseCurrency(@Body body: PurchaseRequest): PurchaseResponse
+
     @GET("leaderboard")
-    suspend fun getLeaderboard(@Query("page") page: Int = 0, @Query("pageSize") size: Int = 50, @Query("difficulty") difficulty: String? = null, @Query("region") region: String? = null): LeaderboardPage
+    suspend fun getLeaderboard(
+        @Query("page") page: Int = 0,
+        @Query("pageSize") size: Int = 50,
+        @Query("difficulty") difficulty: String? = null,
+        @Query("region") region: String? = null
+    ): LeaderboardPage
+
     @POST("player/score")
     suspend fun submitScore(@Body body: ScoreSubmitRequest): BaseResponse
+
     @POST("auth/google")
     suspend fun loginWithGoogle(@Body body: GoogleAuthRequest): AuthResponse
+
     @POST("auth/refresh")
     suspend fun refreshToken(@Body body: RefreshRequest): AuthResponse
+
     @POST("auth/logout")
     suspend fun logout(): BaseResponse
+
     @GET("market/items")
     suspend fun getMarketItems(@Query("category") category: String?, @Query("page") page: Int = 0): MarketPage
+
     @POST("market/buy")
     suspend fun buyItem(@Body body: BuyRequest): BuyResponse
+
     @GET("market/daily")
     suspend fun getDailyDeals(): List<MarketItemDto>
+
     @GET("characters")
     suspend fun getCharacters(): List<CharacterDto>
+
     @POST("characters/{id}/equip")
     suspend fun equipCharacter(@Path("id") charId: String): BaseResponse
+
     @POST("characters/{id}/unlock")
     suspend fun unlockCharacter(@Path("id") charId: String): BaseResponse
+
     @GET("story/chapters")
     suspend fun getStoryChapters(): List<StoryChapterDto>
+
     @PUT("player/settings")
     suspend fun syncSettings(@Body body: GameSettings): BaseResponse
+
     @GET("player/settings")
     suspend fun fetchSettings(): GameSettings
+
     @GET("events/active")
     suspend fun getActiveEvents(): List<EventDto>
+
     @POST("events/{id}/join")
     suspend fun joinEvent(@Path("id") eventId: String): BaseResponse
+
     @POST("report/player")
     suspend fun reportPlayer(@Body body: ReportRequest): BaseResponse
 }
@@ -196,8 +237,8 @@ data class RoomInfo(
     val difficulty    : String,
     val isLocked      : Boolean,
     val language      : String,
-    val mapId         : String  = "level_0",
-    val ping          : Int     = 0
+    val mapId         : String = "level_0",
+    val ping          : Int    = 0
 )
 
 data class RoomPage(val rooms: List<RoomInfo>, val total: Int)
@@ -249,25 +290,48 @@ data class GameState(
 )
 
 data class LeaderboardEntry(
-    val rank: Int, val playerId: Int, val playerName: String, val avatarUrl: String?,
-    val level: Int, val score: Long, val survived: Int, val difficulty: String, val region: String = "TR"
+    val rank       : Int,
+    val playerId   : Int,
+    val playerName : String,
+    val avatarUrl  : String?,
+    val level      : Int,
+    val score      : Long,
+    val survived   : Int,
+    val difficulty : String,
+    val region     : String = "TR"
 )
 
 data class ChatMessage(
-    val senderId: Int, val senderName: String, val text: String,
+    val senderId   : Int,
+    val senderName : String,
+    val text       : String,
     val timestampMs: Long = System.currentTimeMillis()
 )
 
 data class NetworkPlayerState(
-    val peerId: Int, val posX: Float, val posY: Float, val posZ: Float,
-    val yaw: Float, val pitch: Float, val animState: Int = 0, val hp: Float = 100f,
-    val ping: Int = 0, val isConnected: Boolean = true, val charId: String = "wanderer"
+    val peerId      : Int,
+    val posX        : Float,
+    val posY        : Float,
+    val posZ        : Float,
+    val yaw         : Float,
+    val pitch       : Float,
+    val animState   : Int     = 0,
+    val hp          : Float   = 100f,
+    val ping        : Int     = 0,
+    val isConnected : Boolean = true,
+    val charId      : String  = "wanderer"
 )
 
 data class CameraSnapshot(
-    val posX: Float, val posY: Float, val posZ: Float,
-    val yaw: Float, val pitch: Float, val roll: Float,
-    val fov: Float, val bobAmount: Float, val bobPhase: Float
+    val posX     : Float,
+    val posY     : Float,
+    val posZ     : Float,
+    val yaw      : Float,
+    val pitch    : Float,
+    val roll     : Float,
+    val fov      : Float,
+    val bobAmount: Float,
+    val bobPhase : Float
 ) {
     companion object {
         fun fromFloatArray(data: FloatArray?): CameraSnapshot? {
@@ -278,39 +342,73 @@ data class CameraSnapshot(
 }
 
 data class LevelSegment(
-    val posX: Float, val posY: Float, val width: Float, val length: Float, val height: Float,
-    val lightPhase: Float, val lightIntensity: Float, val lightSpeed: Float, val lightBroken: Boolean,
-    val roomType: Int, val wallDamage: Float, val moisture: Float, val hasHazard: Boolean, val decalCount: Int
+    val posX         : Float,
+    val posY         : Float,
+    val width        : Float,
+    val length       : Float,
+    val height       : Float,
+    val lightPhase   : Float,
+    val lightIntensity: Float,
+    val lightSpeed   : Float,
+    val lightBroken  : Boolean,
+    val roomType     : Int,
+    val wallDamage   : Float,
+    val moisture     : Float,
+    val hasHazard    : Boolean,
+    val decalCount   : Int
 ) {
     companion object {
         fun fromFloatArray(data: FloatArray, index: Int): LevelSegment? {
-            val base = index * 14; if (base + 13 >= data.size) return null
-            return LevelSegment(data[base], data[base+1], data[base+2], data[base+3], data[base+4],
+            val base = index * 14
+            if (base + 13 >= data.size) return null
+            return LevelSegment(
+                data[base], data[base+1], data[base+2], data[base+3], data[base+4],
                 data[base+5], data[base+6], data[base+7], data[base+8] > 0.5f,
-                data[base+9].toInt(), data[base+10], data[base+11], data[base+12] > 0.5f, data[base+13].toInt())
+                data[base+9].toInt(), data[base+10], data[base+11],
+                data[base+12] > 0.5f, data[base+13].toInt()
+            )
         }
     }
 }
 
 data class EntityState(
-    val id: Int, val posX: Float, val posY: Float, val posZ: Float,
-    val aiState: Int, val alertLevel: Float, val hpFraction: Float,
-    val flickerInfluence: Float, val typeId: Int, val isActive: Boolean
+    val id              : Int,
+    val posX            : Float,
+    val posY            : Float,
+    val posZ            : Float,
+    val aiState         : Int,
+    val alertLevel      : Float,
+    val hpFraction      : Float,
+    val flickerInfluence: Float,
+    val typeId          : Int,
+    val isActive        : Boolean
 ) {
     companion object {
         fun fromFloatArray(data: FloatArray, index: Int, id: Int): EntityState? {
-            val base = index * 10; if (base + 9 >= data.size) return null
-            return EntityState(id, data[base], data[base+1], data[base+2], data[base+3].toInt(),
-                data[base+4], data[base+5], data[base+6], data[base+8].toInt(), data[base+9] > 0.5f)
+            val base = index * 10
+            if (base + 9 >= data.size) return null
+            return EntityState(
+                id, data[base], data[base+1], data[base+2], data[base+3].toInt(),
+                data[base+4], data[base+5], data[base+6], data[base+8].toInt(),
+                data[base+9] > 0.5f
+            )
         }
     }
 }
 
 data class SessionStats(
-    val sessionId: String, val startMs: Long, val endMs: Long = 0L,
-    val difficulty: String, val mapId: String, val finalScore: Long = 0L,
-    val survived: Boolean = false, val kills: Int = 0, val levelsReached: Int = 0,
-    val peakSanity: Float = 100f, val lowestHp: Float = 100f, val totalDistance: Float = 0f
+    val sessionId    : String,
+    val startMs      : Long,
+    val endMs        : Long    = 0L,
+    val difficulty   : String,
+    val mapId        : String,
+    val finalScore   : Long    = 0L,
+    val survived     : Boolean = false,
+    val kills        : Int     = 0,
+    val levelsReached: Int     = 0,
+    val peakSanity   : Float   = 100f,
+    val lowestHp     : Float   = 100f,
+    val totalDistance: Float   = 0f
 )
 
 data class CreateRoomRequest(val name: String, val maxPlayers: Int, val difficulty: String, val password: String?, val language: String = "TR", val mapId: String = "level_0")
@@ -339,6 +437,7 @@ data class ReportRequest(val reportedId: Int, val reason: String, val details: S
 class RoomRepository @Inject constructor(private val api: ApiService) {
     suspend fun fetchRooms(query: String?, locked: Boolean?, lang: String?, page: Int, pageSize: Int): RoomPage =
         api.getRooms(query, locked, lang, page, pageSize)
+
     suspend fun createRoom(name: String, maxPlayers: Int, difficulty: String, password: String?): String =
         api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password)).roomId
 }
@@ -396,9 +495,12 @@ class SessionService : Service() {
         super.onCreate()
         createChannel()
         ServiceCompat.startForeground(
-            this, NOTIF_ID, buildNotif(),
+            this,
+            NOTIF_ID,
+            buildNotif(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            else 0
         )
     }
 
@@ -437,6 +539,7 @@ class SessionService : Service() {
 
     private fun startOffline(difficulty: String, seed: Long, mapId: String) {
         scope.launch {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             bridge.initCore(seed)
             bridge.initSound()
             bridge.initEntities()
@@ -448,8 +551,9 @@ class SessionService : Service() {
                 val typeId = i % EntityType.entries.size
                 val entity = EntityType.entries[typeId]
                 bridge.spawnEntity(
-                    x = (Math.random() * 60 - 30).toFloat(), y = 0f,
-                    z = (Math.random() * 60 - 30).toFloat(),
+                    x      = (Math.random() * 60 - 30).toFloat(),
+                    y      = 0f,
+                    z      = (Math.random() * 60 - 30).toFloat(),
                     speed  = entity.baseSpeed * cfg.speedMult,
                     hear   = 10f + i * 1.5f,
                     sight  = 16f * cfg.sightMult,
@@ -466,6 +570,7 @@ class SessionService : Service() {
 
     private fun startOnline(roomId: String, difficulty: String) {
         scope.launch {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             val seed = System.currentTimeMillis()
             bridge.initCore(seed)
             bridge.initSound()
@@ -475,8 +580,9 @@ class SessionService : Service() {
             val cfg = assetManager.getSpawnConfig(difficulty)
             repeat(cfg.count) { i ->
                 bridge.spawnEntity(
-                    x = (Math.random() * 60 - 30).toFloat(), y = 0f,
-                    z = (Math.random() * 60 - 30).toFloat(),
+                    x      = (Math.random() * 60 - 30).toFloat(),
+                    y      = 0f,
+                    z      = (Math.random() * 60 - 30).toFloat(),
                     speed  = 2.5f * cfg.speedMult,
                     hear   = 10f,
                     sight  = 16f * cfg.sightMult,
@@ -495,6 +601,7 @@ class SessionService : Service() {
     private fun startPhysicsLoop() {
         lastTickMs = bridge.nowMs()
         physicsJob = scope.launch {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             while (isActive) {
                 if (_gameState.value.isPaused) { delay(16); continue }
                 val now = bridge.nowMs()
@@ -509,7 +616,14 @@ class SessionService : Service() {
                 updateFlashlightBattery(dt)
                 updateSanity(nearbyCount, flickerInfluence, dt)
                 updateStamina(dt)
-                _gameState.update { s -> s.copy(sessionElapsed = elapsedMs, flickerIntensity = flickerInfluence, entitiesNearby = nearbyCount, score = score) }
+                _gameState.update { s ->
+                    s.copy(
+                        sessionElapsed   = elapsedMs,
+                        flickerIntensity = flickerInfluence,
+                        entitiesNearby   = nearbyCount,
+                        score            = score
+                    )
+                }
                 delay(16)
             }
         }
@@ -517,6 +631,7 @@ class SessionService : Service() {
 
     private fun startEntitySpawner(difficulty: String, cfg: SpawnConfig) {
         entityJob = scope.launch {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             var timer = 0L
             while (isActive) {
                 delay(5_000); timer += 5_000
@@ -525,10 +640,14 @@ class SessionService : Service() {
                     val typeId = (Math.random() * 8).toInt()
                     val entity = EntityType.entries.getOrNull(typeId) ?: EntityType.SMILER
                     bridge.spawnEntity(
-                        x = (Math.random() * 80 - 40).toFloat(), y = 0f,
-                        z = (Math.random() * 80 - 40).toFloat(),
-                        speed = entity.baseSpeed * cfg.speedMult,
-                        hear  = 12f, sight = 18f * cfg.sightMult, aggro = 9f, typeId = typeId
+                        x      = (Math.random() * 80 - 40).toFloat(),
+                        y      = 0f,
+                        z      = (Math.random() * 80 - 40).toFloat(),
+                        speed  = entity.baseSpeed * cfg.speedMult,
+                        hear   = 12f,
+                        sight  = 18f * cfg.sightMult,
+                        aggro  = 9f,
+                        typeId = typeId
                     )
                 }
             }
@@ -537,6 +656,7 @@ class SessionService : Service() {
 
     private fun startNetworkSync() {
         networkJob = scope.launch {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             while (isActive) {
                 val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
                 if (cam != null) bridge.buildPosPacket(cam.posX, cam.posY, cam.posZ, cam.yaw, cam.pitch)
@@ -549,6 +669,7 @@ class SessionService : Service() {
 
     private fun startScoreAccumulator() {
         scoreJob = scope.launch {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             while (isActive) {
                 if (!_gameState.value.isPaused)
                     score += when (_gameState.value.difficulty) { "hard" -> 5L; "normal" -> 3L; else -> 1L }
@@ -560,7 +681,8 @@ class SessionService : Service() {
     private fun processIncomingPacket(raw: ByteArray) { if (raw.size < 8) return }
 
     private fun updateFlashlightBattery(dt: Float) {
-        val s = _gameState.value; if (!s.flashlightOn) return
+        val s = _gameState.value
+        if (!s.flashlightOn) return
         val nb = (s.flashlightBattery - dt * 0.005f).coerceAtLeast(0f)
         _gameState.update { it.copy(flashlightBattery = nb, flashlightOn = nb > 0f) }
     }
@@ -618,8 +740,14 @@ class SessionService : Service() {
 
     private fun stopSession() {
         onGameOver()
-        scope.launch { bridge.destroyEntities(); bridge.destroySound(); bridge.destroySocket(); bridge.destroyCore() }
-        stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+        scope.launch {
+            bridge.destroyEntities()
+            bridge.destroySound()
+            bridge.destroySocket()
+            bridge.destroyCore()
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun createChannel() {
@@ -633,7 +761,9 @@ class SessionService : Service() {
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.loading_text))
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setOngoing(true).setSilent(true).build()
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
 }
 
 data class RoomListUiState(
@@ -680,7 +810,9 @@ class RoomListVM @Inject constructor(private val repo: RoomRepository) : ViewMod
         load()
         viewModelScope.launch {
             _state.map { Triple(it.query, it.filterLocked, it.lang) }
-                .debounce(300).distinctUntilChanged().collect { load() }
+                .debounce(300)
+                .distinctUntilChanged()
+                .collect { load() }
         }
     }
 
@@ -692,10 +824,11 @@ class RoomListVM @Inject constructor(private val repo: RoomRepository) : ViewMod
 
     private fun load() {
         viewModelScope.launch {
-            val s = _state.value; _state.update { it.copy(isLoading = true) }
+            val s = _state.value
+            _state.update { it.copy(isLoading = true) }
             runCatching { repo.fetchRooms(s.query, s.filterLocked, s.lang, s.page, 20) }
                 .onSuccess { r -> _state.update { it.copy(isLoading = false, rooms = r.rooms, totalPages = maxOf(1, (r.total + 19) / 20)) } }
-                .onFailure {     _state.update { it.copy(isLoading = false) } }
+                .onFailure { _state.update { it.copy(isLoading = false) } }
         }
     }
 }
@@ -715,7 +848,8 @@ class CreateRoomVM @Inject constructor(private val repo: RoomRepository) : ViewM
 
     fun onCreate() {
         val s   = _state.value
-        val err = validate(s.name); if (err != null) { _state.update { it.copy(nameError = err) }; return }
+        val err = validate(s.name)
+        if (err != null) { _state.update { it.copy(nameError = err) }; return }
         if (s.passwordEnabled && s.password.isBlank()) return
         viewModelScope.launch {
             _state.update { it.copy(isCreating = true) }
@@ -742,7 +876,7 @@ class RoomLobbyVM @Inject constructor(private val api: ApiService, private val b
             _state.update { it.copy(isLoading = true) }
             runCatching { api.getRoomDetail(roomId) }
                 .onSuccess { d -> _state.update { it.copy(isLoading = false, detail = d) } }
-                .onFailure {     _state.update { it.copy(isLoading = false) } }
+                .onFailure { _state.update { it.copy(isLoading = false) } }
         }
         startPingLoop()
     }
@@ -755,7 +889,12 @@ class RoomLobbyVM @Inject constructor(private val api: ApiService, private val b
     }
 
     private fun startCountdown() {
-        viewModelScope.launch { for (i in 5 downTo 0) { _state.update { it.copy(countdown = i) }; delay(1_000) } }
+        viewModelScope.launch {
+            for (i in 5 downTo 0) {
+                _state.update { it.copy(countdown = i) }
+                delay(1_000)
+            }
+        }
     }
 
     private fun startPingLoop() {
@@ -769,7 +908,7 @@ class RoomLobbyVM @Inject constructor(private val api: ApiService, private val b
 }
 
 @kotlinx.coroutines.FlowPreview
-@Composable
+@androidx.compose.runtime.Composable
 fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewModel()) {
     val s by vm.state.collectAsState()
     Box(Modifier.fillMaxSize().background(DarkBg)) {
@@ -782,17 +921,19 @@ fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewMode
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Yellow) }
                 Text(stringResource(R.string.room_list_title), color = Yellow, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                 Spacer(Modifier.weight(1f))
-                if (s.isLoading) CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
+                AnimatedVisibility(visible = s.isLoading, enter = fadeIn(), exit = fadeOut()) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
+                }
             }
             DividerLine()
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment     = Alignment.CenterVertically
             ) {
                 SearchField(s.query, vm::onQuery, Modifier.weight(1f))
-                FilterChip("Açık",  s.filterLocked == false) { vm.onLocked(if (s.filterLocked == false) null else false) }
-                FilterChip(stringResource(R.string.room_filter_locked), s.filterLocked == true) { vm.onLocked(if (s.filterLocked == true) null else true) }
+                RoomFilterChip(stringResource(R.string.room_filter_unlocked), s.filterLocked == false) { vm.onLocked(if (s.filterLocked == false) null else false) }
+                RoomFilterChip(stringResource(R.string.room_filter_locked),   s.filterLocked == true)  { vm.onLocked(if (s.filterLocked == true) null else true) }
             }
             DividerLine()
             if (s.rooms.isEmpty() && !s.isLoading) {
@@ -800,8 +941,20 @@ fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewMode
                     Text(stringResource(R.string.room_list_empty), color = TextDim, fontSize = 13.sp, letterSpacing = 2.sp)
                 }
             } else {
-                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(s.rooms) { room -> RoomRow(room) { onJoined() } }
+                LazyColumn(
+                    Modifier.weight(1f),
+                    contentPadding      = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(s.rooms, key = { it.id }) { room ->
+                        AnimatedVisibility(
+                            visible      = true,
+                            enter        = slideInVertically(tween(200)) { it / 2 } + fadeIn(tween(200)),
+                            modifier     = Modifier.animateItem()
+                        ) {
+                            RoomRow(room) { onJoined() }
+                        }
+                    }
                 }
             }
             DividerLine()
@@ -810,7 +963,7 @@ fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewMode
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
 fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hiltViewModel()) {
     val s by vm.state.collectAsState()
     LaunchedEffect(s.createdRoomId) { if (s.createdRoomId != null) onCreated() }
@@ -823,66 +976,106 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text("ODA ADI", color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp)
+                SectionLabel("ODA ADI")
                 OmniTextField(s.name, vm::onName, stringResource(R.string.room_create_name_hint), error = s.nameError?.let { stringResource(it) })
-                Text(stringResource(R.string.room_create_size_label), color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp)
+
+                SectionLabel(stringResource(R.string.room_create_size_label))
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text("${s.size} ${stringResource(R.string.room_players_label)}", color = Yellow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Slider(s.size.toFloat(), { vm.onSize(it.toInt()) }, valueRange = 2f..4f, steps = 1,
-                        colors = SliderDefaults.colors(thumbColor = Yellow, activeTrackColor = Yellow, inactiveTrackColor = MetalBg),
-                        modifier = Modifier.width(180.dp))
+                    Slider(
+                        s.size.toFloat(), { vm.onSize(it.toInt()) },
+                        valueRange = 2f..4f,
+                        steps      = 1,
+                        colors     = SliderDefaults.colors(thumbColor = Yellow, activeTrackColor = Yellow, inactiveTrackColor = MetalBg),
+                        modifier   = Modifier.width(180.dp)
+                    )
                 }
-                DifficultyRow(s.difficulty, vm::onDifficulty)
-                MapPicker(s.mapId, vm::onMapId)
+
+                DifficultySelector(s.difficulty, vm::onDifficulty)
+                MapSelector(s.mapId, vm::onMapId)
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("TR", "EN", "DE", "RU").forEach { l ->
+                    listOf("TR","EN","DE","RU").forEach { l ->
                         val sel = s.language == l
-                        Box(contentAlignment = Alignment.Center,
-                            modifier = Modifier.weight(1f).height(34.dp).clip(RoundedCornerShape(2.dp))
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.weight(1f).height(34.dp)
+                                .clip(RoundedCornerShape(2.dp))
                                 .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
                                 .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
                                 .clickable { vm.onLanguage(l) }
                         ) { Text(l, color = if (sel) Yellow else TextDim, fontSize = 11.sp) }
                     }
                 }
+
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Checkbox(s.passwordEnabled, vm::onPasswordToggle,
-                        colors = CheckboxDefaults.colors(checkedColor = Yellow, uncheckedColor = TextDim, checkmarkColor = Color.Black))
-                    Icon(if (s.passwordEnabled) Icons.Default.Lock else Icons.Default.LockOpen, null,
-                        tint = if (s.passwordEnabled) Yellow else TextDim, modifier = Modifier.size(16.dp))
+                    Checkbox(
+                        s.passwordEnabled,
+                        vm::onPasswordToggle,
+                        colors = CheckboxDefaults.colors(checkedColor = Yellow, uncheckedColor = TextDim, checkmarkColor = Color.Black)
+                    )
+                    Icon(
+                        if (s.passwordEnabled) Icons.Default.Lock else Icons.Default.LockOpen,
+                        null,
+                        tint     = if (s.passwordEnabled) Yellow else TextDim,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Text(stringResource(R.string.room_create_password_label), color = if (s.passwordEnabled) Yellow else TextDim, fontSize = 12.sp)
                 }
-                if (s.passwordEnabled) OmniTextField(s.password, vm::onPassword, stringResource(R.string.room_create_password_hint), isPassword = true)
+
+                AnimatedVisibility(visible = s.passwordEnabled, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    OmniTextField(s.password, vm::onPassword, stringResource(R.string.room_create_password_hint), isPassword = true)
+                }
+
                 s.error?.let { Text(it, color = DangerRed, fontSize = 11.sp) }
-                OmniButton(
-                    text    = if (s.isCreating) "…" else stringResource(R.string.room_create_confirm),
-                    onClick = vm::onCreate,
+
+                AtmosphericButton(
+                    label   = if (s.isCreating) "…" else stringResource(R.string.room_create_confirm),
+                    icon    = Icons.Default.Add,
+                    accent  = Yellow,
+                    width   = 400.dp,
+                    height  = 50.dp,
                     enabled = !s.isCreating && s.nameError == null && s.name.isNotBlank(),
-                    width   = 400.dp, height = 50.dp
+                    onClick = vm::onCreate
                 )
             }
         }
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
 private fun RoomRow(room: RoomInfo, onClick: () -> Unit) {
+    val interSrc  = remember { MutableInteractionSource() }
+    val isPressed by interSrc.collectIsPressedAsState()
+    val scale     by animateFloatAsState(if (isPressed) 0.98f else 1f, spring(), label = "room_row")
     Row(
-        Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(2.dp))
-            .background(MetalBg.copy(0.7f)).border(1.dp, BorderCol, RoundedCornerShape(2.dp))
-            .clickable(onClick = onClick).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().scale(scale).height(50.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(MetalBg.copy(0.7f))
+            .border(1.dp, BorderCol, RoundedCornerShape(3.dp))
+            .clickable(interactionSource = interSrc, indication = null, onClick = onClick)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(if (room.isLocked) Icons.Default.Lock else Icons.Default.LockOpen, null,
-            tint = if (room.isLocked) DangerRed.copy(0.7f) else SuccessGreen.copy(0.7f), modifier = Modifier.size(14.dp))
+        Icon(
+            if (room.isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+            null,
+            tint     = if (room.isLocked) DangerRed.copy(0.7f) else SuccessGreen.copy(0.7f),
+            modifier = Modifier.size(14.dp)
+        )
         Spacer(Modifier.width(8.dp))
         Text(room.name, color = Yellow, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(room.language, color = TextDim, fontSize = 10.sp, letterSpacing = 1.sp)
         Spacer(Modifier.width(10.dp))
         Text("${room.currentPlayers}/${room.maxPlayers}", color = TextSec, fontSize = 11.sp)
         Spacer(Modifier.width(10.dp))
-        Text(room.difficulty.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
-            color = when (room.difficulty) { "easy" -> SuccessGreen; "hard" -> DangerRed; else -> Yellow })
+        Text(
+            room.difficulty.uppercase(),
+            fontSize     = 10.sp,
+            fontWeight   = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            color        = when (room.difficulty) { "easy" -> SuccessGreen; "hard" -> DangerRed; else -> Yellow }
+        )
         if (room.ping > 0) {
             Spacer(Modifier.width(8.dp))
             Text("${room.ping}ms", color = when { room.ping < 60 -> SuccessGreen; room.ping < 120 -> CrtAmber; else -> DangerRed }, fontSize = 9.sp)
@@ -890,74 +1083,114 @@ private fun RoomRow(room: RoomInfo, onClick: () -> Unit) {
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
 private fun SearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier) {
     Row(
-        modifier.clip(RoundedCornerShape(2.dp)).background(MetalBg).border(1.dp, BorderCol, RoundedCornerShape(2.dp)).padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier.clip(RoundedCornerShape(2.dp))
+            .background(MetalBg)
+            .border(1.dp, BorderCol, RoundedCornerShape(2.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(Icons.Default.Search, null, tint = TextDim, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(6.dp))
-        BasicTextField(query, onQuery, singleLine = true, textStyle = TextStyle(color = Yellow, fontSize = 12.sp), cursorBrush = SolidColor(Yellow),
-            decorationBox = { inner -> if (query.isEmpty()) Text(stringResource(R.string.room_search_hint), color = TextDim, fontSize = 12.sp); inner() })
+        BasicTextField(
+            query, onQuery,
+            singleLine  = true,
+            textStyle   = TextStyle(color = Yellow, fontSize = 12.sp),
+            cursorBrush = SolidColor(Yellow),
+            decorationBox = { inner ->
+                if (query.isEmpty()) Text(stringResource(R.string.room_search_hint), color = TextDim, fontSize = 12.sp)
+                inner()
+            }
+        )
     }
 }
 
-@Composable
-private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(contentAlignment = Alignment.Center,
-        modifier = Modifier.clip(RoundedCornerShape(2.dp))
+@androidx.compose.runtime.Composable
+private fun RoomFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val scale by animateFloatAsState(if (selected) 1.04f else 1f, spring(), label = "chip")
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.scale(scale)
+            .clip(RoundedCornerShape(2.dp))
             .background(if (selected) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
             .border(1.dp, if (selected) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-            .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 4.dp)
-    ) { Text(label, color = if (selected) Yellow else TextDim, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, letterSpacing = 1.sp) }
-}
-
-@Composable
-private fun DifficultyRow(selected: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(Triple(R.string.difficulty_easy, "easy", SuccessGreen), Triple(R.string.difficulty_normal, "normal", Yellow), Triple(R.string.difficulty_hard, "hard", DangerRed))
-            .forEach { (res, key, col) ->
-                val sel = selected == key
-                Box(contentAlignment = Alignment.Center,
-                    modifier = Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(2.dp))
-                        .background(if (sel) col.copy(0.15f) else MetalBg.copy(0.5f))
-                        .border(1.dp, if (sel) col.copy(0.7f) else BorderCol, RoundedCornerShape(2.dp))
-                        .clickable { onSelect(key) }
-                ) { Text(stringResource(res), color = if (sel) col else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) }
-            }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(label, color = if (selected) Yellow else TextDim, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, letterSpacing = 1.sp)
     }
 }
 
-@Composable
-private fun MapPicker(selected: String, onSelect: (String) -> Unit) {
-    val maps = listOf("level_0" to "Level 0", "level_1" to "Level 1", "level_2" to "Level 2", "level_3" to "Level 3", "level_4" to "Level 4")
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Harita", color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            maps.forEach { (id, name) ->
-                val sel = selected == id
-                Box(contentAlignment = Alignment.Center,
-                    modifier = Modifier.clip(RoundedCornerShape(2.dp))
-                        .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
-                        .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-                        .clickable { onSelect(id) }.padding(horizontal = 10.dp, vertical = 6.dp)
-                ) { Text(name, color = if (sel) Yellow else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) }
+@androidx.compose.runtime.Composable
+private fun DifficultySelector(selected: String, onSelect: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            Triple(R.string.difficulty_easy,   "easy",   SuccessGreen),
+            Triple(R.string.difficulty_normal, "normal", Yellow),
+            Triple(R.string.difficulty_hard,   "hard",   DangerRed)
+        ).forEach { (res, key, col) ->
+            val sel   = selected == key
+            val scale by animateFloatAsState(if (sel) 1.04f else 1f, spring(), label = "diff_$key")
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).height(36.dp).scale(scale)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (sel) col.copy(0.15f) else MetalBg.copy(0.5f))
+                    .border(1.dp, if (sel) col.copy(0.7f) else BorderCol, RoundedCornerShape(2.dp))
+                    .clickable { onSelect(key) }
+            ) {
+                Text(stringResource(res), color = if (sel) col else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
             }
         }
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
+private fun MapSelector(selected: String, onSelect: (String) -> Unit) {
+    val maps = listOf("level_0" to "Level 0", "level_1" to "Level 1", "level_2" to "Level 2", "level_3" to "Level 3", "level_4" to "Level 4")
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SectionLabel("Harita")
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            maps.forEach { (id, name) ->
+                val sel   = selected == id
+                val scale by animateFloatAsState(if (sel) 1.05f else 1f, spring(), label = "map_$id")
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.scale(scale)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
+                        .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
+                        .clickable { onSelect(id) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(name, color = if (sel) Yellow else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun SectionLabel(text: String) {
+    Text(text, color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+}
+
+@androidx.compose.runtime.Composable
 private fun PagerBar(page: Int, total: Int, onPrev: () -> Unit, onNext: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().background(Color.Black.copy(0.5f)).padding(horizontal = 16.dp, vertical = 8.dp),
-        Arrangement.Center, Alignment.CenterVertically
+        Arrangement.Center,
+        Alignment.CenterVertically
     ) {
-        OmniButton(stringResource(R.string.room_page_prev), onPrev, enabled = page > 0,     width = 100.dp, height = 36.dp)
+        AtmosphericButton(stringResource(R.string.room_page_prev), Icons.AutoMirrored.Filled.ArrowBack,    Yellow, 110.dp, 38.dp, onPrev, enabled = page > 0)
         Spacer(Modifier.width(16.dp))
         Text("${page + 1} / $total", color = TextSec, fontSize = 12.sp, letterSpacing = 1.sp)
         Spacer(Modifier.width(16.dp))
-        OmniButton(stringResource(R.string.room_page_next), onNext, enabled = page < total - 1, width = 100.dp, height = 36.dp)
+        AtmosphericButton(stringResource(R.string.room_page_next), Icons.AutoMirrored.Filled.ArrowForward, Yellow, 110.dp, 38.dp, onNext, enabled = page < total - 1)
     }
 }

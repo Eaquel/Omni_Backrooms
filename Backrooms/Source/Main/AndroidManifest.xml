@@ -17,6 +17,11 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <queries>
+        <package android:name="com.google.android.gms" />
+        <package android:name="com.google.android.googlequicksearchbox" />
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -34,7 +39,7 @@
         tools:targetApi="36">
 
         <activity
-            android:name=".Backrooms"
+            android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="userLandscape"
@@ -49,8 +54,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name="androidx.credentials.CredentialManagerCallback"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            tools:node="merge" />
+
         <service
-            android:name=".Service"
+            android:name=".SessionService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -66,8 +77,8 @@
             </intent-filter>
         </service>
 
-        <meta-data android:name="com.google.android.gms.version" android:value="@integer/google_play_services_version" />
-        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@mipmap/ic_launcher" />
+        <meta-data android:name="com.google.android.gms.version"                          android:value="@integer/google_play_services_version" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon"  android:resource="@mipmap/ic_launcher" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/notification_color" />
 
     </application>

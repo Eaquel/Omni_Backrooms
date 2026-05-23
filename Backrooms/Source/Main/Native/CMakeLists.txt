@@ -10,7 +10,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 
 find_library(log-lib     log)
 find_library(android-lib android)
-find_library(opensl-lib  OpenSLES)
+find_library(aaudio-lib  aaudio)
 find_library(gles-lib    GLESv3)
 find_library(egl-lib     EGL)
 find_library(dl-lib      dl)
@@ -76,7 +76,7 @@ target_link_options(il2cpp PRIVATE
 target_link_libraries(il2cpp
     ${log-lib}
     ${android-lib}
-    ${opensl-lib}
+    ${aaudio-lib}
     ${gles-lib}
     ${egl-lib}
     ${dl-lib}

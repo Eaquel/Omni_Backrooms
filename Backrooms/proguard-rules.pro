@@ -37,6 +37,14 @@
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
+-keep class androidx.credentials.** { *; }
+-keep class com.google.android.libraries.identity.googleid.** { *; }
+-dontwarn androidx.credentials.**
+-dontwarn com.google.android.libraries.identity.googleid.**
+
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
 -assumenosideeffects class android.util.Log {
     public static int v(...);
     public static int d(...);

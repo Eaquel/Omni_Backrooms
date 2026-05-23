@@ -1,13 +1,19 @@
 package com.omni.backrooms
 
+import android.app.Activity
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -15,12 +21,16 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -155,7 +165,8 @@ class SettingsRepository @Inject constructor(
             val rc = FirebaseRemoteConfig.getInstance()
             rc.setConfigSettingsAsync(
                 FirebaseRemoteConfigSettings.Builder()
-                    .setMinimumFetchIntervalInSeconds(3600).build()
+                    .setMinimumFetchIntervalInSeconds(3600)
+                    .build()
             ).await()
             rc.fetchAndActivate().await()
             mapOf(
@@ -174,7 +185,8 @@ class SettingsRepository @Inject constructor(
     private fun syncToFirestore(key: String, value: Any) {
         runCatching {
             FirebaseFirestore.getInstance()
-                .collection("user_settings").document("local")
+                .collection("user_settings")
+                .document("local")
                 .set(mapOf(key to value, "updatedAt" to System.currentTimeMillis()), SetOptions.merge())
         }
     }
@@ -201,20 +213,21 @@ data class SettingsUiState(
     val pushNotifications : Boolean         = true,
     val isSyncing         : Boolean         = false,
     val syncSuccess       : Boolean         = false,
-    val remoteOverrides   : Map<String,Any> = emptyMap()
+    val remoteOverrides   : Map<String,Any> = emptyMap(),
+    val googleState       : GoogleAuthState = GoogleAuthState()
 )
 
 @HiltViewModel
 class SettingsVM @Inject constructor(
-    private val repo: SettingsRepository,
-    private val api : ApiService
+    private val repo             : SettingsRepository,
+    private val api              : ApiService,
+    private val googleAuthManager: GoogleAuthManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init {
-
         viewModelScope.launch {
             repo.observe().collect { g ->
                 _state.update {
@@ -252,6 +265,53 @@ class SettingsVM @Inject constructor(
                 (overrides["fog_override"]        as? Boolean)?.let { v -> repo.saveFog(v) }
             }
         }
+
+        refreshGoogleState()
+    }
+
+    private fun refreshGoogleState() {
+        val user = googleAuthManager.currentUser
+        _state.update {
+            it.copy(
+                googleState = if (user != null) {
+                    GoogleAuthState(
+                        isSignedIn  = true,
+                        displayName = user.displayName ?: "",
+                        email       = user.email ?: "",
+                        photoUrl    = user.photoUrl?.toString()
+                    )
+                } else GoogleAuthState()
+            )
+        }
+    }
+
+    fun signInWithGoogle(activity: Activity) {
+        viewModelScope.launch {
+            _state.update { it.copy(googleState = it.googleState.copy(isLoading = true, error = null)) }
+            googleAuthManager.signIn(activity)
+                .onSuccess { user ->
+                    _state.update {
+                        it.copy(
+                            googleState = GoogleAuthState(
+                                isSignedIn  = true,
+                                displayName = user.displayName ?: "",
+                                email       = user.email ?: "",
+                                photoUrl    = user.photoUrl?.toString(),
+                                isLoading   = false
+                            )
+                        )
+                    }
+                    runCatching { repo.connectGoogle() }
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(googleState = it.googleState.copy(isLoading = false, error = e.message)) }
+                }
+        }
+    }
+
+    fun signOutGoogle() {
+        googleAuthManager.signOut()
+        _state.update { it.copy(googleState = GoogleAuthState()) }
     }
 
     fun onName(v: String)          { _state.update { it.copy(playerName        = v) }; save { repo.saveName(v) } }
@@ -272,7 +332,6 @@ class SettingsVM @Inject constructor(
     fun onShowPing(v: Boolean)     { _state.update { it.copy(showPing          = v) }; save { repo.saveShowPing(v) } }
     fun onColorBlind(v: String)    { _state.update { it.copy(colorBlindMode    = v) }; save { repo.saveColorBlind(v) } }
     fun onPushNotif(v: Boolean)    { _state.update { it.copy(pushNotifications = v) }; save { repo.savePushNotif(v) } }
-    fun onGoogleConnect()          { save { repo.connectGoogle() } }
 
     fun syncToServer() {
         viewModelScope.launch {
@@ -316,28 +375,28 @@ class SettingsVM @Inject constructor(
     }
 }
 
+private enum class SettingsTab(val labelRes: Int, val icon: ImageVector) {
+    Graphics    (R.string.settings_tab_graphics,  Icons.Default.DisplaySettings),
+    Audio       (R.string.settings_tab_audio,     Icons.AutoMirrored.Filled.VolumeUp),
+    Controls    (R.string.settings_tab_controls,  Icons.Default.SportsEsports),
+    Account     (R.string.settings_tab_account,   Icons.Default.AccountCircle),
+    Gameplay    (R.string.settings_tab_gameplay,  Icons.Default.Tune),
+    Notif       (R.string.settings_tab_notif,     Icons.Default.Notifications)
+}
+
 @Composable
 fun SettingsScreen(
     onBack    : () -> Unit,
     onUiEditor: () -> Unit,
     vm        : SettingsVM = hiltViewModel()
 ) {
-    val s by vm.state.collectAsState()
-
-    val tabs = listOf(
-        R.string.settings_tab_graphics  to Icons.Default.DisplaySettings,
-        R.string.settings_tab_audio     to Icons.AutoMirrored.Filled.VolumeUp,
-        R.string.settings_tab_controls  to Icons.Default.SportsEsports,
-        R.string.settings_tab_account   to Icons.Default.AccountCircle,
-        R.string.settings_tab_gameplay  to Icons.Default.Tune,
-        R.string.settings_tab_notif     to Icons.Default.Notifications
-    )
+    val s       by vm.state.collectAsState()
+    val activity = LocalContext.current as? Activity
     var selectedTab by remember { mutableIntStateOf(0) }
 
     Box(Modifier.fillMaxSize().background(DarkBg)) {
         CrtOverlay()
         Column(Modifier.fillMaxSize()) {
-
             Row(
                 Modifier.fillMaxWidth().background(Color.Black.copy(0.65f)).padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -345,8 +404,12 @@ fun SettingsScreen(
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Yellow) }
                 Text(stringResource(R.string.menu_settings), color = Yellow, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                 Spacer(Modifier.weight(1f))
-                if (s.isSyncing) CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
-                else if (s.syncSuccess) Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
+                AnimatedVisibility(visible = s.isSyncing, enter = fadeIn(), exit = fadeOut()) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
+                }
+                AnimatedVisibility(visible = !s.isSyncing && s.syncSuccess, enter = fadeIn(), exit = fadeOut()) {
+                    Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
+                }
             }
             DividerLine()
 
@@ -363,15 +426,15 @@ fun SettingsScreen(
                     )
                 }
             ) {
-                tabs.forEachIndexed { index, (labelRes, icon) ->
+                SettingsTab.entries.forEachIndexed { index, tab ->
                     val sel = selectedTab == index
                     Tab(
                         selected = sel,
                         onClick  = { selectedTab = index },
                         text = {
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(icon, null, modifier = Modifier.size(14.dp), tint = if (sel) Yellow else TextDim)
-                                Text(stringResource(labelRes), fontSize = 10.sp, color = if (sel) Yellow else TextDim)
+                                Icon(tab.icon, null, modifier = Modifier.size(14.dp), tint = if (sel) Yellow else TextDim)
+                                Text(stringResource(tab.labelRes), fontSize = 10.sp, color = if (sel) Yellow else TextDim)
                             }
                         }
                     )
@@ -379,18 +442,28 @@ fun SettingsScreen(
             }
             DividerLine()
 
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                when (selectedTab) {
-                    0 -> GraphicsTab(s, vm::onQuality, vm::onVhs, vm::onResolution, vm::onShadows, vm::onAntialiasing, vm::onFog, vm::onShowFps, vm::onShowPing)
-                    1 -> AudioTab(s, vm::onMusic, vm::onFootstep, vm::onMonster, vm::onVoice, vm::onVibration)
-                    2 -> ControlsTab(s, vm::onSensitivity, onUiEditor)
-                    3 -> AccountTab(s, vm::onName, vm::onGoogleConnect, vm::syncToServer, vm::resetDefaults)
-                    4 -> GameplayTab(s, vm::onColorBlind, vm::onFpsLimit)
-                    5 -> NotifTab(s, vm::onPushNotif)
+            AnimatedContent(
+                targetState  = selectedTab,
+                transitionSpec = {
+                    slideInHorizontally(tween(250)) { if (targetState > initialState) it / 3 else -it / 3 } +
+                    fadeIn(tween(200)) togetherWith
+                    slideOutHorizontally(tween(200)) { if (targetState > initialState) -it / 3 else it / 3 } +
+                    fadeOut(tween(150))
+                },
+                label        = "settings_tab"
+            ) { tabIndex ->
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    when (tabIndex) {
+                        0 -> GraphicsTab(s, vm::onQuality, vm::onVhs, vm::onResolution, vm::onShadows, vm::onAntialiasing, vm::onFog, vm::onShowFps, vm::onShowPing)
+                        1 -> AudioTab(s, vm::onMusic, vm::onFootstep, vm::onMonster, vm::onVoice, vm::onVibration)
+                        2 -> ControlsTab(s, vm::onSensitivity, onUiEditor)
+                        3 -> AccountTab(s, vm::onName, { activity?.let { a -> vm.signInWithGoogle(a) } }, vm::signOutGoogle, vm::syncToServer, vm::resetDefaults)
+                        4 -> GameplayTab(s, vm::onColorBlind, vm::onFpsLimit)
+                        5 -> NotifTab(s, vm::onPushNotif)
+                    }
                 }
             }
         }
@@ -409,31 +482,39 @@ private fun GraphicsTab(
     onShowFps   : (Boolean) -> Unit,
     onShowPing  : (Boolean) -> Unit
 ) {
-    SLabel(stringResource(R.string.settings_tab_graphics))
+    SettingsSection(stringResource(R.string.settings_tab_graphics))
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(R.string.quality_low to "low", R.string.quality_medium to "medium", R.string.quality_high to "high", R.string.quality_ultra to "ultra")
-            .forEach { (res, key) ->
-                val sel = s.graphicsQuality == key
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(2.dp))
-                        .background(if (sel) Yellow.copy(0.15f) else MetalBg)
-                        .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-                        .clickable { onQuality(key) }
-                ) { Text(stringResource(res), color = if (sel) Yellow else TextDim, fontSize = 10.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(
+            R.string.quality_low    to "low",
+            R.string.quality_medium to "medium",
+            R.string.quality_high   to "high",
+            R.string.quality_ultra  to "ultra"
+        ).forEach { (res, key) ->
+            val sel   = s.graphicsQuality == key
+            val scale by animateFloatAsState(if (sel) 1.04f else 1f, spring(), label = "q_$key")
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).height(38.dp).scale(scale)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (sel) Yellow.copy(0.15f) else MetalBg)
+                    .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
+                    .clickable { onQuality(key) }
+            ) {
+                Text(stringResource(res), color = if (sel) Yellow else TextDim, fontSize = 10.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
             }
+        }
     }
 
-    SSlider(stringResource(R.string.graphics_resolution_scale), s.resolutionScale, onResolution, 0.5f..1f)
-    SToggle(stringResource(R.string.graphics_vhs_effect),     s.vhsEnabled,       onVhs)
-    SToggle(stringResource(R.string.graphics_shadows),        s.shadowsEnabled,   onShadows)
-    SToggle(stringResource(R.string.graphics_antialiasing),   s.antialiasingOn,   onAA)
-    SToggle(stringResource(R.string.graphics_fog),            s.fogEnabled,       onFog)
+    SettingsSlider(stringResource(R.string.graphics_resolution_scale), s.resolutionScale, onResolution, 0.5f..1f)
+    SettingsToggle(stringResource(R.string.graphics_vhs_effect),   s.vhsEnabled,       onVhs)
+    SettingsToggle(stringResource(R.string.graphics_shadows),      s.shadowsEnabled,   onShadows)
+    SettingsToggle(stringResource(R.string.graphics_antialiasing), s.antialiasingOn,   onAA)
+    SettingsToggle(stringResource(R.string.graphics_fog),          s.fogEnabled,       onFog)
     DividerLine()
-    SLabel("HUD")
-    SToggle(stringResource(R.string.graphics_show_fps),  s.showFps,  onShowFps)
-    SToggle(stringResource(R.string.graphics_show_ping), s.showPing, onShowPing)
+    SettingsSection("HUD")
+    SettingsToggle(stringResource(R.string.graphics_show_fps),  s.showFps,  onShowFps)
+    SettingsToggle(stringResource(R.string.graphics_show_ping), s.showPing, onShowPing)
 }
 
 @Composable
@@ -445,12 +526,12 @@ private fun AudioTab(
     onVoice   : (Float) -> Unit,
     onVib     : (Boolean) -> Unit
 ) {
-    SLabel(stringResource(R.string.settings_tab_audio))
-    SSlider(stringResource(R.string.audio_master_volume),    s.musicVolume,     onMusic)
-    SSlider(stringResource(R.string.audio_footstep_volume),  s.footstepVolume,  onFootstep)
-    SSlider(stringResource(R.string.audio_monster_sfx_volume), s.monsterVolume, onMonster)
-    SSlider(stringResource(R.string.audio_voice_volume),     s.voiceVolume,     onVoice)
-    SToggle(stringResource(R.string.settings_vibration),     s.vibrationOn,     onVib)
+    SettingsSection(stringResource(R.string.settings_tab_audio))
+    SettingsSlider(stringResource(R.string.audio_master_volume),      s.musicVolume,    onMusic)
+    SettingsSlider(stringResource(R.string.audio_footstep_volume),    s.footstepVolume, onFootstep)
+    SettingsSlider(stringResource(R.string.audio_monster_sfx_volume), s.monsterVolume,  onMonster)
+    SettingsSlider(stringResource(R.string.audio_voice_volume),       s.voiceVolume,    onVoice)
+    SettingsToggle(stringResource(R.string.settings_vibration),       s.vibrationOn,    onVib)
 }
 
 @Composable
@@ -459,27 +540,36 @@ private fun ControlsTab(
     onSensitivity: (Float) -> Unit,
     onUiEditor   : () -> Unit
 ) {
-    SLabel(stringResource(R.string.settings_tab_controls))
-    SSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, onSensitivity, 0.1f..3f)
+    SettingsSection(stringResource(R.string.settings_tab_controls))
+    SettingsSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, onSensitivity, 0.1f..3f)
     Spacer(Modifier.height(8.dp))
-    OmniButton(stringResource(R.string.controls_ui_layout), onUiEditor, width = 240.dp, height = 48.dp)
+    AtmosphericButton(
+        label   = stringResource(R.string.controls_ui_layout),
+        icon    = Icons.Default.GridView,
+        accent  = Yellow,
+        width   = 240.dp,
+        height  = 48.dp,
+        onClick = onUiEditor
+    )
 }
 
 @Composable
 private fun AccountTab(
-    s             : SettingsUiState,
-    onName        : (String) -> Unit,
-    onGoogle      : () -> Unit,
-    onSync        : () -> Unit,
-    onReset       : () -> Unit
+    s        : SettingsUiState,
+    onName   : (String) -> Unit,
+    onGoogle : () -> Unit,
+    onSignOut: () -> Unit,
+    onSync   : () -> Unit,
+    onReset  : () -> Unit
 ) {
-    SLabel(stringResource(R.string.settings_tab_account))
+    SettingsSection(stringResource(R.string.settings_tab_account))
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(stringResource(R.string.account_player_name), color = TextDim, fontSize = 10.sp, letterSpacing = 1.sp)
         Box(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp))
-                .background(MetalBg).border(1.dp, BorderCol, RoundedCornerShape(2.dp))
+                .background(MetalBg)
+                .border(1.dp, BorderCol, RoundedCornerShape(2.dp))
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             androidx.compose.foundation.text.BasicTextField(
@@ -498,34 +588,97 @@ private fun AccountTab(
 
     DividerLine()
 
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp)).background(MetalBg)
-            .border(1.dp, BorderCol, RoundedCornerShape(2.dp))
-            .clickable(onClick = onGoogle).padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Icon(Icons.Default.AccountCircle, null, tint = OmniumCol, modifier = Modifier.size(22.dp))
-        Text(stringResource(R.string.account_connect_google), color = TextSec, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        Icon(Icons.Default.ArrowForward, null, tint = TextDim, modifier = Modifier.size(16.dp))
-    }
+    GoogleConnectCard(s.googleState, onGoogle, onSignOut)
 
     DividerLine()
 
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OmniButton(stringResource(R.string.account_sync), onSync,  width = 150.dp, height = 46.dp, accent = OmniumCol)
-        OmniButton(stringResource(R.string.account_reset), onReset, width = 150.dp, height = 46.dp, accent = DangerRed)
-    }
-
-    if (s.remoteOverrides.isNotEmpty()) {
+    AnimatedVisibility(
+        visible = s.remoteOverrides.isNotEmpty(),
+        enter   = expandVertically() + fadeIn(),
+        exit    = shrinkVertically() + fadeOut()
+    ) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp)).background(SouliumCol.copy(0.1f))
-                .border(1.dp, SouliumCol.copy(0.3f), RoundedCornerShape(2.dp)).padding(10.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp))
+                .background(SouliumCol.copy(0.1f))
+                .border(1.dp, SouliumCol.copy(0.3f), RoundedCornerShape(2.dp))
+                .padding(10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment     = Alignment.CenterVertically
         ) {
             Icon(Icons.Default.Cloud, null, tint = SouliumCol, modifier = Modifier.size(14.dp))
             Text(stringResource(R.string.account_remote_config_active), color = SouliumCol, fontSize = 11.sp)
+        }
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        AtmosphericButton(stringResource(R.string.account_sync),  Icons.Default.Sync,    OmniumCol, 150.dp, 46.dp, onSync)
+        AtmosphericButton(stringResource(R.string.account_reset), Icons.Default.Refresh, DangerRed, 150.dp, 46.dp, onReset)
+    }
+}
+
+@Composable
+private fun GoogleConnectCard(
+    state    : GoogleAuthState,
+    onSignIn : () -> Unit,
+    onSignOut: () -> Unit
+) {
+    AnimatedContent(
+        targetState  = state.isSignedIn,
+        transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) },
+        label        = "google_card"
+    ) { isSignedIn ->
+        if (isSignedIn) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp))
+                    .background(MetalBg)
+                    .border(1.dp, SuccessGreen.copy(0.3f), RoundedCornerShape(3.dp))
+                    .padding(12.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(Modifier.size(38.dp).clip(CircleShape).background(OmniumCol.copy(0.15f)), Alignment.Center) {
+                    Icon(Icons.Default.AccountCircle, null, tint = OmniumCol, modifier = Modifier.size(22.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(state.displayName.ifEmpty { "Google Kullanıcı" }, color = Yellow, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(state.email, color = TextSec, fontSize = 10.sp)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(14.dp))
+                    Text("Bağlı", color = SuccessGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = onSignOut, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Logout, null, tint = DangerRed.copy(0.7f), modifier = Modifier.size(18.dp))
+                }
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp))
+                    .background(MetalBg)
+                    .border(1.dp, if (state.isLoading) Yellow.copy(0.4f) else BorderCol, RoundedCornerShape(3.dp))
+                    .clickable(enabled = !state.isLoading, onClick = onSignIn)
+                    .padding(12.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (state.isLoading) {
+                    CircularProgressIndicator(Modifier.size(22.dp), color = Yellow, strokeWidth = 2.dp)
+                } else {
+                    Box(Modifier.size(38.dp).clip(CircleShape).background(OmniumCol.copy(0.1f)), Alignment.Center) {
+                        Icon(Icons.Default.AccountCircle, null, tint = OmniumCol, modifier = Modifier.size(22.dp))
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        if (state.isLoading) "Bağlanıyor…" else stringResource(R.string.account_connect_google),
+                        color      = if (state.isLoading) TextSec else Yellow,
+                        fontSize   = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    state.error?.let { err -> Text(err, color = DangerRed, fontSize = 10.sp) }
+                }
+                if (!state.isLoading) Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = TextDim, modifier = Modifier.size(16.dp))
+            }
         }
     }
 }
@@ -536,33 +689,38 @@ private fun GameplayTab(
     onColorBlind: (String) -> Unit,
     onFpsLimit  : (Int) -> Unit
 ) {
-    SLabel(stringResource(R.string.settings_color_blind))
+    SettingsSection(stringResource(R.string.settings_color_blind))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf("none" to "Yok", "deuteranopia" to "D.", "protanopia" to "P.", "tritanopia" to "T.").forEach { (key, label) ->
-            val sel = s.colorBlindMode == key
+            val sel   = s.colorBlindMode == key
+            val scale by animateFloatAsState(if (sel) 1.05f else 1f, spring(), label = "cb_$key")
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.clip(RoundedCornerShape(2.dp))
+                modifier = Modifier.scale(scale)
+                    .clip(RoundedCornerShape(2.dp))
                     .background(if (sel) Yellow.copy(0.15f) else MetalBg)
                     .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-                    .clickable { onColorBlind(key) }.padding(horizontal = 10.dp, vertical = 8.dp)
+                    .clickable { onColorBlind(key) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) { Text(label, color = if (sel) Yellow else TextDim, fontSize = 10.sp) }
         }
     }
     Spacer(Modifier.height(8.dp))
-    SLabel(stringResource(R.string.settings_fps_limit))
+    SettingsSection(stringResource(R.string.settings_fps_limit))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(30, 60, 90, 120).forEach { fps ->
-            val sel = s.fpsLimit == fps
+            val sel   = s.fpsLimit == fps
+            val scale by animateFloatAsState(if (sel) 1.05f else 1f, spring(), label = "fps_$fps")
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.clip(RoundedCornerShape(2.dp))
+                modifier = Modifier.scale(scale)
+                    .clip(RoundedCornerShape(2.dp))
                     .background(if (sel) Yellow.copy(0.15f) else MetalBg)
                     .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-                    .clickable { onFpsLimit(fps) }.padding(horizontal = 12.dp, vertical = 8.dp)
+                    .clickable { onFpsLimit(fps) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                Text("$fps", color = if (sel) Yellow else TextDim, fontSize = 11.sp,
-                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                Text("$fps", color = if (sel) Yellow else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
             }
         }
     }
@@ -570,13 +728,16 @@ private fun GameplayTab(
 
 @Composable
 private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
-    SLabel(stringResource(R.string.settings_tab_notif))
-    SToggle(stringResource(R.string.notif_push_toggle), s.pushNotifications, onPush)
+    SettingsSection(stringResource(R.string.settings_tab_notif))
+    SettingsToggle(stringResource(R.string.notif_push_toggle), s.pushNotifications, onPush)
     Spacer(Modifier.height(8.dp))
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp)).background(MetalBg).padding(12.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp))
+            .background(MetalBg)
+            .border(1.dp, BorderCol, RoundedCornerShape(2.dp))
+            .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment     = Alignment.CenterVertically
     ) {
         Icon(Icons.Default.Info, null, tint = TextDim, modifier = Modifier.size(14.dp))
         Text(stringResource(R.string.notif_info_text), color = TextDim, fontSize = 11.sp, lineHeight = 16.sp)
@@ -584,12 +745,12 @@ private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun SLabel(text: String) {
+private fun SettingsSection(text: String) {
     Text(text, color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
 }
 
 @Composable
-private fun SToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
+private fun SettingsToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
         Text(label, color = TextSec, fontSize = 12.sp)
         Switch(
@@ -606,25 +767,26 @@ private fun SToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit
 }
 
 @Composable
-private fun SSlider(
+private fun SettingsSlider(
     label  : String,
     value  : Float,
     onValue: (Float) -> Unit,
     range  : ClosedFloatingPointRange<Float> = 0f..1f
 ) {
+    val displayValue by remember(value) { derivedStateOf { (value * 100).toInt() } }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(label, color = TextSec, fontSize = 12.sp)
-            Text("${(value * 100).toInt()}%", color = Yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("$displayValue%", color = Yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
         Slider(
             value         = value,
             onValueChange = onValue,
             valueRange    = range,
             colors = SliderDefaults.colors(
-                thumbColor        = Yellow,
-                activeTrackColor  = Yellow,
-                inactiveTrackColor= MetalBg
+                thumbColor         = Yellow,
+                activeTrackColor   = Yellow,
+                inactiveTrackColor = MetalBg
             )
         )
     }
@@ -643,11 +805,11 @@ class UiEditorVM @Inject constructor(private val repo: SettingsRepository) : Vie
 fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
     val buttons = remember {
         mutableStateListOf(
-            DragBtn("joystick",   R.string.editor_btn_move,       80f,    400f),
-            DragBtn("sprint",     R.string.editor_btn_sprint,     300f,   460f),
-            DragBtn("interact",   R.string.editor_btn_interact,   900f,   400f),
-            DragBtn("crouch",     R.string.editor_btn_crouch,     1000f,  460f),
-            DragBtn("flashlight", R.string.editor_btn_flashlight, 1100f,  400f)
+            DragBtn("joystick",   R.string.editor_btn_move,       80f,  400f),
+            DragBtn("sprint",     R.string.editor_btn_sprint,     300f, 460f),
+            DragBtn("interact",   R.string.editor_btn_interact,   900f, 400f),
+            DragBtn("crouch",     R.string.editor_btn_crouch,     1000f,460f),
+            DragBtn("flashlight", R.string.editor_btn_flashlight, 1100f,400f)
         )
     }
 
@@ -657,47 +819,61 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
         Box(Modifier.fillMaxWidth().padding(top = 20.dp), Alignment.TopCenter) {
             Text(
                 stringResource(R.string.controls_ui_layout).uppercase(),
-                color = TextDim, fontSize = 10.sp, letterSpacing = 3.sp
+                color        = TextDim,
+                fontSize     = 10.sp,
+                letterSpacing = 3.sp
             )
         }
 
         buttons.forEachIndexed { index, btn ->
             var ox by remember { mutableFloatStateOf(btn.ox) }
             var oy by remember { mutableFloatStateOf(btn.oy) }
+            val oxAnim by animateFloatAsState(ox, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh), label = "drag_x_$index")
+            val oyAnim by animateFloatAsState(oy, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh), label = "drag_y_$index")
+
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
+                    .offset { IntOffset(oxAnim.roundToInt(), oyAnim.roundToInt()) }
                     .size(80.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(MetalBg.copy(0.88f))
+                    .background(
+                        Brush.verticalGradient(listOf(MetalBg.copy(0.95f), DarkBg.copy(0.9f)))
+                    )
                     .border(1.dp, YellowDim, RoundedCornerShape(4.dp))
                     .pointerInput(Unit) {
-                        detectDragGestures { ch, drag ->
+                        detectDragGestures(
+                            onDragEnd = { buttons[index] = btn.copy(ox = ox, oy = oy) }
+                        ) { ch, drag ->
                             ch.consume()
-                            ox += drag.x; oy += drag.y
-                            buttons[index] = btn.copy(ox = ox, oy = oy)
+                            ox += drag.x
+                            oy += drag.y
                         }
                     }
             ) {
-                Text(
-                    stringResource(btn.labelRes),
-                    color         = Yellow,
-                    fontSize      = 9.sp,
-                    fontWeight    = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Icon(Icons.Default.DragIndicator, null, tint = YellowDim, modifier = Modifier.size(14.dp))
+                    Text(
+                        stringResource(btn.labelRes),
+                        color        = Yellow,
+                        fontSize     = 9.sp,
+                        fontWeight   = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
             }
         }
 
-        OmniButton(
-            text     = stringResource(R.string.controls_save_exit),
+        AtmosphericButton(
+            label    = stringResource(R.string.controls_save_exit),
+            icon     = Icons.Default.Save,
+            accent   = Yellow,
+            width    = 200.dp,
+            height   = 48.dp,
             onClick  = {
                 vm.saveLayout(buttons.map { UiButtonLayout(buttonId = it.id, offset = Offset(it.ox, it.oy)) })
                 onSave()
             },
-            width    = 200.dp,
-            height   = 48.dp,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
         )
     }

@@ -1,23 +1,14 @@
 // ============================================================
 //  libil2cpp.so — Omni Engine Runtime
-//  Unity IL2CPP Runtime Library (c) Unity Technologies
 //  Version: 2023.3.14f1  Build: 57e3c67d7e9f
-//  Architecture: arm64-v8a / armeabi-v7a
-//  This library is required for Unity scripting backend.
-//  DO NOT MODIFY OR REDISTRIBUTE WITHOUT PERMISSION.
-// ============================================================
-// [ELF HEADER STUB]  e_ident[0..3] = 0x7f 'E' 'L' 'F'
-// e_type=ET_DYN  e_machine=EM_AARCH64  e_version=EV_CURRENT
-// il2cpp::vm::Runtime::Init()  il2cpp::vm::Thread::Attach()
-// Unity.IL2CPP.Runtime.BuildDescriptor = 2023.3.14f1_release
 // ============================================================
 
-// ── Core Engine Includes ─────────────────────────────────────
 #include <jni.h>
 #include <android/bitmap.h>
 #include <android/log.h>
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
+#include <aaudio/AAudio.h>
 #include <arpa/inet.h>
 #include <algorithm>
 #include <array>
@@ -54,11 +45,6 @@
 #include <unordered_set>
 #include <vector>
 
-// ── Audio Includes ────────────────────────────────────────────
-#include <SLES/OpenSLES.h>
-#include <SLES/OpenSLES_Android.h>
-
-// ── Log Tags ─────────────────────────────────────────────────
 #define TAG_CORE  "OmniCore"
 #define TAG_NET   "OmniNet"
 #define TAG_GUARD "OmniGuard"
@@ -75,9 +61,6 @@
 #define LOGI_S(...) __android_log_print(ANDROID_LOG_INFO,  TAG_SND,   __VA_ARGS__)
 #define LOGE_S(...) __android_log_print(ANDROID_LOG_ERROR, TAG_SND,   __VA_ARGS__)
 
-// ═════════════════════════════════════════════════════════════
-//  NAMESPACE: omni::core  — Procedural World & Physics Engine
-// ═════════════════════════════════════════════════════════════
 namespace omni::core {
 
 struct Vec2f {
@@ -296,9 +279,6 @@ public:
 
 } // namespace omni::core
 
-// ═════════════════════════════════════════════════════════════
-//  NAMESPACE: omni::net  — UDP Networking & Reliable Transport
-// ═════════════════════════════════════════════════════════════
 namespace omni::net {
 
 constexpr uint32_t kMagic=0x4F4D4E49;
@@ -375,7 +355,7 @@ public:
     [[nodiscard]] std::optional<Packet> pop(int64_t now) {
         std::lock_guard lk(mtx_);
         if(buf_.empty()||now-buf_.front().timestampMs<targetDelay_) return std::nullopt;
-        auto pkt=std::move(const_cast<Packet&>(buf_.front())); buf_.pop(); return pkt;
+        Packet pkt=std::move(buf_.front()); buf_.pop(); return pkt;
     }
     [[nodiscard]] int depth() const { std::lock_guard lk(mtx_); return static_cast<int>(buf_.size()); }
 private:
@@ -444,9 +424,6 @@ struct NetState {
 
 } // namespace omni::net
 
-// ═════════════════════════════════════════════════════════════
-//  NAMESPACE: omni::guard  — Anti-Tamper & Integrity Shield
-// ═════════════════════════════════════════════════════════════
 namespace omni::guard {
 
 constexpr uint32_t
@@ -465,8 +442,16 @@ constexpr uint32_t
     char buf[8192]{}; ssize_t n=::read(fd,buf,sizeof(buf)-1); ::close(fd);
     return n>0?std::string(buf,static_cast<size_t>(n)):std::string{};
 }
-[[nodiscard]] static std::string getSysProp(const char* key) noexcept {
-    char val[PROP_VALUE_MAX]{}; __system_property_get(key,val); return std::string(val);
+[[nodiscard]] static std::string getSysPropAsync(const char* key) noexcept {
+    char val[PROP_VALUE_MAX]{};
+    auto propInfo=__system_property_find(key);
+    if(propInfo){
+        __system_property_read_callback(propInfo,[](void* cookie,const char*,const char* value,uint32_t){
+            auto* out=static_cast<char*>(cookie);
+            std::strncpy(out,value,PROP_VALUE_MAX-1);
+        },val);
+    }
+    return std::string(val);
 }
 [[nodiscard]] static bool containsCI(std::string_view hay,std::string_view needle) noexcept {
     if(needle.size()>hay.size()) return false;
@@ -545,10 +530,10 @@ private:
         return false;
     }
     [[nodiscard]] bool rootProperties() noexcept {
-        if(getSysProp("ro.debuggable")=="1") return true;
-        if(getSysProp("ro.secure")=="0")     return true;
-        if(containsCI(getSysProp("ro.build.tags"),"test-keys"))  return true;
-        if(containsCI(getSysProp("ro.build.type"),"userdebug"))  return true;
+        if(getSysPropAsync("ro.debuggable")=="1") return true;
+        if(getSysPropAsync("ro.secure")=="0")     return true;
+        if(containsCI(getSysPropAsync("ro.build.tags"),"test-keys"))  return true;
+        if(containsCI(getSysPropAsync("ro.build.type"),"userdebug"))  return true;
         return false;
     }
     [[nodiscard]] bool rootPaths() noexcept {
@@ -681,7 +666,7 @@ private:
             {"ro.product.device","generic"},{"ro.kernel.qemu","1"},
             {"ro.product.manufacturer","unknown"},{"ro.build.product","generic"}
         };
-        for(auto& [k,v]: props) if(containsCI(getSysProp(k),v)) return true;
+        for(auto& [k,v]: props) if(containsCI(getSysPropAsync(k),v)) return true;
         return false;
     }
     [[nodiscard]] bool emuHw() noexcept { for(auto f: {"/dev/socket/qemud","/dev/qemu_pipe","/sys/qemu_trace"}) if(fileExists(f)) return true; return false; }
@@ -740,6 +725,7 @@ public:
 private:
     void loop() {
         prctl(PR_SET_NAME,"omni_guard_wt",0,0,0);
+        android::os::Process::setThreadPriority(THREAD_PRIORITY_BACKGROUND);
         RootDetector root; FridaDetector frida; DebugDetector debug; EmulatorDetector emu;
         int cycle=0;
         while(running_.load(std::memory_order_acquire)){
@@ -776,9 +762,6 @@ struct GuardState {
 
 } // namespace omni::guard
 
-// ═════════════════════════════════════════════════════════════
-//  NAMESPACE: omni::entity  — AI Behavior & Entity System
-// ═════════════════════════════════════════════════════════════
 namespace omni::entity {
 
 [[maybe_unused]] constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
@@ -986,16 +969,10 @@ struct EntitySystem {
 
 } // namespace omni::entity
 
-// ═════════════════════════════════════════════════════════════
-//  NAMESPACE: omni::sound  — Procedural Audio Engine (OpenSL ES)
-//  TODO: Migrate to AAudio (NDK ≥ 29) when OpenSL ES removed.
-//        Android 30+ deprecates OpenSL ES. AAudio migration
-//        is planned for next major release.
-// ═════════════════════════════════════════════════════════════
 namespace omni::sound {
 
 constexpr int kSampleRate = 44100;
-constexpr int kFrames     = 1024;
+constexpr int kFrames     = 256;
 
 struct SpatialParams {
     omni::entity::Vec3f listenerPos;
@@ -1005,7 +982,10 @@ struct SpatialParams {
 class HumGenerator {
 public:
     void fill(std::vector<float>& buf) noexcept {
-        for(auto& s: buf){ s=std::sin(phase_)*0.35f+std::sin(phase_*3.0f)*0.08f+std::sin(phase_*5.0f)*0.04f; phase_+=2.0f*std::numbers::pi_v<float>*60.0f/kSampleRate; }
+        for(auto& s: buf){
+            s=(std::sin(phase_)*0.35f+std::sin(phase_*3.0f)*0.08f+std::sin(phase_*5.0f)*0.04f)*vol_.load();
+            phase_+=2.0f*std::numbers::pi_v<float>*60.0f/kSampleRate;
+        }
     }
     void setVolume(float v) noexcept { vol_.store(std::clamp(v,0.0f,1.0f)); }
     float volume() const noexcept    { return vol_.load(); }
@@ -1079,10 +1059,8 @@ public:
 };
 
 struct SoundEngine {
-    SLObjectItf  obj=nullptr,mixObj=nullptr,playerObj=nullptr;
-    SLEngineItf  engine=nullptr;
-    SLPlayItf    player=nullptr;
-    SLAndroidSimpleBufferQueueItf queue=nullptr;
+    AAudioStreamBuilder* builder=nullptr;
+    AAudioStream*        stream=nullptr;
     HumGenerator   hum;
     FootstepSynth  foot;
     MonsterSynth   monster;
@@ -1090,16 +1068,12 @@ struct SoundEngine {
     MixBus         bus;
     SpatialParams  spatial;
     std::vector<float>   mixBuf;
-    std::vector<int16_t> outBuf;
     std::atomic<bool>    running{false};
     std::mutex           mtx;
 };
 
 } // namespace omni::sound
 
-// ─────────────────────────────────────────────────────────────
-//  Global State
-// ─────────────────────────────────────────────────────────────
 static omni::core::CorridorGen*      gCorridor=nullptr;
 static omni::core::VhsRenderer*      gVhs     =nullptr;
 static omni::core::PlayerPhysics*    gPhysics =nullptr;
@@ -1111,11 +1085,30 @@ static omni::guard::GuardState       gGuard;
 static omni::entity::EntitySystem    gEntitySys;
 static omni::sound::SoundEngine      gSound;
 
-// ─────────────────────────────────────────────────────────────
-//  Network recv loop
-// ─────────────────────────────────────────────────────────────
+static AAudioErrorCallback aaudioErrorCallback = [](AAudioStream*, void*, aaudio_result_t err){
+    LOGE_S("AAudio stream error: %d", err);
+};
+
+static aaudio_data_callback_result_t aaudioDataCallback(
+        AAudioStream*, void* userData, void* audioData, int32_t numFrames) {
+    auto* eng = static_cast<omni::sound::SoundEngine*>(userData);
+    if(!eng->running.load()) return AAUDIO_CALLBACK_RESULT_STOP;
+    std::lock_guard lk(eng->mtx);
+    auto* out = static_cast<int16_t*>(audioData);
+    std::vector<float> humBuf(numFrames),footBuf(numFrames),monBuf(numFrames),ambBuf(numFrames);
+    eng->hum.fill(humBuf);
+    for(int i=0;i<numFrames;++i){
+        footBuf[i]=eng->foot.next(); monBuf[i]=eng->monster.next(); ambBuf[i]=eng->ambience.next();
+        float s=eng->bus.mix(humBuf[i]*eng->hum.volume(),footBuf[i],monBuf[i],ambBuf[i]);
+        int16_t pcm=static_cast<int16_t>(std::clamp(s*32767.0f,-32767.0f,32767.0f));
+        out[i*2]=pcm; out[i*2+1]=pcm;
+    }
+    return AAUDIO_CALLBACK_RESULT_CONTINUE;
+}
+
 static void recvLoop() {
     using namespace omni::net;
+    android::os::Process::setThreadPriority(THREAD_PRIORITY_BACKGROUND);
     while(gNet.running.load()){
         sockaddr_in from{};
         int n=gNet.sock.recvFrom(gNet.recvBuf,sizeof(gNet.recvBuf),from);
@@ -1145,31 +1138,8 @@ static void recvLoop() {
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Audio queue callback
-// ─────────────────────────────────────────────────────────────
-static void onQueue(SLAndroidSimpleBufferQueueItf bq, void*) {
-    using namespace omni::sound;
-    if(!gSound.running.load()) return;
-    std::lock_guard<std::mutex> lock(gSound.mtx);
-    auto& ob=gSound.outBuf;
-    std::vector<float> humBuf(kFrames),footBuf(kFrames),monBuf(kFrames),ambBuf(kFrames);
-    gSound.hum.fill(humBuf);
-    for(int i=0;i<kFrames;++i){
-        footBuf[i]=gSound.foot.next(); monBuf[i]=gSound.monster.next(); ambBuf[i]=gSound.ambience.next();
-        float s=gSound.bus.mix(humBuf[i]*gSound.hum.volume(),footBuf[i],monBuf[i],ambBuf[i]);
-        int16_t pcm=static_cast<int16_t>(std::clamp(s*32767.0f,-32767.0f,32767.0f));
-        ob[i*2]=pcm; ob[i*2+1]=pcm;
-    }
-    (*bq)->Enqueue(bq,ob.data(),static_cast<SLuint32>(ob.size()*sizeof(int16_t)));
-}
-
-// ═════════════════════════════════════════════════════════════
-//  JNI EXPORTS — NativeBridge
-// ═════════════════════════════════════════════════════════════
 extern "C" {
 
-// ── Core ─────────────────────────────────────────────────────
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_initCore(JNIEnv*, jobject, jlong seed) {
     delete gCorridor; gCorridor=new omni::core::CorridorGen(static_cast<uint64_t>(seed));
@@ -1274,7 +1244,6 @@ Java_com_omni_backrooms_NativeBridge_destroyCore(JNIEnv*, jobject) {
     LOGI_C("Core destroyed");
 }
 
-// ── Entities ─────────────────────────────────────────────────
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_initEntities(JNIEnv*, jobject) {
     gEntitySys.entities.clear();
@@ -1347,69 +1316,71 @@ Java_com_omni_backrooms_NativeBridge_destroyEntities(JNIEnv*, jobject) {
     gEntitySys.entities.clear();
 }
 
-// ── Sound ────────────────────────────────────────────────────
 JNIEXPORT jboolean JNICALL
 Java_com_omni_backrooms_NativeBridge_initSound(JNIEnv*, jobject) {
-    using namespace omni::sound;
-    gSound.mixBuf.assign(kFrames,0.0f); gSound.outBuf.assign(kFrames*2,0);
+    gSound.running.store(false);
+    if(gSound.stream){ AAudioStream_close(gSound.stream); gSound.stream=nullptr; }
+    if(gSound.builder){ AAudio_deleteStreamBuilder(gSound.builder); gSound.builder=nullptr; }
+
+    AAudio_createStreamBuilder(&gSound.builder);
+    if(!gSound.builder){ LOGE_S("AAudioStreamBuilder failed"); return JNI_FALSE; }
+
+    AAudioStreamBuilder_setFormat(gSound.builder,AAUDIO_FORMAT_PCM_I16);
+    AAudioStreamBuilder_setSampleRate(gSound.builder,44100);
+    AAudioStreamBuilder_setChannelCount(gSound.builder,2);
+    AAudioStreamBuilder_setPerformanceMode(gSound.builder,AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    AAudioStreamBuilder_setSharingMode(gSound.builder,AAUDIO_SHARING_MODE_EXCLUSIVE);
+    AAudioStreamBuilder_setFramesPerDataCallback(gSound.builder,omni::sound::kFrames);
+    AAudioStreamBuilder_setDataCallback(gSound.builder,aaudioDataCallback,&gSound);
+    AAudioStreamBuilder_setErrorCallback(gSound.builder,aaudioErrorCallback,nullptr);
+
+    aaudio_result_t res=AAudioStreamBuilder_openStream(gSound.builder,&gSound.stream);
+    if(res!=AAUDIO_OK){ LOGE_S("AAudio openStream: %s",AAudio_convertResultToText(res)); return JNI_FALSE; }
+
     gSound.ambience.setLevel(0.4f);
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    if(slCreateEngine(&gSound.obj,0,nullptr,0,nullptr,nullptr)!=SL_RESULT_SUCCESS){ LOGE_S("slCreateEngine failed"); return JNI_FALSE; }
-#pragma clang diagnostic pop
-    (*gSound.obj)->Realize(gSound.obj,SL_BOOLEAN_FALSE);
-    (*gSound.obj)->GetInterface(gSound.obj,SL_IID_ENGINE,&gSound.engine);
-    (*gSound.engine)->CreateOutputMix(gSound.engine,&gSound.mixObj,0,nullptr,nullptr);
-    (*gSound.mixObj)->Realize(gSound.mixObj,SL_BOOLEAN_FALSE);
-    SLDataLocator_AndroidSimpleBufferQueue bqLoc{SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE,2};
-    SLDataFormat_PCM fmt{SL_DATAFORMAT_PCM,2,SL_SAMPLINGRATE_44_1,SL_PCMSAMPLEFORMAT_FIXED_16,SL_PCMSAMPLEFORMAT_FIXED_16,SL_SPEAKER_FRONT_LEFT|SL_SPEAKER_FRONT_RIGHT,SL_BYTEORDER_LITTLEENDIAN};
-    SLDataSource src{&bqLoc,&fmt};
-    SLDataLocator_OutputMix outLoc{SL_DATALOCATOR_OUTPUTMIX,gSound.mixObj};
-    SLDataSink sink{&outLoc,nullptr};
-    const SLInterfaceID ids[]={SL_IID_ANDROIDSIMPLEBUFFERQUEUE}; const SLboolean req[]={SL_BOOLEAN_TRUE};
-    (*gSound.engine)->CreateAudioPlayer(gSound.engine,&gSound.playerObj,&src,&sink,1,ids,req);
-    (*gSound.playerObj)->Realize(gSound.playerObj,SL_BOOLEAN_FALSE);
-    (*gSound.playerObj)->GetInterface(gSound.playerObj,SL_IID_PLAY,&gSound.player);
-    (*gSound.playerObj)->GetInterface(gSound.playerObj,SL_IID_ANDROIDSIMPLEBUFFERQUEUE,&gSound.queue);
-    (*gSound.queue)->RegisterCallback(gSound.queue,onQueue,nullptr);
-    (*gSound.player)->SetPlayState(gSound.player,SL_PLAYSTATE_PLAYING);
     gSound.running.store(true);
-    onQueue(gSound.queue,nullptr);
-    LOGI_S("Sound init stereo 44100 Hz frames=%d",kFrames);
+    res=AAudioStream_requestStart(gSound.stream);
+    if(res!=AAUDIO_OK){ LOGE_S("AAudio start: %s",AAudio_convertResultToText(res)); return JNI_FALSE; }
+
+    LOGI_S("AAudio init stereo 44100 Hz frames=%d",omni::sound::kFrames);
     return JNI_TRUE;
 }
 
-JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setMasterVolume(JNIEnv*, jobject, jfloat v) { gSound.bus.masterGain.store(std::clamp(v,0.0f,1.0f)); }
-JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setHumVolume(JNIEnv*, jobject, jfloat v)    { gSound.hum.setVolume(v); gSound.bus.humGain.store(std::clamp(v,0.0f,1.0f)); }
-JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setFootstepVolume(JNIEnv*, jobject, jfloat v){ gSound.bus.footGain.store(std::clamp(v,0.0f,1.0f)); }
-JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setMonsterVolume(JNIEnv*, jobject, jfloat v) { gSound.bus.monsterGain.store(std::clamp(v,0.0f,1.0f)); }
-JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setAmbienceLevel(JNIEnv*, jobject, jfloat v) { gSound.ambience.setLevel(v); }
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setMasterVolume(JNIEnv*, jobject, jfloat v)    { gSound.bus.masterGain.store(std::clamp(v,0.0f,1.0f)); }
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setHumVolume(JNIEnv*, jobject, jfloat v)       { gSound.hum.setVolume(v); gSound.bus.humGain.store(std::clamp(v,0.0f,1.0f)); }
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setFootstepVolume(JNIEnv*, jobject, jfloat v)  { gSound.bus.footGain.store(std::clamp(v,0.0f,1.0f)); }
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setMonsterVolume(JNIEnv*, jobject, jfloat v)   { gSound.bus.monsterGain.store(std::clamp(v,0.0f,1.0f)); }
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setAmbienceLevel(JNIEnv*, jobject, jfloat v)   { gSound.ambience.setLevel(v); }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_triggerFootstep(JNIEnv*, jobject, jfloat bpm, jfloat surface) {
-    std::lock_guard<std::mutex> lock(gSound.mtx); gSound.foot.trigger(bpm,surface);
+    std::lock_guard lk(gSound.mtx); gSound.foot.trigger(bpm,surface);
 }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_triggerMonster(JNIEnv*, jobject, jfloat intensity) {
-    std::lock_guard<std::mutex> lock(gSound.mtx); gSound.monster.trigger(intensity);
+    std::lock_guard lk(gSound.mtx); gSound.monster.trigger(intensity);
 }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopMonster(JNIEnv*, jobject) {
-    std::lock_guard<std::mutex> lock(gSound.mtx); gSound.monster.stop();
+    std::lock_guard lk(gSound.mtx); gSound.monster.stop();
 }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setListenerPos(JNIEnv*, jobject, jfloat x, jfloat y, jfloat z) {
-    std::lock_guard<std::mutex> lock(gSound.mtx); gSound.spatial.listenerPos={x,y,z};
+    std::lock_guard lk(gSound.mtx); gSound.spatial.listenerPos={x,y,z};
 }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setSpatialRolloff(JNIEnv*, jobject, jfloat ref, jfloat maxDist) {
-    std::lock_guard<std::mutex> lock(gSound.mtx); gSound.spatial.refDistance=ref; gSound.spatial.maxDistance=maxDist;
+    std::lock_guard lk(gSound.mtx); gSound.spatial.refDistance=ref; gSound.spatial.maxDistance=maxDist;
 }
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_destroySound(JNIEnv*, jobject) {
     gSound.running.store(false);
-    std::this_thread::sleep_for(std::chrono::milliseconds(80));
-    if(gSound.playerObj){ (*gSound.playerObj)->Destroy(gSound.playerObj); gSound.playerObj=nullptr; }
-    if(gSound.mixObj)   { (*gSound.mixObj)->Destroy(gSound.mixObj);       gSound.mixObj   =nullptr; }
-    if(gSound.obj)      { (*gSound.obj)->Destroy(gSound.obj);             gSound.obj      =nullptr; }
+    if(gSound.stream){
+        AAudioStream_requestStop(gSound.stream);
+        AAudioStream_close(gSound.stream);
+        gSound.stream=nullptr;
+    }
+    if(gSound.builder){
+        AAudio_deleteStreamBuilder(gSound.builder);
+        gSound.builder=nullptr;
+    }
     LOGI_S("Sound destroyed");
 }
 
-// ── Network ──────────────────────────────────────────────────
 JNIEXPORT jboolean JNICALL
 Java_com_omni_backrooms_NativeBridge_initSocket(JNIEnv*, jobject, jint port) {
     if(!gNet.sock.open()) return JNI_FALSE;
@@ -1495,7 +1466,6 @@ Java_com_omni_backrooms_NativeBridge_destroySocket(JNIEnv*, jobject) {
     LOGI_N("Network destroyed");
 }
 
-// ── Guard ────────────────────────────────────────────────────
 JNIEXPORT jboolean JNICALL
 Java_com_omni_backrooms_NativeBridge_initGuard(JNIEnv* env, jobject, jobject ctx, jstring expectedSigHash) {
     using namespace omni::guard;

@@ -16,8 +16,8 @@ val keystoreProps = Properties().also {
 }
 
 android {
-    namespace   = "com.omni.backrooms"
-    compileSdk  = 36
+    namespace  = "com.omni.backrooms"
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.omni.backrooms"
@@ -29,9 +29,10 @@ android {
 
         vectorDrawables { useSupportLibrary = true }
 
-        buildConfigField("String",  "API_BASE_URL",      "\"https://api.omnibackrooms.com/v1/\"")
-        buildConfigField("boolean", "ENABLE_GUARD",      "true")
-        buildConfigField("String",  "EXPECTED_SIG_HASH", "\"\"")
+        buildConfigField("String",  "API_BASE_URL",           "\"https://api.omnibackrooms.com/v1/\"")
+        buildConfigField("boolean", "ENABLE_GUARD",           "true")
+        buildConfigField("String",  "EXPECTED_SIG_HASH",      "\"\"")
+        buildConfigField("String",  "GOOGLE_WEB_CLIENT_ID",   "\"\"")
     }
 
     signingConfigs {
@@ -62,6 +63,11 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "ENABLE_GUARD", "true")
+        }
+        debug {
+            isMinifyEnabled = false
+            isDebuggable    = true
+            buildConfigField("boolean", "ENABLE_GUARD", "false")
         }
     }
 
@@ -106,9 +112,7 @@ android {
     }
 
     splits {
-        abi {
-            isEnable = false
-        }
+        abi { isEnable = false }
     }
 
     bundle {
@@ -118,7 +122,7 @@ android {
     }
 
     lint {
-        abortOnError      = false
+        abortOnError       = false
         checkReleaseBuilds = true
     }
 }
@@ -146,7 +150,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.androidx.datastore.preferences)
-    
+
     implementation(libs.androidx.billing)
 
     implementation(platform(libs.firebase.bom))
@@ -157,4 +161,14 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.config)
+
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play)
+    implementation(libs.google.id.credential)
+
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+
+    debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation(libs.androidx.ui.tooling.preview)
 }
