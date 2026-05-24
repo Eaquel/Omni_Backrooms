@@ -3,7 +3,12 @@
 -keep class com.omni.backrooms.NativeBridge { native <methods>; }
 
 -keep class com.omni.backrooms.App { *; }
--keep class com.omni.backrooms.MainActivity { *; }
+-keep class com.omni.backrooms.App_HiltComponents { *; }
+-keep class com.omni.backrooms.App_HiltComponents$* { *; }
+-keep class * extends dagger.hilt.android.internal.managers.ApplicationComponentManager { *; }
+-keep @dagger.hilt.android.HiltAndroidApp class * { *; }
+-keep @dagger.hilt.InstallIn class * { *; }
+-keepclassmembers @dagger.hilt.android.HiltAndroidApp class * { *; }
 -keep class com.omni.backrooms.SessionService { *; }
 -keep class com.omni.backrooms.OmniMessagingService { *; }
 
