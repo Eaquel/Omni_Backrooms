@@ -286,7 +286,13 @@ data class GameState(
     val mapId             : String  = "level_0",
     val isPaused          : Boolean = false,
     val isGameOver        : Boolean = false,
-    val isEscaped         : Boolean = false
+    val isEscaped         : Boolean = false,
+    val camera            : CameraSnapshot?      = null,
+    val entities          : List<EntityState>    = emptyList(),
+    val levelSegments     : List<LevelSegment>    = emptyList(),
+    val exitX             : Float   = 0f,
+    val exitZ             : Float   = 0f,
+    val distanceToExit    : Float   = Float.MAX_VALUE
 )
 
 data class LeaderboardEntry(
@@ -347,6 +353,7 @@ data class LevelSegment(
     val width        : Float,
     val length       : Float,
     val height       : Float,
+    val heading      : Float,
     val lightPhase   : Float,
     val lightIntensity: Float,
     val lightSpeed   : Float,
@@ -357,16 +364,35 @@ data class LevelSegment(
     val hasHazard    : Boolean,
     val decalCount   : Int
 ) {
+    /** World-space point at the far end of this corridor piece. */
+    val endX: Float get() = posX + kotlin.math.sin(heading) * length
+    val endZ: Float get() = posY + kotlin.math.cos(heading) * length
+
+    /** World-space point at a given fraction (0..1) along this segment's length. */
+    fun pointAt(t: Float, lateral: Float = 0f): Pair<Float, Float> {
+        val s = kotlin.math.sin(heading); val c = kotlin.math.cos(heading)
+        val fwd = length * t.coerceIn(0f, 1f)
+        return (posX + s * fwd + c * lateral) to (posY + c * fwd - s * lateral)
+    }
+
     companion object {
+        const val FLOATS_PER_NODE = 15
+
         fun fromFloatArray(data: FloatArray, index: Int): LevelSegment? {
-            val base = index * 14
-            if (base + 13 >= data.size) return null
+            val base = index * FLOATS_PER_NODE
+            if (base + (FLOATS_PER_NODE - 1) >= data.size) return null
             return LevelSegment(
-                data[base], data[base+1], data[base+2], data[base+3], data[base+4],
-                data[base+5], data[base+6], data[base+7], data[base+8] > 0.5f,
-                data[base+9].toInt(), data[base+10], data[base+11],
-                data[base+12] > 0.5f, data[base+13].toInt()
+                data[base], data[base+1], data[base+2], data[base+3], data[base+4], data[base+5],
+                data[base+6], data[base+7], data[base+8], data[base+9] > 0.5f,
+                data[base+10].toInt(), data[base+11], data[base+12],
+                data[base+13] > 0.5f, data[base+14].toInt()
             )
+        }
+
+        fun listFromFloatArray(data: FloatArray?): List<LevelSegment> {
+            if (data == null || data.isEmpty()) return emptyList()
+            val count = data.size / FLOATS_PER_NODE
+            return (0 until count).mapNotNull { fromFloatArray(data, it) }
         }
     }
 }
@@ -380,18 +406,27 @@ data class EntityState(
     val alertLevel      : Float,
     val hpFraction      : Float,
     val flickerInfluence: Float,
+    val playerInSight   : Boolean,
     val typeId          : Int,
     val isActive        : Boolean
 ) {
     companion object {
+        const val FLOATS_PER_ENTITY = 10
+
         fun fromFloatArray(data: FloatArray, index: Int, id: Int): EntityState? {
-            val base = index * 10
-            if (base + 9 >= data.size) return null
+            val base = index * FLOATS_PER_ENTITY
+            if (base + (FLOATS_PER_ENTITY - 1) >= data.size) return null
             return EntityState(
                 id, data[base], data[base+1], data[base+2], data[base+3].toInt(),
-                data[base+4], data[base+5], data[base+6], data[base+8].toInt(),
-                data[base+9] > 0.5f
+                data[base+4], data[base+5], data[base+6], data[base+7] > 0.5f,
+                data[base+8].toInt(), data[base+9] > 0.5f
             )
+        }
+
+        fun listFromFloatArray(data: FloatArray?): List<EntityState> {
+            if (data == null || data.isEmpty()) return emptyList()
+            val count = data.size / FLOATS_PER_ENTITY
+            return (0 until count).mapNotNull { fromFloatArray(data, it, it) }
         }
     }
 }
@@ -431,6 +466,13 @@ data class BuyRequest(val itemId: String, val currency: String)
 data class BuyResponse(val success: Boolean, val newBalance: Long, val error: String?)
 data class CharacterDto(val id: String, val nameTr: String, val nameEn: String, val clazz: String, val maxHp: Float, val baseSpeed: Float, val stealthMult: Float, val staminaMult: Float, val abilities: List<String>, val isUnlocked: Boolean, val isEquipped: Boolean, val imageUrl: String?, val price: Long, val currency: String)
 data class StoryChapterDto(val id: Int, val titleTr: String, val titleEn: String, val contentTr: String, val contentEn: String, val isUnlocked: Boolean)
+
+/** Picks the chapter text matching the device locale, falling back to Turkish
+ *  (this app's default locale — see values/strings.xml) for anything else. */
+val StoryChapterDto.displayTitle: String
+    get() = if (java.util.Locale.getDefault().language == "en") titleEn else titleTr
+val StoryChapterDto.displayContent: String
+    get() = if (java.util.Locale.getDefault().language == "en") contentEn else contentTr
 data class EventDto(val id: String, val titleTr: String, val titleEn: String, val descriptionTr: String, val descriptionEn: String, val rewardType: String, val rewardAmount: Long, val endMs: Long, val isActive: Boolean)
 data class ReportRequest(val reportedId: Int, val reason: String, val details: String)
 

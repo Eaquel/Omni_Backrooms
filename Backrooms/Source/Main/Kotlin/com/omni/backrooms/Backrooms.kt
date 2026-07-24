@@ -70,6 +70,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -121,6 +124,24 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.cos
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sqrt
+import java.util.Locale
+import android.opengl.GLES30
+import android.opengl.GLSurfaceView
+import android.opengl.Matrix
+import android.opengl.GLUtils
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.opengles.GL10
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+import java.nio.IntBuffer
 
 val Yellow       = Color(0xFFD4A84B)
 val YellowDim    = Color(0x80D4A84B)
@@ -251,7 +272,23 @@ private object Route {
 @Composable
 fun OmniBackroomsApp() {
     val nav = rememberNavController()
+    val guardVm: GuardVM = hiltViewModel()
+    val guardReport by guardVm.report.collectAsState()
+    var showGuardDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(guardReport.threatLevel) {
+        if (guardReport.threatLevel >= ThreatLevel.SUSPICIOUS) showGuardDialog = true
+    }
     MaterialTheme(colorScheme = darkColorScheme()) {
+        if (showGuardDialog) {
+            AlertDialog(
+                onDismissRequest = { showGuardDialog = false },
+                title    = { Text(stringResource(R.string.guard_threat_title)) },
+                text     = { Text(stringResource(R.string.guard_threat_message)) },
+                confirmButton = {
+                    TextButton(onClick = { showGuardDialog = false }) { Text(stringResource(R.string.common_ok)) }
+                }
+            )
+        }
         NavHost(nav, startDestination = Route.MENU) {
             composable(
                 Route.MENU,
@@ -400,20 +437,26 @@ class GoogleAuthVM @Inject constructor(
 
 enum class EntityType(
     val typeId    : Int,
+    /** Native AI id (Engine.cpp EntityType/BehaviorTree dispatch). Not the same as
+     *  [typeId]: the native behavior-tree roster (Smiler=0,HoundDog=1,PartyGoer=2,
+     *  Skin_Stealer=3,WanderingOne=4,Deathwatch=5,Crawler=6,FacelingDark=7) is fixed
+     *  gameplay logic, so this maps each lore creature to the behavior that actually
+     *  matches it instead of assuming the two rosters line up 1:1. */
+    val nativeAiId: Int,
     val baseSpeed : Float,
     val hearRange : Float,
     val sightRange: Float,
     val aggroRange: Float,
     val displayName: String
 ) {
-    SMILER      (0, 2.8f, 12f, 18f,  9f, "Smiler"),
-    HOWLER      (1, 3.5f, 20f, 22f, 12f, "Howler"),
-    DULLLER     (2, 1.4f,  8f, 14f,  6f, "Duller"),
-    PARTYGOER   (3, 4.2f, 16f, 20f, 10f, "Party Goer"),
-    SKIN_STEALER(4, 3.0f, 14f, 16f,  8f, "Skin Stealer"),
-    WRETCHED    (5, 5.5f, 10f, 12f,  7f, "Wretched"),
-    FACELING    (6, 2.2f, 18f, 24f, 14f, "Faceling"),
-    DEATHMOTHS  (7, 6.0f,  6f,  8f,  5f, "Deathmoth")
+    SMILER      (0, 0, 2.8f, 12f, 18f,  9f, "Smiler"),
+    HOWLER      (1, 1, 3.5f, 20f, 22f, 12f, "Howler"),
+    PARTYGOER   (2, 2, 4.2f, 16f, 20f, 10f, "Party Goer"),
+    SKIN_STEALER(3, 3, 3.0f, 14f, 16f,  8f, "Skin Stealer"),
+    DULLLER     (4, 4, 1.4f,  8f, 14f,  6f, "Duller"),
+    WRETCHED    (5, 5, 5.5f, 10f, 12f,  7f, "Wretched"),
+    DEATHMOTHS  (6, 6, 6.0f,  6f,  8f,  5f, "Deathmoth"),
+    FACELING    (7, 7, 2.2f, 18f, 24f, 14f, "Faceling")
 }
 
 data class SpawnConfig(val count: Int, val speedMult: Float, val sightMult: Float, val spawnIntervalMs: Long)
@@ -432,6 +475,22 @@ data class StoryChapterRaw(
 
 @Serializable
 data class StoryJson(val version: Int, val chapters: List<StoryChapterRaw>)
+
+/** Matches the schema actually used by the shipped en.json/tr.json assets — each
+ *  file is monolingual (title/paragraphs, no _tr/_en suffix). Kept private and
+ *  used only as a parsing step before merging into [StoryChapterRaw] below, so
+ *  nothing downstream (StoryVM, the reader UI) needs to change. */
+@Serializable
+private data class StoryChapterMono(
+    val id        : Int,
+    val title     : String = "",
+    val subtitle  : String = "",
+    val unlocked  : Boolean = false,
+    val paragraphs: List<String> = emptyList()
+)
+
+@Serializable
+private data class StoryFileMono(val version: Int = 1, val chapters: List<StoryChapterMono> = emptyList())
 
 data class CharacterDef(
     val id: String, val name: String, val clazz: CharClass,
@@ -475,10 +534,29 @@ class AssetManager @Inject constructor(@ApplicationContext private val ctx: Cont
 
     fun loadStory(): StoryJson {
         storyCache?.let { return it }
-        return runCatching {
-            val raw = ctx.assets.open("story.json").bufferedReader().readText()
-            json.decodeFromString<StoryJson>(raw).also { storyCache = it }
-        }.getOrElse { StoryJson(version=1, chapters=emptyList()) }
+        fun readMono(name: String): StoryFileMono? =
+            runCatching { ctx.assets.open(name).bufferedReader().readText() }
+                .mapCatching { json.decodeFromString<StoryFileMono>(it) }
+                .getOrNull()
+
+        val en = readMono("en.json")
+        val tr = readMono("tr.json")
+        val byIdEn = en?.chapters?.associateBy { it.id } ?: emptyMap()
+        val byIdTr = tr?.chapters?.associateBy { it.id } ?: emptyMap()
+        val ids = (byIdEn.keys + byIdTr.keys).sorted()
+
+        val merged = ids.map { id ->
+            val e = byIdEn[id]; val t = byIdTr[id]
+            StoryChapterRaw(
+                id           = id,
+                titleTr      = t?.title.takeUnless { it.isNullOrBlank() } ?: e?.title.orEmpty(),
+                titleEn      = e?.title.takeUnless { it.isNullOrBlank() } ?: t?.title.orEmpty(),
+                unlocked     = t?.unlocked ?: e?.unlocked ?: false,
+                paragraphsTr = t?.paragraphs?.takeIf { it.isNotEmpty() } ?: e?.paragraphs.orEmpty(),
+                paragraphsEn = e?.paragraphs?.takeIf { it.isNotEmpty() } ?: t?.paragraphs.orEmpty()
+            )
+        }
+        return StoryJson(version = 1, chapters = merged).also { storyCache = it }
     }
 
     fun storyChapterToDto(raw: StoryChapterRaw): StoryChapterDto = StoryChapterDto(
@@ -597,6 +675,7 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
     val report     : StateFlow<GuardReport>  = guardManager.report
     val threatEvent: SharedFlow<ThreatLevel> = guardManager.threatEvent
     init {
+        guardManager.initialize()
         viewModelScope.launch {
             guardManager.threatEvent.collect { level ->
                 when (level) {
@@ -828,6 +907,10 @@ class GameVM @Inject constructor(
     private var score      = 0L
     private var kills      = 0
 
+    /** Segments for the currently loaded level; kept here (not just in GameState) so the
+     *  entity spawner can reuse them without depending on StateFlow emission timing. */
+    private var segments: List<LevelSegment> = emptyList()
+
     fun startGame(difficulty: String = "normal", seed: Long = System.currentTimeMillis(), mapId: String = "level_0") {
         viewModelScope.launch {
             val sensitivity = settings.observe().first().cameraSensitivity
@@ -837,20 +920,35 @@ class GameVM @Inject constructor(
             bridge.setAmbienceLevel(0.4f)
             bridge.setHumVolume(0.3f)
             bridge.setSpatialRolloff(1f, 40f)
+
+            val nodeCount = if (difficulty == "hard") 60 else 40
+            val levelDepth = mapId.substringAfterLast('_').toIntOrNull() ?: 0
+            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = levelDepth))
+            val exit = segments.lastOrNull()
+            val exitX = exit?.endX ?: 0f
+            val exitZ = exit?.endZ ?: 0f
+
             val cfg = assetManager.getSpawnConfig(difficulty)
-            repeat(cfg.count) { i ->
-                val typeId = i % EntityType.entries.size
-                val entity = EntityType.entries[typeId]
-                bridge.spawnEntity(
-                    x = (Math.random() * 60 - 30).toFloat(), y = 0f,
-                    z = (Math.random() * 60 - 30).toFloat(),
-                    speed = entity.baseSpeed * cfg.speedMult,
-                    hear  = 10f + i * 1.5f,
-                    sight = 16f * cfg.sightMult,
-                    aggro = 8f, typeId = typeId
-                )
+            if (segments.isNotEmpty()) {
+                repeat(cfg.count) { i ->
+                    val entity = EntityType.entries[i % EntityType.entries.size]
+                    // Skip the first couple of segments so the player isn't ambushed on spawn.
+                    val seg = segments[(2 + (Math.random() * (segments.size - 2).coerceAtLeast(1))).toInt().coerceIn(0, segments.lastIndex)]
+                    val lateral = (Math.random().toFloat() * 2f - 1f) * (seg.width * 0.35f)
+                    val (sx, sz) = seg.pointAt(Math.random().toFloat(), lateral)
+                    bridge.spawnEntity(
+                        x = sx, y = 0f, z = sz,
+                        speed = entity.baseSpeed * cfg.speedMult,
+                        hear  = entity.hearRange,
+                        sight = entity.sightRange * cfg.sightMult,
+                        aggro = entity.aggroRange, typeId = entity.nativeAiId
+                    )
+                }
             }
-            _state.value = GameState(seed = seed, difficulty = difficulty, mapId = mapId)
+            _state.value = GameState(
+                seed = seed, difficulty = difficulty, mapId = mapId,
+                levelSegments = segments, exitX = exitX, exitZ = exitZ
+            )
             startPhysicsLoop(sensitivity)
             startEntitySpawner(difficulty, cfg)
             startScoreAccumulator()
@@ -868,13 +966,34 @@ class GameVM @Inject constructor(
                 bridge.physicsTick(dt)
                 val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
                 if (cam != null) bridge.setListenerPos(cam.posX, cam.posY, cam.posZ)
-                val entityData       = bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
-                val flickerInfluence = bridge.getTotalFlickerInfluence()
-                val nearbyCount      = (entityData?.size ?: 0) / 10
+                val entityList        = EntityState.listFromFloatArray(
+                    bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
+                )
+                val flickerInfluence  = bridge.getTotalFlickerInfluence()
+                val nearbyCount = entityList.count { e ->
+                    if (!e.isActive || cam == null) return@count false
+                    val dx = e.posX - cam.posX; val dz = e.posZ - cam.posZ
+                    dx * dx + dz * dz < 625f // within 25 units
+                }
+                // Entities in an Attack state (aiState 4) that reach melee range hurt the
+                // player. HP was previously never touched anywhere, so GameOverOverlay was
+                // unreachable — this is the missing fail-state.
+                var damage = 0f
+                if (cam != null) {
+                    for (e in entityList) {
+                        if (!e.isActive || e.aiState != 4) continue
+                        val dx = e.posX - cam.posX; val dz = e.posZ - cam.posZ
+                        if (dx * dx + dz * dz < 2.25f) damage += 16f * dt
+                    }
+                }
                 val s = _state.value
-                val drain = (nearbyCount * 0.5f + flickerInfluence * 2f) * dt
+                val drain = (nearbyCount * 0.6f + flickerInfluence * 2f) * dt
                 val regen = if (nearbyCount == 0 && flickerInfluence < 0.1f) dt * 0.3f else 0f
-                val nb    = (s.flashlightBattery - dt * 0.005f).coerceAtLeast(0f)
+                val nb    = (s.flashlightBattery - (if (s.flashlightOn) dt * 0.006f else 0f)).coerceAtLeast(0f)
+                val newHp = (s.playerHp - damage).coerceIn(0f, s.playerMaxHp)
+                val exitDist = if (cam != null)
+                    kotlin.math.hypot((s.exitX - cam.posX).toDouble(), (s.exitZ - cam.posZ).toDouble()).toFloat()
+                else s.distanceToExit
                 _state.update {
                     it.copy(
                         sessionElapsed    = elapsedMs,
@@ -884,7 +1003,12 @@ class GameVM @Inject constructor(
                         sanity            = (s.sanity - drain + regen).coerceIn(0f, 100f),
                         flashlightBattery = nb,
                         flashlightOn      = if (!s.flashlightOn) false else nb > 0f,
-                        stamina           = (s.stamina + dt * 8f).coerceAtMost(s.staminaMax)
+                        stamina           = (s.stamina + dt * 8f).coerceAtMost(s.staminaMax),
+                        playerHp          = newHp,
+                        isGameOver        = newHp <= 0f || it.isGameOver,
+                        camera            = cam ?: s.camera,
+                        entities          = entityList,
+                        distanceToExit    = exitDist
                     )
                 }
                 delay(16)
@@ -897,15 +1021,16 @@ class GameVM @Inject constructor(
             var timer = 0L
             while (isActive) {
                 delay(5_000); timer += 5_000
-                if (timer >= cfg.spawnIntervalMs) {
+                if (timer >= cfg.spawnIntervalMs && segments.isNotEmpty()) {
                     timer = 0
-                    val typeId = (Math.random() * 8).toInt()
-                    val entity = EntityType.entries.getOrNull(typeId) ?: EntityType.SMILER
+                    val entity = EntityType.entries[(Math.random() * EntityType.entries.size).toInt().coerceIn(0, EntityType.entries.lastIndex)]
+                    val seg = segments[(Math.random() * segments.size).toInt().coerceIn(0, segments.lastIndex)]
+                    val (sx, sz) = seg.pointAt(Math.random().toFloat(), (Math.random().toFloat() * 2f - 1f) * (seg.width * 0.35f))
                     bridge.spawnEntity(
-                        x = (Math.random() * 80 - 40).toFloat(), y = 0f,
-                        z = (Math.random() * 80 - 40).toFloat(),
+                        x = sx, y = 0f, z = sz,
                         speed = entity.baseSpeed * cfg.speedMult,
-                        hear = 12f, sight = 18f * cfg.sightMult, aggro = 9f, typeId = typeId
+                        hear = entity.hearRange, sight = entity.sightRange * cfg.sightMult,
+                        aggro = entity.aggroRange, typeId = entity.nativeAiId
                     )
                 }
             }
@@ -942,11 +1067,12 @@ class GameVM @Inject constructor(
     fun toggleFlashlight() { _state.update { it.copy(flashlightOn = !it.flashlightOn) } }
     fun togglePause()      { _state.update { it.copy(isPaused = !it.isPaused) } }
 
+    /** True once the player is close enough to the exit for [onInteract] to work; the HUD
+     *  uses this to show a prompt so the player knows the exit is reachable. */
+    val canEscape: Boolean get() = _state.value.distanceToExit < 3.5f
+
     fun onInteract() {
-        val s = _state.value
-        if (s.entitiesNearby == 0 && s.flickerIntensity < 0.1f) {
-            _state.update { it.copy(isEscaped = true) }
-        }
+        if (canEscape) _state.update { it.copy(isEscaped = true) }
     }
 
     fun onDamageEntity(id: Int) {
@@ -1304,6 +1430,516 @@ private fun CrtScanlineOverlay(scanProgress: Float) {
     }
 }
 
+// ============================================================================
+// 3D renderer. Runs on its own GL thread; reads a volatile snapshot of
+// GameState + graphics settings written from the Compose side each frame, and
+// never ticks simulation itself (physics/AI stay solely in GameVM so nothing
+// gets double-advanced). No new files: lives in this file by request.
+// ============================================================================
+
+private fun compileGlShader(type: Int, src: String): Int {
+    val shader = GLES30.glCreateShader(type)
+    GLES30.glShaderSource(shader, src)
+    GLES30.glCompileShader(shader)
+    val status = IntArray(1)
+    GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, status, 0)
+    if (status[0] == 0) {
+        val log = GLES30.glGetShaderInfoLog(shader)
+        GLES30.glDeleteShader(shader)
+        throw RuntimeException("Omni shader compile failed: $log")
+    }
+    return shader
+}
+
+private fun linkGlProgram(vertSrc: String, fragSrc: String): Int {
+    val vs = compileGlShader(GLES30.GL_VERTEX_SHADER, vertSrc)
+    val fs = compileGlShader(GLES30.GL_FRAGMENT_SHADER, fragSrc)
+    val prog = GLES30.glCreateProgram()
+    GLES30.glAttachShader(prog, vs); GLES30.glAttachShader(prog, fs)
+    GLES30.glLinkProgram(prog)
+    val status = IntArray(1)
+    GLES30.glGetProgramiv(prog, GLES30.GL_LINK_STATUS, status, 0)
+    GLES30.glDeleteShader(vs); GLES30.glDeleteShader(fs)
+    if (status[0] == 0) {
+        val log = GLES30.glGetProgramInfoLog(prog)
+        GLES30.glDeleteProgram(prog)
+        throw RuntimeException("Omni program link failed: $log")
+    }
+    return prog
+}
+
+private fun glFloatBuffer(data: FloatArray): FloatBuffer =
+    ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(data); position(0) }
+
+private fun glIntBuffer(data: IntArray): IntBuffer =
+    ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder()).asIntBuffer().apply { put(data); position(0) }
+
+private const val OMNI_SCENE_VERT = """#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+layout(location=3) in float aLight;
+uniform mat4 uMVP;
+out vec3 vNormal; out vec2 vUV; out float vLight; out vec3 vWorldPos;
+void main(){
+    vWorldPos = aPos; vNormal = aNormal; vUV = aUV; vLight = aLight;
+    gl_Position = uMVP * vec4(aPos, 1.0);
+}
+"""
+
+private const val OMNI_SCENE_FRAG = """#version 300 es
+precision mediump float;
+in vec3 vNormal; in vec2 vUV; in float vLight; in vec3 vWorldPos;
+uniform sampler2D uTex;
+uniform vec3 uCamPos; uniform vec3 uFlashDir; uniform float uFlashOn;
+uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
+out vec4 fragColor;
+void main(){
+    vec4 tex = texture(uTex, vUV);
+    vec3 n = normalize(vNormal);
+    float overhead = clamp(dot(n, vec3(0.0,1.0,0.0)), 0.0, 1.0) * vLight * uFlicker;
+    vec3 toCam = uCamPos - vWorldPos;
+    float dist = length(toCam);
+    vec3 toCamN = toCam / max(dist, 0.001);
+    float flash = 0.0;
+    if (uFlashOn > 0.5) {
+        vec3 fd = normalize(uFlashDir);
+        float spotCos = dot(-toCamN, fd);
+        float coneMask = smoothstep(0.80, 0.97, spotCos);
+        float diffuse = max(dot(n, toCamN), 0.0);
+        float atten = clamp(1.0 - dist/20.0, 0.0, 1.0);
+        flash = coneMask * diffuse * atten * 1.6;
+    }
+    float lit = 0.08 + overhead*0.95 + flash;
+    vec3 col = tex.rgb * lit;
+    float fog = 1.0 - exp(-uFogDensity * dist * dist * 0.008);
+    col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
+    fragColor = vec4(col, 1.0);
+}
+"""
+
+private const val OMNI_BILLBOARD_VERT = """#version 300 es
+layout(location=0) in vec2 aCorner;
+uniform mat4 uVP; uniform vec3 uCenter; uniform vec3 uCamRight; uniform vec3 uCamUp; uniform float uSize;
+out vec2 vUV;
+void main(){
+    vec3 worldPos = uCenter + uCamRight*(aCorner.x*uSize) + uCamUp*(aCorner.y*uSize*1.6);
+    vUV = aCorner*0.5 + 0.5;
+    gl_Position = uVP * vec4(worldPos, 1.0);
+}
+"""
+
+private const val OMNI_BILLBOARD_FRAG = """#version 300 es
+precision mediump float;
+in vec2 vUV;
+uniform vec3 uColor; uniform float uAlert; uniform float uAlpha;
+out vec4 fragColor;
+void main(){
+    vec2 d = (vUV - vec2(0.5, 0.42)) * vec2(1.0, 1.35);
+    float body = smoothstep(0.5, 0.28, length(d));
+    vec2 eyeD = (vUV - vec2(0.5, 0.62)) * vec2(1.0, 1.6);
+    float core = smoothstep(0.16, 0.02, length(eyeD));
+    vec3 eyeColor = mix(vec3(0.85,0.78,0.25), vec3(1.0,0.05,0.05), uAlert);
+    vec3 col = mix(uColor*0.12, eyeColor, core);
+    float alpha = body*uAlpha;
+    if (alpha < 0.02) discard;
+    fragColor = vec4(col, alpha);
+}
+"""
+
+private const val OMNI_POST_VERT = """#version 300 es
+layout(location=0) in vec2 aPos;
+out vec2 vUV;
+void main(){ vUV = aPos*0.5+0.5; gl_Position = vec4(aPos, 0.0, 1.0); }
+"""
+
+private const val OMNI_POST_FRAG = """#version 300 es
+precision mediump float;
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform float uTime; uniform float uFlicker; uniform float uVhsStrength; uniform vec2 uResolution;
+out vec4 fragColor;
+float rand(vec2 co){ return fract(sin(dot(co, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+    vec2 uv = vUV;
+    float shift = (rand(vec2(uTime*0.6, uv.y*40.0)) - 0.5) * 0.004 * uVhsStrength;
+    float r = texture(uScene, uv + vec2(shift, 0.0)).r;
+    float g = texture(uScene, uv).g;
+    float b = texture(uScene, uv - vec2(shift, 0.0)).b;
+    vec3 col = vec3(r,g,b);
+    float scan = sin(uv.y*uResolution.y*1.4 + uTime*6.0) * 0.04 * uVhsStrength;
+    col -= scan;
+    float grain = (rand(uv*uResolution + uTime) - 0.5) * 0.05 * uVhsStrength;
+    col += grain;
+    vec2 vig = uv - 0.5;
+    float vigAmt = 1.0 - dot(vig,vig)*1.1;
+    col *= clamp(vigAmt, 0.0, 1.0);
+    col *= (0.55 + 0.45*uFlicker);
+    fragColor = vec4(col, 1.0);
+}
+"""
+
+/** Graphics options snapshot pushed in from SettingsRepository; kept separate from
+ *  GameState since it comes from a different source. */
+data class RenderSettings(
+    val quality        : String  = "high",
+    val vhsEnabled     : Boolean = true,
+    val fogEnabled     : Boolean = true,
+    val shadowsEnabled : Boolean = true,
+    val resolutionScale: Float   = 1f,
+    val colorBlindMode : String  = "none"
+)
+
+class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
+
+    @Volatile var latestState: GameState = GameState()
+    @Volatile var renderSettings: RenderSettings = RenderSettings()
+
+    private var sceneProgram = 0; private var billboardProgram = 0; private var postProgram = 0
+    private var uMVP = 0; private var uTex = 0; private var uCamPos = 0
+    private var uFlashDir = 0; private var uFlashOn = 0; private var uFogDensity = 0
+    private var uFogColor = 0; private var uFlicker = 0
+    private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
+    private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0
+    private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
+
+    private var floorTex = 0; private var wallTex = 0; private var roofTex = 0
+    private var floorVbo = 0; private var floorIbo = 0; private var floorCount = 0
+    private var wallVbo  = 0; private var wallIbo  = 0; private var wallCount  = 0
+    private var roofVbo  = 0; private var roofIbo  = 0; private var roofCount = 0
+    private var lastSegKey = Int.MIN_VALUE
+
+    private var billboardVbo = 0
+    private var postVbo = 0
+
+    private var fbo = 0; private var fboTex = 0; private var fboDepth = 0
+    private var surfaceW = 1; private var surfaceH = 1
+
+    private val projM = FloatArray(16)
+    private val viewM = FloatArray(16)
+    private val vpM   = FloatArray(16)
+    private val startNanos = System.nanoTime()
+
+    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        GLES30.glClearColor(0.02f, 0.02f, 0.017f, 1f)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+
+        sceneProgram = linkGlProgram(OMNI_SCENE_VERT, OMNI_SCENE_FRAG)
+        uMVP = GLES30.glGetUniformLocation(sceneProgram, "uMVP")
+        uTex = GLES30.glGetUniformLocation(sceneProgram, "uTex")
+        uCamPos = GLES30.glGetUniformLocation(sceneProgram, "uCamPos")
+        uFlashDir = GLES30.glGetUniformLocation(sceneProgram, "uFlashDir")
+        uFlashOn = GLES30.glGetUniformLocation(sceneProgram, "uFlashOn")
+        uFogDensity = GLES30.glGetUniformLocation(sceneProgram, "uFogDensity")
+        uFogColor = GLES30.glGetUniformLocation(sceneProgram, "uFogColor")
+        uFlicker = GLES30.glGetUniformLocation(sceneProgram, "uFlicker")
+
+        billboardProgram = linkGlProgram(OMNI_BILLBOARD_VERT, OMNI_BILLBOARD_FRAG)
+        bVP = GLES30.glGetUniformLocation(billboardProgram, "uVP")
+        bCenter = GLES30.glGetUniformLocation(billboardProgram, "uCenter")
+        bRight = GLES30.glGetUniformLocation(billboardProgram, "uCamRight")
+        bUp = GLES30.glGetUniformLocation(billboardProgram, "uCamUp")
+        bSize = GLES30.glGetUniformLocation(billboardProgram, "uSize")
+        bColor = GLES30.glGetUniformLocation(billboardProgram, "uColor")
+        bAlert = GLES30.glGetUniformLocation(billboardProgram, "uAlert")
+        bAlpha = GLES30.glGetUniformLocation(billboardProgram, "uAlpha")
+
+        postProgram = linkGlProgram(OMNI_POST_VERT, OMNI_POST_FRAG)
+        pScene = GLES30.glGetUniformLocation(postProgram, "uScene")
+        pTime = GLES30.glGetUniformLocation(postProgram, "uTime")
+        pFlicker = GLES30.glGetUniformLocation(postProgram, "uFlicker")
+        pVhs = GLES30.glGetUniformLocation(postProgram, "uVhsStrength")
+        pRes = GLES30.glGetUniformLocation(postProgram, "uResolution")
+
+        floorTex = loadOmniTexture("Level_0/Floor.png", 0xFF3A3020.toInt())
+        wallTex  = loadOmniTexture("Level_0/Wall.png",  0xFF4A4030.toInt())
+        roofTex  = loadOmniTexture("Level_0/Roof.png",  0xFF23210F.toInt())
+
+        val quadCorners = floatArrayOf(-1f,-1f, 1f,-1f, -1f,1f, 1f,1f)
+        billboardVbo = genGlBuffer()
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, billboardVbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, quadCorners.size*4, glFloatBuffer(quadCorners), GLES30.GL_STATIC_DRAW)
+
+        postVbo = genGlBuffer()
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, postVbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, quadCorners.size*4, glFloatBuffer(quadCorners), GLES30.GL_STATIC_DRAW)
+
+        floorVbo = genGlBuffer(); floorIbo = genGlBuffer()
+        wallVbo  = genGlBuffer(); wallIbo  = genGlBuffer()
+        roofVbo  = genGlBuffer(); roofIbo  = genGlBuffer()
+    }
+
+    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        surfaceW = max(width, 1); surfaceH = max(height, 1)
+        GLES30.glViewport(0, 0, surfaceW, surfaceH)
+        Matrix.perspectiveM(projM, 0, 70f, surfaceW.toFloat()/surfaceH.toFloat(), 0.05f, 55f)
+        rebuildFbo(surfaceW, surfaceH)
+    }
+
+    override fun onDrawFrame(gl: GL10?) {
+        val state = latestState
+        val cam = state.camera
+        val rs = renderSettings
+        val timeSec = (System.nanoTime() - startNanos) / 1_000_000_000f
+
+        val segKey = state.levelSegments.size * 73856093 xor (state.levelSegments.firstOrNull()?.posX?.hashCode() ?: 0)
+        if (state.levelSegments.isNotEmpty() && segKey != lastSegKey) {
+            uploadLevelMesh(state.levelSegments)
+            lastSegKey = segKey
+        }
+
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+        GLES30.glViewport(0, 0, surfaceW, surfaceH)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+
+        if (cam != null) {
+            val yawRad = Math.toRadians(cam.yaw.toDouble())
+            val pitchRad = Math.toRadians(cam.pitch.toDouble())
+            val fx = (sin(yawRad) * cos(pitchRad)).toFloat()
+            val fy = sin(pitchRad).toFloat()
+            val fz = (cos(yawRad) * cos(pitchRad)).toFloat()
+            Matrix.setLookAtM(viewM, 0, cam.posX, cam.posY, cam.posZ, cam.posX+fx, cam.posY+fy, cam.posZ+fz, 0f, 1f, 0f)
+            Matrix.multiplyMM(vpM, 0, projM, 0, viewM, 0)
+
+            val fogDensity = if (rs.fogEnabled) 1.0f else 0.15f
+            val flicker = state.flickerIntensity.coerceIn(0.35f, 1f)
+            drawLevel(vpM, cam.posX, cam.posY, cam.posZ, fx, fy, fz, state.flashlightOn, fogDensity, flicker)
+            drawEntities(vpM, state.entities, yawRad.toFloat(), cam)
+        }
+
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        GLES30.glViewport(0, 0, surfaceW, surfaceH)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        drawPost(timeSec, state.flickerIntensity, if (rs.vhsEnabled) 1f else 0f)
+    }
+
+    private fun drawLevel(vp: FloatArray, camX: Float, camY: Float, camZ: Float, fx: Float, fy: Float, fz: Float, flashOn: Boolean, fogDensity: Float, flicker: Float) {
+        GLES30.glUseProgram(sceneProgram)
+        GLES30.glUniformMatrix4fv(uMVP, 1, false, vp, 0)
+        GLES30.glUniform3f(uCamPos, camX, camY, camZ)
+        GLES30.glUniform3f(uFlashDir, fx, fy, fz)
+        GLES30.glUniform1f(uFlashOn, if (flashOn) 1f else 0f)
+        GLES30.glUniform1f(uFogDensity, fogDensity)
+        GLES30.glUniform3f(uFogColor, 0.05f, 0.045f, 0.03f)
+        GLES30.glUniform1f(uFlicker, flicker)
+        drawMeshGroup(floorVbo, floorIbo, floorCount, floorTex)
+        drawMeshGroup(roofVbo,  roofIbo,  roofCount,  roofTex)
+        drawMeshGroup(wallVbo,  wallIbo,  wallCount,  wallTex)
+    }
+
+    private fun drawMeshGroup(vbo: Int, ibo: Int, indexCount: Int, tex: Int) {
+        if (indexCount <= 0) return
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex)
+        GLES30.glUniform1i(uTex, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
+        val stride = 9 * 4
+        GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
+        GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3*4)
+        GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6*4)
+        GLES30.glEnableVertexAttribArray(3); GLES30.glVertexAttribPointer(3, 1, GLES30.GL_FLOAT, false, stride, 8*4)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibo)
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, indexCount, GLES30.GL_UNSIGNED_INT, 0)
+        GLES30.glDisableVertexAttribArray(0); GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2); GLES30.glDisableVertexAttribArray(3)
+    }
+
+    private fun drawEntities(vp: FloatArray, entities: List<EntityState>, yawRad: Float, cam: CameraSnapshot) {
+        if (entities.isEmpty()) return
+        GLES30.glUseProgram(billboardProgram)
+        GLES30.glUniformMatrix4fv(bVP, 1, false, vp, 0)
+        GLES30.glUniform3f(bRight, cos(yawRad), 0f, -sin(yawRad))
+        GLES30.glUniform3f(bUp, 0f, 1f, 0f)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, billboardVbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        for (e in entities) {
+            if (!e.isActive) continue
+            val dx = e.posX - cam.posX; val dz = e.posZ - cam.posZ
+            if (dx*dx + dz*dz > 2025f) continue // beyond 45 units, skip
+            GLES30.glUniform3f(bCenter, e.posX, e.posY + 1.0f, e.posZ)
+            GLES30.glUniform1f(bSize, 1.8f)
+            val tint = entityTint(e.typeId)
+            GLES30.glUniform3f(bColor, tint.first, tint.second, tint.third)
+            GLES30.glUniform1f(bAlert, (e.alertLevel + (if (e.aiState >= 3) 0.5f else 0f)).coerceIn(0f, 1f))
+            GLES30.glUniform1f(bAlpha, if (e.playerInSight) 1f else 0.82f)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        }
+        GLES30.glDisableVertexAttribArray(0)
+    }
+
+    private fun drawPost(timeSec: Float, flicker: Float, vhsStrength: Float) {
+        GLES30.glUseProgram(postProgram)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, fboTex)
+        GLES30.glUniform1i(pScene, 0)
+        GLES30.glUniform1f(pTime, timeSec)
+        GLES30.glUniform1f(pFlicker, flicker.coerceIn(0.3f, 1f))
+        GLES30.glUniform1f(pVhs, vhsStrength)
+        GLES30.glUniform2f(pRes, surfaceW.toFloat(), surfaceH.toFloat())
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, postVbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        GLES30.glDisableVertexAttribArray(0)
+    }
+
+    private fun entityTint(typeId: Int): Triple<Float, Float, Float> = when (typeId) {
+        0 -> Triple(0.90f, 0.90f, 0.85f)  // Smiler
+        1 -> Triple(0.55f, 0.40f, 0.30f)  // Hound
+        2 -> Triple(0.80f, 0.70f, 0.30f)  // PartyGoer
+        3 -> Triple(0.60f, 0.50f, 0.55f)  // Skin-Stealer
+        4 -> Triple(0.50f, 0.50f, 0.45f)  // Wandering One
+        5 -> Triple(0.35f, 0.30f, 0.35f)  // Deathwatch
+        6 -> Triple(0.45f, 0.40f, 0.20f)  // Crawler
+        else -> Triple(0.30f, 0.30f, 0.35f) // Faceling Dark
+    }
+
+    private fun uploadLevelMesh(segments: List<LevelSegment>) {
+        val floorV = ArrayList<Float>(); val floorI = ArrayList<Int>(); var floorB = 0
+        val wallV  = ArrayList<Float>(); val wallI  = ArrayList<Int>(); var wallB  = 0
+        val roofV  = ArrayList<Float>(); val roofI  = ArrayList<Int>(); var roofB  = 0
+        val uvScale = 0.5f
+
+        fun quad(
+            verts: ArrayList<Float>, idx: ArrayList<Int>, base: Int,
+            p0: FloatArray, p1: FloatArray, p2: FloatArray, p3: FloatArray,
+            n: FloatArray, light: Float, uTile: Float, vTile: Float
+        ): Int {
+            val pts = arrayOf(p0, p1, p2, p3)
+            val uvs = floatArrayOf(0f,0f, uTile,0f, uTile,vTile, 0f,vTile)
+            for (k in 0 until 4) {
+                verts.add(pts[k][0]); verts.add(pts[k][1]); verts.add(pts[k][2])
+                verts.add(n[0]); verts.add(n[1]); verts.add(n[2])
+                verts.add(uvs[k*2]); verts.add(uvs[k*2+1])
+                verts.add(light)
+            }
+            idx.add(base); idx.add(base+1); idx.add(base+2)
+            idx.add(base); idx.add(base+2); idx.add(base+3)
+            return base + 4
+        }
+
+        for (seg in segments) {
+            val s = sin(seg.heading); val c = cos(seg.heading)
+            val rx = c; val rz = -s
+            val fxv = s; val fzv = c
+            val hw = seg.width * 0.5f
+            val light = seg.lightIntensity * (if (seg.lightBroken) 0.3f else 1f)
+            val uTile = seg.length * uvScale; val vTile = seg.width * uvScale
+            val hTile = seg.height * uvScale
+
+            val p00 = floatArrayOf(seg.posX-rx*hw,        0f,          seg.posY-rz*hw)
+            val p10 = floatArrayOf(seg.posX+rx*hw,        0f,          seg.posY+rz*hw)
+            val p11 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, 0f,  seg.posY+rz*hw+fzv*seg.length)
+            val p01 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, 0f,  seg.posY-rz*hw+fzv*seg.length)
+            floorB = quad(floorV, floorI, floorB, p00, p10, p11, p01, floatArrayOf(0f,1f,0f), light, vTile, uTile)
+
+            val q00 = floatArrayOf(seg.posX-rx*hw,        seg.height, seg.posY-rz*hw)
+            val q01 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, seg.height, seg.posY-rz*hw+fzv*seg.length)
+            val q11 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, seg.height, seg.posY+rz*hw+fzv*seg.length)
+            val q10 = floatArrayOf(seg.posX+rx*hw,        seg.height, seg.posY+rz*hw)
+            roofB = quad(roofV, roofI, roofB, q00, q01, q11, q10, floatArrayOf(0f,-1f,0f), light*1.3f, vTile, uTile)
+
+            val l0 = floatArrayOf(seg.posX-rx*hw, 0f, seg.posY-rz*hw)
+            val l1 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, 0f, seg.posY-rz*hw+fzv*seg.length)
+            val l2 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, seg.height, seg.posY-rz*hw+fzv*seg.length)
+            val l3 = floatArrayOf(seg.posX-rx*hw, seg.height, seg.posY-rz*hw)
+            wallB = quad(wallV, wallI, wallB, l0, l1, l2, l3, floatArrayOf(rx,0f,rz), light*0.8f, uTile, hTile)
+
+            val r0 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, 0f, seg.posY+rz*hw+fzv*seg.length)
+            val r1 = floatArrayOf(seg.posX+rx*hw, 0f, seg.posY+rz*hw)
+            val r2 = floatArrayOf(seg.posX+rx*hw, seg.height, seg.posY+rz*hw)
+            val r3 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, seg.height, seg.posY+rz*hw+fzv*seg.length)
+            wallB = quad(wallV, wallI, wallB, r0, r1, r2, r3, floatArrayOf(-rx,0f,-rz), light*0.8f, uTile, hTile)
+        }
+
+        uploadMeshBuffers(floorVbo, floorIbo, floorV, floorI).also { floorCount = it }
+        uploadMeshBuffers(roofVbo,  roofIbo,  roofV,  roofI ).also { roofCount  = it }
+        uploadMeshBuffers(wallVbo,  wallIbo,  wallV,  wallI ).also { wallCount  = it }
+    }
+
+    private fun uploadMeshBuffers(vbo: Int, ibo: Int, verts: ArrayList<Float>, idx: ArrayList<Int>): Int {
+        if (idx.isEmpty()) return 0
+        val vArr = FloatArray(verts.size) { verts[it] }
+        val iArr = IntArray(idx.size) { idx[it] }
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vArr.size*4, glFloatBuffer(vArr), GLES30.GL_DYNAMIC_DRAW)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibo)
+        GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, iArr.size*4, glIntBuffer(iArr), GLES30.GL_DYNAMIC_DRAW)
+        return iArr.size
+    }
+
+    private fun rebuildFbo(w: Int, h: Int) {
+        if (fbo != 0) GLES30.glDeleteFramebuffers(1, intArrayOf(fbo), 0)
+        if (fboTex != 0) GLES30.glDeleteTextures(1, intArrayOf(fboTex), 0)
+        if (fboDepth != 0) GLES30.glDeleteRenderbuffers(1, intArrayOf(fboDepth), 0)
+
+        fboTex = genGlTexture()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, fboTex)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, w, h, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
+        fboDepth = genGlRenderbuffer()
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, fboDepth)
+        GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT16, w, h)
+
+        fbo = genGlFramebuffer()
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+        GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, fboTex, 0)
+        GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, fboDepth)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+    }
+
+    private fun genGlBuffer(): Int { val h = IntArray(1); GLES30.glGenBuffers(1, h, 0); return h[0] }
+    private fun genGlTexture(): Int { val h = IntArray(1); GLES30.glGenTextures(1, h, 0); return h[0] }
+    private fun genGlFramebuffer(): Int { val h = IntArray(1); GLES30.glGenFramebuffers(1, h, 0); return h[0] }
+    private fun genGlRenderbuffer(): Int { val h = IntArray(1); GLES30.glGenRenderbuffers(1, h, 0); return h[0] }
+
+    /** Loads a texture from assets, falling back to a small procedural tile so the
+     *  renderer never crashes if the art asset isn't present in a given build. */
+    private fun loadOmniTexture(assetPath: String, fallbackColor: Int): Int {
+        val bmp: Bitmap = try {
+            appContext.assets.open(assetPath).use { BitmapFactory.decodeStream(it) } ?: proceduralTile(fallbackColor)
+        } catch (t: Throwable) {
+            proceduralTile(fallbackColor)
+        }
+        val tex = genGlTexture()
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR_MIPMAP_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_REPEAT)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_REPEAT)
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bmp, 0)
+        GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
+        if (!bmp.isRecycled) bmp.recycle()
+        return tex
+    }
+
+    private fun proceduralTile(baseColor: Int): Bitmap {
+        val size = 64
+        val pixels = IntArray(size * size)
+        val rBase = (baseColor shr 16) and 0xFF
+        val gBase = (baseColor shr 8) and 0xFF
+        val bBase = baseColor and 0xFF
+        for (y in 0 until size) for (x in 0 until size) {
+            val n = (((x / 8) + (y / 8)) % 2) * 10
+            val jitter = ((x * 31 + y * 17) % 13) - 6
+            val r = (rBase + n + jitter).coerceIn(0, 255)
+            val g = (gBase + n + jitter).coerceIn(0, 255)
+            val b = (bBase + n + jitter).coerceIn(0, 255)
+            pixels[y * size + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+    }
+}
+
 @Composable
 private fun NoiseScanlineBottom() {
     val inf   = rememberInfiniteTransition(label = "noise")
@@ -1321,10 +1957,47 @@ private fun NoiseScanlineBottom() {
 }
 
 @Composable
-fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel()) {
+fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel(), settingsVm: SettingsVM = hiltViewModel()) {
     val state by vm.state.collectAsState()
+    val settingsState by settingsVm.state.collectAsState()
+    val ctx = LocalContext.current
     LaunchedEffect(Unit) { vm.startGame() }
+
+    val renderer = remember { OmniGLRenderer(ctx.applicationContext) }
+    LaunchedEffect(state) { renderer.latestState = state }
+    LaunchedEffect(settingsState) {
+        renderer.renderSettings = RenderSettings(
+            quality         = settingsState.graphicsQuality,
+            vhsEnabled      = settingsState.vhsEnabled,
+            fogEnabled      = settingsState.fogEnabled,
+            shadowsEnabled  = settingsState.shadowsEnabled,
+            resolutionScale = settingsState.resolutionScale.coerceIn(0.5f, 1f),
+            colorBlindMode  = settingsState.colorBlindMode
+        )
+    }
+
+    val glView = remember {
+        GLSurfaceView(ctx).apply {
+            setEGLContextClientVersion(3)
+            setRenderer(renderer)
+            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> glView.onResume()
+                Lifecycle.Event.ON_PAUSE  -> glView.onPause()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(factory = { glView }, modifier = Modifier.fillMaxSize())
         CrtScanlineOverlay(0f)
         when {
             state.isGameOver -> GameOverOverlay(state)  { onExit() }
@@ -1332,6 +2005,7 @@ fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel()) {
             state.isPaused   -> PauseOverlay(onResume = { vm.togglePause() }, onExit = { onExit() })
             else -> GameHud(
                 gameState  = state,
+                canEscape  = vm.canEscape,
                 onPause    = { vm.togglePause() },
                 onFlash    = { vm.toggleFlashlight() },
                 onMove     = { dx, dy, dz -> vm.onMove(dx, dy, dz) },
@@ -1714,6 +2388,7 @@ fun CrtOverlay() {
 @Composable
 fun GameHud(
     gameState : GameState,
+    canEscape : Boolean,
     onPause   : () -> Unit,
     onFlash   : () -> Unit,
     onMove    : (Float, Float, Float) -> Unit,
@@ -1727,6 +2402,19 @@ fun GameHud(
         tween(500), label = "sanity_tint"
     )
     Box(Modifier.fillMaxSize()) {
+        // Full-screen look surface, laid out first so it sits behind every other
+        // control below; the joystick/buttons have their own pointerInput regions
+        // and claim touches within their bounds before this one sees them.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectDragGestures(onDrag = { change, drag ->
+                        change.consume()
+                        onLook(drag.x, drag.y)
+                    })
+                }
+        )
         if (sanityTint != Color.Transparent) Box(Modifier.fillMaxSize().background(sanityTint))
         Column(
             Modifier.align(Alignment.TopStart).padding(16.dp).width(160.dp),
@@ -1748,6 +2436,13 @@ fun GameHud(
                 Icon(Icons.Default.Pause, null, tint = Yellow.copy(0.7f))
             }
         }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = canEscape,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+            enter = fadeIn(), exit = fadeOut()
+        ) {
+            HudBadge(stringResource(R.string.game_hud_exit_near), SuccessGreen)
+        }
         Row(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 16.dp, start = 16.dp, end = 16.dp),
             Arrangement.SpaceBetween,
@@ -1759,7 +2454,7 @@ fun GameHud(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HudIconButton(Icons.Default.FlashlightOn,    CrtAmber, onFlash)
-                HudIconButton(Icons.Default.NearMe,          TextSec,  onInteract)
+                HudIconButton(Icons.Default.NearMe,          if (canEscape) SuccessGreen else TextSec, onInteract)
                 HudIconButton(Icons.Default.KeyboardArrowUp, Yellow,   onJump)
                 HudIconButton(Icons.Default.ArrowDownward,   TextSec,  onCrouch)
             }
@@ -1936,9 +2631,9 @@ private fun ChapterCard(chapter: StoryChapterDto, onClick: () -> Unit) {
             else Text(chapter.id.toString(), color = Yellow, fontSize = 18.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (locked) "???" else chapter.titleTr, color = if (locked) TextDim else Yellow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(if (locked) "???" else chapter.displayTitle, color = if (locked) TextDim else Yellow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(
-                if (locked) stringResource(R.string.story_chapter_locked) else chapter.contentTr.take(80) + "…",
+                if (locked) stringResource(R.string.story_chapter_locked) else chapter.displayContent.take(80) + "…",
                 color = TextDim, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp
             )
         }
@@ -1980,10 +2675,10 @@ private fun BookReadingView(chapter: StoryChapterDto, onClose: () -> Unit) {
                         Icon(Icons.Default.Close, null, modifier = Modifier.size(18.dp), tint = Color(0xFF8B6914))
                     }
                 }
-                Text(chapter.titleTr, color = Color(0xFF8B6914), fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                Text(chapter.displayTitle, color = Color(0xFF8B6914), fontSize = 20.sp, fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF5A3A10).copy(0.5f)))
-                chapter.contentTr.split("\n\n").forEach { para ->
+                chapter.displayContent.split("\n\n").forEach { para ->
                     if (para.startsWith("\"") || para.startsWith("—"))
                         Text(para, color = Color(0xFF8A6A40), fontSize = 12.sp, fontStyle = FontStyle.Italic,
                             lineHeight = 20.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())

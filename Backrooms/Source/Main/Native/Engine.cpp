@@ -80,6 +80,7 @@ struct DecalInfo  { float u,v,rotation; uint8_t type; };
 struct CorridorSegment {
     Vec2f    position;
     float    width,length,height;
+    float    heading=0; // yaw (radians) of travel direction from `position`, world +Z at heading=0
     RoomType roomType;
     LightState light;
     std::vector<DecalInfo> decals;
@@ -165,8 +166,10 @@ public:
             int dc=dcD(rng_); seg.decals.reserve(dc);
             for(int d=0;d<dc;++d) seg.decals.push_back({uvD(rng_),uvD(rng_),uvD(rng_)*6.2831853f,static_cast<uint8_t>(dtD(rng_))});
             float ad=perlin_.noise2d(i*0.2f,0.5f)*0.8f;
-            prevAngle+=ad; cursor.x+=std::sin(prevAngle)*seg.length; cursor.y+=std::cos(prevAngle)*seg.length;
-            if(i>0&&i<nodeCount-1){ seg.connectedTo[0]=i-1; seg.connectedTo[1]=i+1; }
+            prevAngle+=ad; seg.heading=prevAngle;
+            cursor.x+=std::sin(prevAngle)*seg.length; cursor.y+=std::cos(prevAngle)*seg.length;
+            if(i>0)            seg.connectedTo[0]=i-1;
+            if(i<nodeCount-1)  seg.connectedTo[1]=i+1;
             graph.nodes.push_back(std::move(seg));
         }
         generateLoops(graph);
@@ -196,6 +199,30 @@ private:
     std::mt19937_64 rng_;
     PerlinNoise     perlin_;
 };
+
+// Resolves the player body against the generated corridor "tube": clamps the
+// lateral position within the current segment's walls and hands off to the
+// next/previous segment when the player crosses a length boundary. This is
+// what turns the abstract procedural graph into real, walkable geometry.
+inline void resolveCorridorCollision(const LevelGraph& graph,int& segIdx,PhysicsBody& body) noexcept {
+    if(graph.nodes.empty()) return;
+    if(segIdx<0||segIdx>=static_cast<int>(graph.nodes.size())) segIdx=0;
+    for(int hop=0;hop<4;++hop){
+        const auto& seg=graph.nodes[segIdx];
+        float s=std::sin(seg.heading), c=std::cos(seg.heading);
+        float dx=body.pos.x-seg.position.x, dz=body.pos.z-seg.position.y;
+        float fwd=dx*s+dz*c;
+        float lat=dx*c-dz*s;
+        float halfW=std::max(seg.width*0.5f-body.radius,0.15f);
+        lat=std::clamp(lat,-halfW,halfW);
+        if(fwd>seg.length&&seg.connectedTo[1]>=0){ segIdx=seg.connectedTo[1]; continue; }
+        if(fwd<0.0f&&seg.connectedTo[0]>=0){ segIdx=seg.connectedTo[0]; continue; }
+        fwd=std::clamp(fwd,0.0f,seg.length);
+        body.pos.x=seg.position.x+s*fwd+c*lat;
+        body.pos.z=seg.position.y+c*fwd-s*lat;
+        return;
+    }
+}
 
 class VhsRenderer {
 public:
@@ -1081,6 +1108,8 @@ static omni::core::PlayerPhysics*    gPhysics =nullptr;
 static omni::core::CameraController* gCamera  =nullptr;
 static omni::core::CameraState       gCamState;
 static omni::core::PhysicsBody       gPlayerBody;
+static omni::core::LevelGraph        gLevelGraph;
+static int                           gPlayerSegIdx=0;
 static omni::net::NetState           gNet;
 static omni::guard::GuardState       gGuard;
 static omni::entity::EntitySystem    gEntitySys;
@@ -1144,6 +1173,7 @@ Java_com_omni_backrooms_NativeBridge_initCore(JNIEnv*, jobject, jlong seed) {
     delete gPhysics;  gPhysics =new omni::core::PlayerPhysics();
     delete gCamera;   gCamera  =new omni::core::CameraController();
     gCamState={}; gPlayerBody={}; gPlayerBody.pos={0.0f,1.7f,0.0f};
+    gLevelGraph=omni::core::LevelGraph{}; gPlayerSegIdx=0;
     LOGI_C("Core init seed=%lld",static_cast<long long>(seed));
 }
 
@@ -1155,15 +1185,22 @@ Java_com_omni_backrooms_NativeBridge_getFlicker(JNIEnv*, jobject, jfloat phase, 
 JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_generateLevel(JNIEnv* env, jobject, jint count, jint depth) {
     if(!gCorridor) return nullptr;
-    auto graph=gCorridor->generate(count,depth);
-    const int fpn=14;
-    auto total=static_cast<jsize>(graph.nodes.size()*fpn);
+    gLevelGraph=gCorridor->generate(count,depth);
+    gPlayerSegIdx=0;
+    if(!gLevelGraph.nodes.empty()){
+        const auto& first=gLevelGraph.nodes[0];
+        gPlayerBody.pos.x=first.position.x; gPlayerBody.pos.z=first.position.y;
+        gPlayerBody.vel={};
+    }
+    const int fpn=15;
+    auto total=static_cast<jsize>(gLevelGraph.nodes.size()*fpn);
     auto arr=env->NewFloatArray(total); if(!arr) return nullptr;
     std::vector<float> flat; flat.reserve(total);
-    for(const auto& s: graph.nodes){
+    for(const auto& s: gLevelGraph.nodes){
         flat.push_back(s.position.x); flat.push_back(s.position.y);
         flat.push_back(s.width);      flat.push_back(s.length);
-        flat.push_back(s.height);     flat.push_back(s.light.phase);
+        flat.push_back(s.height);     flat.push_back(s.heading);
+        flat.push_back(s.light.phase);
         flat.push_back(s.light.baseIntensity); flat.push_back(s.light.flickerSpeed);
         flat.push_back(s.light.broken?1.0f:0.0f);
         flat.push_back(static_cast<float>(s.roomType));
@@ -1209,12 +1246,22 @@ JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_physicsTick(JNIEnv*, jobject, jfloat dt) {
     if(!gPhysics) return;
     gPhysics->update(gPlayerBody,dt);
+    omni::core::resolveCorridorCollision(gLevelGraph,gPlayerSegIdx,gPlayerBody);
     if(gCamera) gCamera->update(gCamState,gPlayerBody,dt,1.0f);
 }
 
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_applyMovement(JNIEnv*, jobject, jfloat fx, jfloat fy, jfloat fz) {
-    if(gPhysics) gPhysics->applyForce(gPlayerBody,{fx,fy,fz});
+    if(!gPhysics) return;
+    // fx = joystick right/strafe axis, fz = joystick forward axis (input space).
+    // Rotate into world space by the camera's current yaw so movement is always
+    // relative to where the player is looking, matching the heading convention
+    // used by the corridor generator (forward = (sin(yaw), cos(yaw))).
+    float yawRad=gCamState.yaw*0.017453293f;
+    float s=std::sin(yawRad), c=std::cos(yawRad);
+    float wx= fx*c+fz*s;
+    float wz=-fx*s+fz*c;
+    gPhysics->applyForce(gPlayerBody,{wx,fy,wz});
 }
 
 JNIEXPORT void JNICALL
