@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="default_web_client_id" translatable="false">YOUR_WEB_CLIENT_ID_HERE</string>
-
     <string name="app_name">Omni Backrooms</string>
     <string name="app_version_prefix">v</string>
     <string name="androidx_startup" translatable="false">androidx.startup</string>
@@ -171,6 +169,7 @@
     <string name="game_hud_sanity">SAN</string>
     <string name="game_hud_stamina">STAMINA</string>
     <string name="game_hud_battery">BATT</string>
+    <string name="game_hud_exit_near">EXIT NEARBY — TAP</string>
 
     <string name="quality_low">Low</string>
     <string name="quality_medium">Medium</string>

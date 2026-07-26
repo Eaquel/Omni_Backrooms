@@ -620,17 +620,21 @@ class GuardManager @Inject constructor(
         val frida     = bridge.isFridaDetected()
         val debugged  = bridge.isDebugged()
         val emulator  = bridge.isEmulator()
-        val sigValid  = bridge.isSignatureValid()
+        // EXPECTED_SIG_HASH ships blank until a real release keystore's SHA-256 is
+        // configured (see build.gradle.kts). Until then, skip this specific check
+        // rather than flag every legitimate install as tampered.
+        val sigCheckOn = BuildConfig.EXPECTED_SIG_HASH.isNotBlank()
+        val sigValid  = if (sigCheckOn) bridge.isSignatureValid() else true
         val hook      = detectHooking()
         val memTamper = detectMemoryTampering()
         val reportStr = bridge.getThreatReport()
         val level     = when {
-            frida || debugged || hook -> ThreatLevel.CRITICAL
-            rooted || !sigValid       -> ThreatLevel.HIGH
-            memTamper                 -> ThreatLevel.HIGH
-            emulator                  -> ThreatLevel.SUSPICIOUS
-            flags != 0                -> ThreatLevel.SUSPICIOUS
-            else                      -> ThreatLevel.CLEAN
+            frida || debugged || hook          -> ThreatLevel.CRITICAL
+            rooted || (sigCheckOn && !sigValid) -> ThreatLevel.HIGH
+            memTamper                           -> ThreatLevel.HIGH
+            emulator                            -> ThreatLevel.SUSPICIOUS
+            flags != 0                          -> ThreatLevel.SUSPICIOUS
+            else                                -> ThreatLevel.CLEAN
         }
         _report.value = GuardReport(flags, rooted, frida, debugged, emulator, sigValid, hook, memTamper, reportStr, level)
         if (level != ThreatLevel.CLEAN) _threatEvent.tryEmit(level)

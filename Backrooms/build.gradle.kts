@@ -55,8 +55,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled   = false
-            isShrinkResources = false
+            isMinifyEnabled   = true
+            isShrinkResources = true
             isDebuggable      = false
             signingConfig     = signingConfigs.getByName("release")
             proguardFiles(
@@ -85,11 +85,10 @@ android {
     }
 
     sourceSets {
-        getByName("main") {
-            java.setSrcDirs(listOf("Source/Main/kotlin"))
-            kotlin.setSrcDirs(listOf("Source/Main/kotlin"))
+        named("main") {
+            kotlin.directories += "Source/Main/Kotlin"
             res.setSrcDirs(listOf("Source/Main/res"))
-            assets.setSrcDirs(listOf("Source/Main/assets"))
+            assets.setSrcDirs(listOf("Source/Main/Assets"))
             manifest.srcFile("Source/Main/AndroidManifest.xml")
         }
     }

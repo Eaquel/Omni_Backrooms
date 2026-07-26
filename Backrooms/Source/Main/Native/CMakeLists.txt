@@ -48,8 +48,7 @@ set(BASE_FLAGS
 
 if(ANDROID_ABI STREQUAL "arm64-v8a")
     list(APPEND BASE_FLAGS
-        -march=armv8.5-a+simd+dotprod+fp16+sha3
-        -mtune=cortex-x1
+        -march=armv8-a
         -fstack-clash-protection
         -mbranch-protection=standard
     )
