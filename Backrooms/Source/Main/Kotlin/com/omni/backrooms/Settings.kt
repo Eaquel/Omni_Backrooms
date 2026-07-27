@@ -404,10 +404,10 @@ fun SettingsScreen(
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Yellow) }
                 Text(stringResource(R.string.menu_settings), color = Yellow, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                 Spacer(Modifier.weight(1f))
-                AnimatedVisibility(visible = s.isSyncing, enter = fadeIn(), exit = fadeOut()) {
+                androidx.compose.animation.AnimatedVisibility(visible = s.isSyncing, enter = fadeIn(), exit = fadeOut()) {
                     CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
                 }
-                AnimatedVisibility(visible = !s.isSyncing && s.syncSuccess, enter = fadeIn(), exit = fadeOut()) {
+                androidx.compose.animation.AnimatedVisibility(visible = !s.isSyncing && s.syncSuccess, enter = fadeIn(), exit = fadeOut()) {
                     Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
                 }
             }
@@ -592,7 +592,7 @@ private fun AccountTab(
 
     DividerLine()
 
-    AnimatedVisibility(
+    androidx.compose.animation.AnimatedVisibility(
         visible = s.remoteOverrides.isNotEmpty(),
         enter   = expandVertically() + fadeIn(),
         exit    = shrinkVertically() + fadeOut()

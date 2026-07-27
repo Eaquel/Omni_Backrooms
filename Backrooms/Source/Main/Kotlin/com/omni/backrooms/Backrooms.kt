@@ -14,6 +14,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -1176,7 +1177,7 @@ fun MainMenu(
             verticalArrangement    = Arrangement.spacedBy(10.dp),
             horizontalAlignment    = Alignment.CenterHorizontally
         ) {
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = titleVisible,
                 enter   = fadeIn(tween(800)) + slideInVertically(tween(800, easing = EaseOutBack)) { -80 }
             ) {
@@ -1206,7 +1207,7 @@ fun MainMenu(
                 }
             }
 
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = buttonsVisible,
                 enter   = fadeIn(tween(1000)) + slideInVertically(tween(1000, easing = EaseOutCubic)) { 60 }
             ) {
@@ -1334,7 +1335,7 @@ private fun GlitchText(
 }
 
 @Composable
-private fun AtmosphericButton(
+fun AtmosphericButton(
     label   : String,
     icon    : ImageVector,
     accent  : Color,
@@ -1945,7 +1946,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 }
 
 @Composable
-private fun NoiseScanlineBottom() {
+private fun BoxScope.NoiseScanlineBottom() {
     val inf   = rememberInfiniteTransition(label = "noise")
     val noise by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(100, easing = LinearEasing), RepeatMode.Reverse), "n")
     Canvas(
@@ -2186,7 +2187,7 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                     }
                 }
                 s.successMsg?.let { msg ->
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = true,
                         enter   = slideInVertically { -it } + fadeIn(),
                         exit    = slideOutVertically { -it } + fadeOut(),

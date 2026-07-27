@@ -20,8 +20,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -963,7 +966,7 @@ fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewMode
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Yellow) }
                 Text(stringResource(R.string.room_list_title), color = Yellow, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                 Spacer(Modifier.weight(1f))
-                AnimatedVisibility(visible = s.isLoading, enter = fadeIn(), exit = fadeOut()) {
+                androidx.compose.animation.AnimatedVisibility(visible = s.isLoading, enter = fadeIn(), exit = fadeOut()) {
                     CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
                 }
             }
@@ -989,7 +992,7 @@ fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewMode
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(s.rooms, key = { it.id }) { room ->
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible      = true,
                             enter        = slideInVertically(tween(200)) { it / 2 } + fadeIn(tween(200)),
                             modifier     = Modifier.animateItem()
@@ -1065,7 +1068,7 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
                     Text(stringResource(R.string.room_create_password_label), color = if (s.passwordEnabled) Yellow else TextDim, fontSize = 12.sp)
                 }
 
-                AnimatedVisibility(visible = s.passwordEnabled, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                androidx.compose.animation.AnimatedVisibility(visible = s.passwordEnabled, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                     OmniTextField(s.password, vm::onPassword, stringResource(R.string.room_create_password_hint), isPassword = true)
                 }
 
