@@ -487,11 +487,10 @@ class RoomRepository @Inject constructor(private val api: ApiService) {
         api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password)).roomId
 }
 
-@AndroidEntryPoint
 // ============================================================================
 // Shared simulation helpers. GameVM (the active, Compose-lifecycle-bound
 // gameplay path) and SessionService (a foreground-notification-capable host,
-// currently unbound but kept ready for a future "survive backgrounding" mode)
+// currently unbound but kept ready for a future "survive backgrounding" mode))
 // both drive the same native engine, so they must derive state identically.
 // These are pure functions with no owner-specific state, so there is exactly
 // one copy of "how entities spawn" and "how a tick affects HP/sanity/battery"
@@ -614,6 +613,7 @@ fun applyTickToState(s: GameState, derived: TickDerived, dt: Float, elapsedMs: L
     )
 }
 
+@AndroidEntryPoint
 class SessionService : Service() {
 
     inner class LocalBinder : Binder() { fun get(): SessionService = this@SessionService }
