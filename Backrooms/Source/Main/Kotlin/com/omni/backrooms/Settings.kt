@@ -93,7 +93,7 @@ class SettingsRepository @Inject constructor(
             footstepVolume    = p[KEY_FOOTSTEP]     ?: 0.8f,
             monsterVolume     = p[KEY_MONSTER]      ?: 0.9f,
             voiceVolume       = p[KEY_VOICE]        ?: 0.8f,
-            cameraSensitivity = p[KEY_SENSITIVITY]  ?: 1f,
+            cameraSensitivity = (p[KEY_SENSITIVITY] ?: 1f).let { if (it <= 0f) 1f else it },
             fpsLimit          = p[KEY_FPS_LIMIT]    ?: 60,
             shadowsEnabled    = p[KEY_SHADOWS]      ?: true,
             antialiasingOn    = p[KEY_ANTIALIASING] ?: true,
@@ -260,8 +260,8 @@ class SettingsVM @Inject constructor(
             if (overrides.isNotEmpty()) {
                 _state.update { it.copy(remoteOverrides = overrides) }
                 (overrides["force_vhs"]           as? Boolean)?.let { v -> repo.saveVhs(v) }
-                (overrides["default_sensitivity"] as? Float)  ?.let { v -> repo.saveSensitivity(v) }
-                (overrides["max_fps"]             as? Int)    ?.let { v -> repo.saveFpsLimit(v) }
+                (overrides["default_sensitivity"] as? Float)  ?.let { v -> if (v > 0f) repo.saveSensitivity(v) }
+                (overrides["max_fps"]             as? Int)    ?.let { v -> if (v > 0) repo.saveFpsLimit(v) }
                 (overrides["fog_override"]        as? Boolean)?.let { v -> repo.saveFog(v) }
             }
         }

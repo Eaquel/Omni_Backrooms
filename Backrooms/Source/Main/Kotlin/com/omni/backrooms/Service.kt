@@ -1032,7 +1032,7 @@ class RoomLobbyVM @Inject constructor(private val api: ApiService, private val b
 
 @kotlinx.coroutines.FlowPreview
 @androidx.compose.runtime.Composable
-fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewModel()) {
+fun Room(onJoined: () -> Unit, onBack: () -> Unit, onCreate: () -> Unit, vm: RoomListVM = hiltViewModel()) {
     val s by vm.state.collectAsState()
     Box(Modifier.fillMaxSize().background(DarkBg)) {
         CrtOverlay()
@@ -1047,6 +1047,7 @@ fun Room(onJoined: () -> Unit, onBack: () -> Unit, vm: RoomListVM = hiltViewMode
                 androidx.compose.animation.AnimatedVisibility(visible = s.isLoading, enter = fadeIn(), exit = fadeOut()) {
                     CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
                 }
+                IconButton(onClick = onCreate) { Icon(Icons.Default.Add, null, tint = SuccessGreen) }
             }
             DividerLine()
             Row(

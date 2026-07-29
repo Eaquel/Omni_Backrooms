@@ -54,6 +54,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -277,7 +278,10 @@ fun OmniBackroomsApp() {
     val guardReport by guardVm.report.collectAsState()
     var showGuardDialog by remember { mutableStateOf(false) }
     LaunchedEffect(guardReport.threatLevel) {
-        if (guardReport.threatLevel >= ThreatLevel.SUSPICIOUS) showGuardDialog = true
+        // SUSPICIOUS covers emulator heuristics and single miscellaneous flags,
+        // which false-positive on plenty of real retail devices — warning there
+        // just cries wolf at legitimate players. Only surface HIGH and above.
+        if (BuildConfig.ENABLE_GUARD && guardReport.threatLevel >= ThreatLevel.HIGH) showGuardDialog = true
     }
     MaterialTheme(colorScheme = darkColorScheme()) {
         if (showGuardDialog) {
@@ -326,8 +330,8 @@ fun OmniBackroomsApp() {
                 enterTransition = { slideInVertically(tween(400)) { it } + fadeIn(tween(400)) },
                 exitTransition  = { slideOutVertically(tween(300)) { it } + fadeOut(tween(300)) }
             ) { MarketScreen(onBack = { nav.popBackStack() }) }
-            composable(Route.ROOM)        { Room(onJoined = { nav.navigate(Route.GAME) }, onBack = { nav.popBackStack() }) }
-            composable(Route.CREATE_ROOM) { CreateRoom(onCreated = { nav.navigate(Route.ROOM) }, onBack = { nav.popBackStack() }) }
+            composable(Route.ROOM)        { Room(onJoined = { nav.navigate(Route.GAME) }, onBack = { nav.popBackStack() }, onCreate = { nav.navigate(Route.CREATE_ROOM) }) }
+            composable(Route.CREATE_ROOM) { CreateRoom(onCreated = { nav.popBackStack() }, onBack = { nav.popBackStack() }) }
             composable(Route.LEADERBOARD) { LeaderboardScreen(onBack = { nav.popBackStack() }) }
             composable(Route.PROFILE)     { ProfileScreen(onBack = { nav.popBackStack() }) }
             composable(Route.UI_EDITOR)   { UiEditor(onSave = { nav.popBackStack() }) }
@@ -540,8 +544,8 @@ class AssetManager @Inject constructor(@ApplicationContext private val ctx: Cont
                 .mapCatching { json.decodeFromString<StoryFileMono>(it) }
                 .getOrNull()
 
-        val en = readMono("en.json")
-        val tr = readMono("tr.json")
+        val en = readMono("Story/en.json")
+        val tr = readMono("Story/tr.json")
         val byIdEn = en?.chapters?.associateBy { it.id } ?: emptyMap()
         val byIdTr = tr?.chapters?.associateBy { it.id } ?: emptyMap()
         val ids = (byIdEn.keys + byIdTr.keys).sorted()
@@ -683,10 +687,16 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
         guardManager.initialize()
         viewModelScope.launch {
             guardManager.threatEvent.collect { level ->
+                if (!BuildConfig.ENABLE_GUARD) return@collect
                 when (level) {
-                    ThreatLevel.CRITICAL -> android.os.Process.killProcess(android.os.Process.myPid())
-                    ThreatLevel.HIGH     -> FirebaseCrashlytics.getInstance().log("HIGH_THREAT: ${report.value.report}")
-                    else                 -> {}
+                    ThreatLevel.CRITICAL -> {
+                        // Log first — a silent kill on a false positive is
+                        // indistinguishable from a crash to the player.
+                        FirebaseCrashlytics.getInstance().log("CRITICAL_THREAT: ${report.value.report}")
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
+                    ThreatLevel.HIGH -> FirebaseCrashlytics.getInstance().log("HIGH_THREAT: ${report.value.report}")
+                    else -> {}
                 }
             }
         }
@@ -912,12 +922,26 @@ class GameVM @Inject constructor(
     private var elapsedMs  = 0L
     private var score      = 0L
     private var kills      = 0
+    /** Read once at start instead of per look-event: the old code opened a
+     *  DataStore flow on every touch move, which is far too slow for input. */
+    @Volatile private var cachedSensitivity = 1f
+    /** Guards against startGame running twice (re-entering the screen quickly),
+     *  which would spawn a second physics loop advancing the same native sim. */
+    private var started = false
+
+    private companion object {
+        /** Sized against the engine's 80 kg body and drag 8 so terminal walking
+         *  speed lands near 3.6 m/s. force = speed * mass * drag. */
+        const val MOVE_FORCE = 2_300f
+    }
 
     /** Segments for the currently loaded level; kept here (not just in GameState) so the
      *  entity spawner can reuse them without depending on StateFlow emission timing. */
     private var segments: List<LevelSegment> = emptyList()
 
     fun startGame(difficulty: String = "normal", seed: Long = System.currentTimeMillis(), mapId: String = "level_0") {
+        if (started) return
+        started = true
         viewModelScope.launch {
             val sensitivity = settings.observe().first().cameraSensitivity
             bridge.initCore(seed)
@@ -947,6 +971,11 @@ class GameVM @Inject constructor(
     }
 
     private fun startPhysicsLoop(sensitivity: Float) {
+        cachedSensitivity = sensitivity
+        // Keep following the setting so changes apply without restarting a run.
+        viewModelScope.launch {
+            settings.observe().collect { cachedSensitivity = it.cameraSensitivity.coerceAtLeast(0.05f) }
+        }
         lastTickMs = bridge.nowMs()
         physicsJob = viewModelScope.launch {
             while (isActive) {
@@ -954,6 +983,23 @@ class GameVM @Inject constructor(
                 val now = bridge.nowMs()
                 val dt  = ((now - lastTickMs).coerceIn(1, 100)).toFloat() / 1000f
                 lastTickMs = now; elapsedMs += (dt * 1000).toLong()
+
+                // Continuous movement: applied every tick from the held joystick
+                // vector, so holding a direction keeps the player moving.
+                val mx = moveX; val mz = moveZ
+                val mag = kotlin.math.hypot(mx, mz)
+                if (mag > 0.05f) {
+                    val tired = _state.value.stamina <= 10f
+                    val force = MOVE_FORCE * (if (tired) 0.55f else 1f)
+                    bridge.applyMovement(mx * force, 0f, mz * force)
+                    _state.update { it.copy(stamina = (it.stamina - 14f * dt * mag).coerceAtLeast(0f)) }
+                    footstepTimer -= dt * mag
+                    if (footstepTimer <= 0f) {
+                        footstepTimer = 0.45f
+                        bridge.triggerFootstep(120f, 0.3f)
+                    }
+                }
+
                 val wasOver = _state.value.isGameOver
                 val derived = stepSimulation(bridge, dt)
                 _state.update { applyTickToState(it, derived, dt, elapsedMs, score) }
@@ -986,23 +1032,26 @@ class GameVM @Inject constructor(
         }
     }
 
+    /** Current joystick vector, applied continuously by the physics loop rather
+     *  than on drag events — holding the stick still emits no events, so
+     *  event-driven force meant the player stopped whenever their finger did. */
+    @Volatile private var moveX = 0f
+    @Volatile private var moveZ = 0f
+    private var footstepTimer = 0f
+
     fun onMove(dx: Float, dy: Float, dz: Float) {
-        val s    = _state.value
-        val mult = if (s.stamina > 10f) 1.0f else 0.5f
-        bridge.applyMovement(dx * 320f * mult, dy * 320f, dz * 320f * mult)
-        if (s.stamina > 0f) _state.update { it.copy(stamina = (it.stamina - 0.3f).coerceAtLeast(0f)) }
-        viewModelScope.launch { bridge.triggerFootstep(120f, 0.3f) }
+        moveX = dx.coerceIn(-1f, 1f)
+        moveZ = dz.coerceIn(-1f, 1f)
+        if (dy != 0f) bridge.applyMovement(0f, dy * MOVE_FORCE, 0f)
     }
 
     fun onLook(dx: Float, dy: Float) {
-        viewModelScope.launch(Dispatchers.Default) {
-            val sensitivity = settings.observe().first().cameraSensitivity
-            bridge.cameraLook(dx, dy, sensitivity)
-        }
+        val sensitivity = cachedSensitivity
+        bridge.cameraLook(dx, dy, sensitivity)
     }
 
-    fun onJump()   { bridge.applyMovement(0f, 5000f, 0f) }
-    fun onCrouch() { bridge.applyMovement(0f, -1000f, 0f) }
+    fun onJump()   { bridge.applyMovement(0f, 26_000f, 0f) }
+    fun onCrouch() { bridge.applyMovement(0f, -8_000f, 0f) }
     fun toggleFlashlight() { _state.update { it.copy(flashlightOn = !it.flashlightOn) } }
     fun togglePause()      { _state.update { it.copy(isPaused = !it.isPaused) } }
 
@@ -2123,7 +2172,13 @@ fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel(), settingsVm: Set
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            // Also pause when this screen leaves composition (navigating back),
+            // not just on Activity pause — otherwise the GL thread stays alive
+            // and the next surface comes up black.
+            glView.onPause()
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -2556,7 +2611,7 @@ fun GameHud(
             Arrangement.SpaceBetween,
             Alignment.Bottom
         ) {
-            VirtualJoystick(Modifier.size(120.dp), onMove = { dx, dy -> onMove(dx, 0f, dy) })
+            VirtualJoystick(Modifier.size(140.dp), onMove = { dx, dy -> onMove(dx, 0f, -dy) })
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -2594,35 +2649,60 @@ private fun HudIconButton(icon: ImageVector, tint: Color, onClick: () -> Unit) {
 
 @Composable
 fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
-    var knobOffset by remember { mutableStateOf(Offset.Zero) }
-    val knobOffsetAnim by animateOffsetAsState(knobOffset, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "joystick")
-    val radius = 48f
+    var knob by remember { mutableStateOf(Offset.Zero) }
+    val knobAnim by animateOffsetAsState(knob, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "joystick")
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .clip(RoundedCornerShape(percent = 50))
-            .background(MetalBg.copy(0.6f))
-            .border(1.dp, YellowDim, RoundedCornerShape(percent = 50))
+            .clip(CircleShape)
+            .background(
+                Brush.radialGradient(
+                    listOf(MetalBg.copy(0.30f), MetalBg.copy(0.75f)),
+                )
+            )
+            .border(1.5.dp, YellowDim.copy(0.6f), CircleShape)
             .pointerInput(Unit) {
+                // Travel radius derived from the actual laid-out size, so the knob
+                // stays inside the ring on every screen density.
+                val travel = size.minDimension / 2f * 0.62f
+                fun emit(raw: Offset) {
+                    val len = kotlin.math.hypot(raw.x, raw.y)
+                    val clamped = if (len > travel && len > 0f) raw * (travel / len) else raw
+                    knob = clamped
+                    val nx = clamped.x / travel
+                    val ny = clamped.y / travel
+                    val mag = kotlin.math.hypot(nx, ny)
+                    if (mag < 0.15f) onMove(0f, 0f) else onMove(nx, ny)
+                }
                 detectDragGestures(
-                    onDragEnd    = { knobOffset = Offset.Zero; onMove(0f, 0f) },
-                    onDragCancel = { knobOffset = Offset.Zero; onMove(0f, 0f) },
-                    onDrag       = { _, drag ->
-                        val newX = (knobOffset.x + drag.x).coerceIn(-radius, radius)
-                        val newY = (knobOffset.y + drag.y).coerceIn(-radius, radius)
-                        knobOffset = Offset(newX, newY)
-                        onMove(newX / radius, newY / radius)
+                    onDragStart  = { pos -> emit(pos - Offset(size.width / 2f, size.height / 2f)) },
+                    onDragEnd    = { knob = Offset.Zero; onMove(0f, 0f) },
+                    onDragCancel = { knob = Offset.Zero; onMove(0f, 0f) },
+                    onDrag       = { change, drag ->
+                        change.consume()
+                        emit(knob + drag)
                     }
                 )
             }
     ) {
+        // Direction ticks so the stick reads as a physical control, not a plain dot.
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val r = size.minDimension / 2f
+            for (i in 0 until 4) {
+                val ang = (Math.PI / 2 * i).toFloat()
+                val ox = center.x + kotlin.math.cos(ang) * r * 0.78f
+                val oy = center.y + kotlin.math.sin(ang) * r * 0.78f
+                drawCircle(YellowDim.copy(0.35f), radius = r * 0.035f, center = Offset(ox, oy))
+            }
+            drawCircle(YellowDim.copy(0.18f), radius = r * 0.62f, style = Stroke(1f))
+        }
         Box(
-            Modifier.size(40.dp)
-                .offset(knobOffsetAnim.x.dp, knobOffsetAnim.y.dp)
-                .clip(RoundedCornerShape(percent = 50))
-                .background(
-                    Brush.radialGradient(listOf(Yellow, Yellow.copy(0.4f)))
-                )
+            Modifier
+                .size(48.dp)
+                .offset { IntOffset(knobAnim.x.toInt(), knobAnim.y.toInt()) }
+                .clip(CircleShape)
+                .background(Brush.radialGradient(listOf(Yellow, Yellow.copy(0.35f))))
+                .border(1.dp, Yellow.copy(0.7f), CircleShape)
         )
     }
 }
