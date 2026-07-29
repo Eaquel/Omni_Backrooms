@@ -488,6 +488,132 @@ class RoomRepository @Inject constructor(private val api: ApiService) {
 }
 
 @AndroidEntryPoint
+// ============================================================================
+// Shared simulation helpers. GameVM (the active, Compose-lifecycle-bound
+// gameplay path) and SessionService (a foreground-notification-capable host,
+// currently unbound but kept ready for a future "survive backgrounding" mode)
+// both drive the same native engine, so they must derive state identically.
+// These are pure functions with no owner-specific state, so there is exactly
+// one copy of "how entities spawn" and "how a tick affects HP/sanity/battery"
+// in the whole app.
+// ============================================================================
+
+/** A random point inside a random corridor segment, biased away from the
+ *  first couple of segments so the player isn't ambushed standing at spawn. */
+private fun pickAmbushSafeSpawnPoint(segments: List<LevelSegment>): Pair<Float, Float>? {
+    if (segments.isEmpty()) return null
+    val idx = (2 + (Math.random() * (segments.size - 2).coerceAtLeast(1))).toInt().coerceIn(0, segments.lastIndex)
+    val seg = segments[idx]
+    val lateral = (Math.random().toFloat() * 2f - 1f) * (seg.width * 0.35f)
+    return seg.pointAt(Math.random().toFloat(), lateral)
+}
+
+/** A random point inside any corridor segment, for the periodic re-spawner
+ *  where ambush-safety no longer matters once the player is already moving. */
+private fun pickRandomSpawnPoint(segments: List<LevelSegment>): Pair<Float, Float>? {
+    if (segments.isEmpty()) return null
+    val seg = segments[(Math.random() * segments.size).toInt().coerceIn(0, segments.lastIndex)]
+    val lateral = (Math.random().toFloat() * 2f - 1f) * (seg.width * 0.35f)
+    return seg.pointAt(Math.random().toFloat(), lateral)
+}
+
+/** Spawns cfg.count entities across the level's real corridors, cycling
+ *  through every lore creature with its correct native AI id. */
+fun spawnInitialEntities(bridge: NativeBridge, segments: List<LevelSegment>, cfg: SpawnConfig) {
+    if (segments.isEmpty()) return
+    repeat(cfg.count) { i ->
+        val entity = EntityType.entries[i % EntityType.entries.size]
+        val (sx, sz) = pickAmbushSafeSpawnPoint(segments) ?: return@repeat
+        bridge.spawnEntity(
+            x = sx, y = 0f, z = sz,
+            speed = entity.baseSpeed * cfg.speedMult,
+            hear  = entity.hearRange,
+            sight = entity.sightRange * cfg.sightMult,
+            aggro = entity.aggroRange, typeId = entity.nativeAiId
+        )
+    }
+}
+
+/** One periodic re-spawn, used by both hosts' entity-spawner loop. */
+fun spawnOneRandomEntity(bridge: NativeBridge, segments: List<LevelSegment>, cfg: SpawnConfig) {
+    val (sx, sz) = pickRandomSpawnPoint(segments) ?: return
+    val entity = EntityType.entries[(Math.random() * EntityType.entries.size).toInt().coerceIn(0, EntityType.entries.lastIndex)]
+    bridge.spawnEntity(
+        x = sx, y = 0f, z = sz,
+        speed = entity.baseSpeed * cfg.speedMult,
+        hear  = entity.hearRange, sight = entity.sightRange * cfg.sightMult,
+        aggro = entity.aggroRange, typeId = entity.nativeAiId
+    )
+}
+
+/** Everything one physics/AI tick derives from the native engine, before it's
+ *  folded into a GameState. Kept separate from GameState itself so it can be
+ *  computed once and applied identically regardless of which host owns it. */
+data class TickDerived(
+    val camera     : CameraSnapshot?,
+    val entities   : List<EntityState>,
+    val flicker    : Float,
+    val nearbyCount: Int,
+    val damage     : Float
+)
+
+/** Advances the native sim by [dt] and reads back camera/entity state. Do not
+ *  call this from more than one place per logical frame — physicsTick/
+ *  tickEntities mutate native state, so calling it twice per frame from two
+ *  hosts at once would double-advance the simulation. */
+fun stepSimulation(bridge: NativeBridge, dt: Float): TickDerived {
+    bridge.physicsTick(dt)
+    val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
+    if (cam != null) bridge.setListenerPos(cam.posX, cam.posY, cam.posZ)
+    val entityList = EntityState.listFromFloatArray(
+        bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
+    )
+    val flicker = bridge.getTotalFlickerInfluence()
+    val nearbyCount = entityList.count { e ->
+        if (!e.isActive || cam == null) return@count false
+        val dx = e.posX - cam.posX; val dz = e.posZ - cam.posZ
+        dx * dx + dz * dz < 625f // within 25 units
+    }
+    // Entities in an Attack state (aiState 4) that reach melee range hurt the player.
+    var damage = 0f
+    if (cam != null) {
+        for (e in entityList) {
+            if (!e.isActive || e.aiState != 4) continue
+            val dx = e.posX - cam.posX; val dz = e.posZ - cam.posZ
+            if (dx * dx + dz * dz < 2.25f) damage += 16f * dt
+        }
+    }
+    return TickDerived(cam, entityList, flicker, nearbyCount, damage)
+}
+
+/** Folds one tick's derived stats into a GameState using the single shared
+ *  sanity/battery/HP/exit-distance formula set. */
+fun applyTickToState(s: GameState, derived: TickDerived, dt: Float, elapsedMs: Long, score: Long): GameState {
+    val drain = (derived.nearbyCount * 0.6f + derived.flicker * 2f) * dt
+    val regen = if (derived.nearbyCount == 0 && derived.flicker < 0.1f) dt * 0.3f else 0f
+    val nb    = (s.flashlightBattery - (if (s.flashlightOn) dt * 0.006f else 0f)).coerceAtLeast(0f)
+    val newHp = (s.playerHp - derived.damage).coerceIn(0f, s.playerMaxHp)
+    val cam   = derived.camera
+    val exitDist = if (cam != null)
+        kotlin.math.hypot((s.exitX - cam.posX).toDouble(), (s.exitZ - cam.posZ).toDouble()).toFloat()
+    else s.distanceToExit
+    return s.copy(
+        sessionElapsed    = elapsedMs,
+        flickerIntensity  = derived.flicker,
+        entitiesNearby    = derived.nearbyCount,
+        score             = score,
+        sanity            = (s.sanity - drain + regen).coerceIn(0f, 100f),
+        flashlightBattery = nb,
+        flashlightOn      = if (!s.flashlightOn) false else nb > 0f,
+        stamina           = (s.stamina + dt * 8f).coerceAtMost(s.staminaMax),
+        playerHp          = newHp,
+        isGameOver        = newHp <= 0f || s.isGameOver,
+        camera            = cam ?: s.camera,
+        entities          = derived.entities,
+        distanceToExit    = exitDist
+    )
+}
+
 class SessionService : Service() {
 
     inner class LocalBinder : Binder() { fun get(): SessionService = this@SessionService }
@@ -517,6 +643,9 @@ class SessionService : Service() {
     private var elapsedMs  = 0L
     private var score      = 0L
     private var kills      = 0
+    /** Segments for the currently loaded level, kept alongside gameState the same
+     *  way GameVM keeps its own copy (see stepSimulation/spawnInitialEntities). */
+    private var segments: List<LevelSegment> = emptyList()
 
     companion object {
         private const val CHANNEL_ID    = "omni_session"
@@ -591,22 +720,18 @@ class SessionService : Service() {
             bridge.setAmbienceLevel(0.4f)
             bridge.setHumVolume(0.3f)
             bridge.setSpatialRolloff(1f, 40f)
+
+            val nodeCount = if (difficulty == "hard") 60 else 40
+            val levelDepth = mapId.substringAfterLast('_').toIntOrNull() ?: 0
+            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = levelDepth))
+            val exit = segments.lastOrNull()
+
             val cfg = assetManager.getSpawnConfig(difficulty)
-            repeat(cfg.count) { i ->
-                val typeId = i % EntityType.entries.size
-                val entity = EntityType.entries[typeId]
-                bridge.spawnEntity(
-                    x      = (Math.random() * 60 - 30).toFloat(),
-                    y      = 0f,
-                    z      = (Math.random() * 60 - 30).toFloat(),
-                    speed  = entity.baseSpeed * cfg.speedMult,
-                    hear   = 10f + i * 1.5f,
-                    sight  = 16f * cfg.sightMult,
-                    aggro  = 8f,
-                    typeId = typeId
-                )
-            }
-            _gameState.value = GameState(seed = seed, difficulty = difficulty, isOnline = false, mapId = mapId)
+            spawnInitialEntities(bridge, segments, cfg)
+            _gameState.value = GameState(
+                seed = seed, difficulty = difficulty, isOnline = false, mapId = mapId,
+                levelSegments = segments, exitX = exit?.endX ?: 0f, exitZ = exit?.endZ ?: 0f
+            )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
             startScoreAccumulator()
@@ -622,20 +747,17 @@ class SessionService : Service() {
             bridge.initEntities()
             bridge.initSocket(0)
             bridge.setLocalId((Math.random() * Int.MAX_VALUE).toInt())
+
+            val nodeCount = if (difficulty == "hard") 60 else 40
+            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = 0))
+            val exit = segments.lastOrNull()
+
             val cfg = assetManager.getSpawnConfig(difficulty)
-            repeat(cfg.count) { i ->
-                bridge.spawnEntity(
-                    x      = (Math.random() * 60 - 30).toFloat(),
-                    y      = 0f,
-                    z      = (Math.random() * 60 - 30).toFloat(),
-                    speed  = 2.5f * cfg.speedMult,
-                    hear   = 10f,
-                    sight  = 16f * cfg.sightMult,
-                    aggro  = 8f,
-                    typeId = i % 8
-                )
-            }
-            _gameState.value = GameState(seed = seed, difficulty = difficulty, isOnline = true)
+            spawnInitialEntities(bridge, segments, cfg)
+            _gameState.value = GameState(
+                seed = seed, difficulty = difficulty, isOnline = true,
+                levelSegments = segments, exitX = exit?.endX ?: 0f, exitZ = exit?.endZ ?: 0f
+            )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
             startNetworkSync()
@@ -652,23 +774,10 @@ class SessionService : Service() {
                 val now = bridge.nowMs()
                 val dt  = ((now - lastTickMs).coerceIn(1, 100)).toFloat() / 1000f
                 lastTickMs = now; elapsedMs += (dt * 1000).toLong()
-                bridge.physicsTick(dt)
-                val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
-                if (cam != null) bridge.setListenerPos(cam.posX, cam.posY, cam.posZ)
-                val entityData       = bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
-                val flickerInfluence = bridge.getTotalFlickerInfluence()
-                val nearbyCount      = (entityData?.size ?: 0) / 10
-                updateFlashlightBattery(dt)
-                updateSanity(nearbyCount, flickerInfluence, dt)
-                updateStamina(dt)
-                _gameState.update { s ->
-                    s.copy(
-                        sessionElapsed   = elapsedMs,
-                        flickerIntensity = flickerInfluence,
-                        entitiesNearby   = nearbyCount,
-                        score            = score
-                    )
-                }
+                val wasGameOver = _gameState.value.isGameOver
+                val derived = stepSimulation(bridge, dt)
+                _gameState.update { applyTickToState(it, derived, dt, elapsedMs, score) }
+                if (!wasGameOver && _gameState.value.isGameOver) onGameOver()
                 delay(16)
             }
         }
@@ -680,20 +789,9 @@ class SessionService : Service() {
             var timer = 0L
             while (isActive) {
                 delay(5_000); timer += 5_000
-                if (timer >= cfg.spawnIntervalMs) {
+                if (timer >= cfg.spawnIntervalMs && segments.isNotEmpty()) {
                     timer = 0
-                    val typeId = (Math.random() * 8).toInt()
-                    val entity = EntityType.entries.getOrNull(typeId) ?: EntityType.SMILER
-                    bridge.spawnEntity(
-                        x      = (Math.random() * 80 - 40).toFloat(),
-                        y      = 0f,
-                        z      = (Math.random() * 80 - 40).toFloat(),
-                        speed  = entity.baseSpeed * cfg.speedMult,
-                        hear   = 12f,
-                        sight  = 18f * cfg.sightMult,
-                        aggro  = 9f,
-                        typeId = typeId
-                    )
+                    spawnOneRandomEntity(bridge, segments, cfg)
                 }
             }
         }
@@ -724,26 +822,6 @@ class SessionService : Service() {
     }
 
     private fun processIncomingPacket(raw: ByteArray) { if (raw.size < 8) return }
-
-    private fun updateFlashlightBattery(dt: Float) {
-        val s = _gameState.value
-        if (!s.flashlightOn) return
-        val nb = (s.flashlightBattery - dt * 0.005f).coerceAtLeast(0f)
-        _gameState.update { it.copy(flashlightBattery = nb, flashlightOn = nb > 0f) }
-    }
-
-    private fun updateSanity(nearbyEntities: Int, flickerInfluence: Float, dt: Float) {
-        val s     = _gameState.value
-        val drain = (nearbyEntities * 0.5f + flickerInfluence * 2f) * dt
-        val regen = if (nearbyEntities == 0 && flickerInfluence < 0.1f) dt * 0.3f else 0f
-        _gameState.update { it.copy(sanity = (s.sanity - drain + regen).coerceIn(0f, 100f)) }
-    }
-
-    private fun updateStamina(dt: Float) {
-        val s  = _gameState.value
-        val ns = (s.stamina + dt * 8f).coerceAtMost(s.staminaMax)
-        if (ns != s.stamina) _gameState.update { it.copy(stamina = ns) }
-    }
 
     fun applyDamage(amount: Float) {
         val s  = _gameState.value
