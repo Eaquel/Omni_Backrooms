@@ -178,6 +178,9 @@
     <string name="menu_abilities">Yetenekler</string>
     <string name="menu_season">Sezon</string>
     <string name="menu_coming_soon">Yakında Eklenecek</string>
+    <string name="menu_new_run">Yeni Oyun</string>
+    <string name="menu_continue">Devam Et</string>
+    <string name="menu_no_save">Kaydedilen Bir Oyununuz Yok</string>
 
     <string name="quality_low">Düşük</string>
     <string name="quality_medium">Orta</string>

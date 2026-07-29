@@ -3,6 +3,7 @@ package com.omni.backrooms
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -51,6 +52,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.messaging.RemoteMessage
 import com.google.firebase.firestore.SetOptions
 import dagger.Module
 import dagger.Provides
@@ -62,6 +65,16 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import retrofit2.http.*
 import javax.inject.Inject
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.security.SecureRandom
+import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.Json
 import javax.inject.Singleton
 
 class NativeBridge @Inject constructor() {
@@ -1321,5 +1334,160 @@ private fun PagerBar(page: Int, total: Int, onPrev: () -> Unit, onNext: () -> Un
         Text("${page + 1} / $total", color = TextSec, fontSize = 12.sp, letterSpacing = 1.sp)
         Spacer(Modifier.width(16.dp))
         AtmosphericButton(stringResource(R.string.room_page_next), Icons.AutoMirrored.Filled.ArrowForward, Yellow, 110.dp, 38.dp, onNext, enabled = page < total - 1)
+    }
+}
+
+
+// ============================================================================
+// Firebase Cloud Messaging receiver. This class is declared in the manifest;
+// without it Android throws ClassNotFoundException the moment a push arrives
+// (the app subscribes to "backrooms_global" at startup), which is exactly the
+// crash the on-device crash log captured.
+// ============================================================================
+class OmniMessagingService : FirebaseMessagingService() {
+
+    override fun onNewToken(token: String) {
+        super.onNewToken(token)
+        // Persisting the token is best-effort: a failure here must never crash
+        // the app, since this runs outside any user-visible flow.
+        runCatching {
+            FirebaseFirestore.getInstance()
+                .collection("device_tokens")
+                .document(token)
+                .set(mapOf("token" to token, "updatedAt" to System.currentTimeMillis()))
+        }
+    }
+
+    override fun onMessageReceived(message: RemoteMessage) {
+        super.onMessageReceived(message)
+        val title = message.notification?.title
+            ?: message.data["title"]
+            ?: getString(R.string.app_name)
+        val body = message.notification?.body ?: message.data["body"] ?: return
+        showNotification(title, body)
+    }
+
+    private fun showNotification(title: String, body: String) {
+        val channelId = "omni_push"
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(channelId) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(channelId, getString(R.string.app_name), NotificationManager.IMPORTANCE_DEFAULT)
+            )
+        }
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pending = PendingIntent.getActivity(
+            this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        manager.notify(System.currentTimeMillis().toInt(), notification)
+    }
+}
+
+
+// ============================================================================
+// Guest identity + save game. Both live in DataStore so they survive restarts
+// but vanish with the app's data, which is exactly the lifetime a guest
+// account is supposed to have.
+// ============================================================================
+
+private val Context.identityStore: DataStore<Preferences> by preferencesDataStore(name = "omni_identity")
+
+@Singleton
+class GuestIdentityManager @Inject constructor(@ApplicationContext private val ctx: Context) {
+
+    private object Keys {
+        val NAME      = stringPreferencesKey("guest_name")
+        val CREATED   = longPreferencesKey("guest_created_ms")
+        val LAST_SEEN = longPreferencesKey("guest_last_seen_ms")
+    }
+
+    companion object {
+        /** Guest data is dropped after this much inactivity. */
+        val INACTIVITY_LIMIT_MS = TimeUnit.DAYS.toMillis(7)
+    }
+
+    /** Returns the device's guest name, minting one on first launch. Also expires
+     *  the account (and every trace of its progress) after a week of inactivity,
+     *  so a returning player starts genuinely fresh rather than resuming a stale
+     *  identity. */
+    suspend fun currentName(): String {
+        val now = System.currentTimeMillis()
+        val prefs = ctx.identityStore.data.first()
+        val existing = prefs[Keys.NAME]
+        val lastSeen = prefs[Keys.LAST_SEEN] ?: 0L
+
+        if (existing != null && now - lastSeen <= INACTIVITY_LIMIT_MS) {
+            ctx.identityStore.edit { it[Keys.LAST_SEEN] = now }
+            return existing
+        }
+
+        // Either brand new, or expired — wipe any leftover progress first so a
+        // stale save can never be attached to a fresh identity.
+        if (existing != null) SaveGameStore(ctx).clear()
+        val minted = mintName()
+        ctx.identityStore.edit {
+            it[Keys.NAME] = minted
+            it[Keys.CREATED] = now
+            it[Keys.LAST_SEEN] = now
+        }
+        return minted
+    }
+
+    /** "Unknown Player 4820-7391": wide enough that collisions are effectively
+     *  impossible across installs without needing a server round-trip. */
+    private fun mintName(): String {
+        val rng = SecureRandom()
+        val a = rng.nextInt(9000) + 1000
+        val b = rng.nextInt(9000) + 1000
+        return "Unknown Player $a-$b"
+    }
+
+    suspend fun touch() {
+        ctx.identityStore.edit { it[Keys.LAST_SEEN] = System.currentTimeMillis() }
+    }
+}
+
+/** A resumable run. Deliberately small: the level is fully regenerated from
+ *  [seed], so only the player's own progress needs storing. */
+@Serializable
+data class SavedRun(
+    val seed        : Long,
+    val difficulty  : String,
+    val elapsedMs   : Long,
+    val score       : Long,
+    val kills       : Int,
+    val sanity      : Float,
+    val battery     : Float,
+    val playerHp    : Float,
+    val savedAtMs   : Long
+)
+
+@Singleton
+class SaveGameStore @Inject constructor(@ApplicationContext private val ctx: Context) {
+    private val json = Json { ignoreUnknownKeys = true }
+    private val key  = stringPreferencesKey("saved_run")
+
+    suspend fun save(run: SavedRun) {
+        runCatching { ctx.identityStore.edit { it[key] = json.encodeToString(run) } }
+    }
+
+    suspend fun load(): SavedRun? = runCatching {
+        ctx.identityStore.data.first()[key]?.let { json.decodeFromString<SavedRun>(it) }
+    }.getOrNull()
+
+    fun observeHasSave(): Flow<Boolean> = ctx.identityStore.data.map { it[key] != null }
+
+    suspend fun clear() {
+        runCatching { ctx.identityStore.edit { it.remove(key) } }
     }
 }

@@ -978,7 +978,8 @@ class GameVM @Inject constructor(
     private val bridge      : NativeBridge,
     private val assetManager: AssetManager,
     private val settings    : SettingsRepository,
-    private val api         : ApiService
+    private val api         : ApiService,
+    private val saveStore   : SaveGameStore
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(GameState())
@@ -987,6 +988,7 @@ class GameVM @Inject constructor(
     private var physicsJob : Job? = null
     private var entityJob  : Job? = null
     private var scoreJob   : Job? = null
+    private var autosaveJob: Job? = null
     private var lastTickMs = 0L
     private var elapsedMs  = 0L
     private var score      = 0L
@@ -1037,6 +1039,7 @@ class GameVM @Inject constructor(
             startPhysicsLoop(sensitivity)
             startEntitySpawner(difficulty, cfg)
             startScoreAccumulator()
+            startAutosave()
             playSpawnDrop()
         }
     }
@@ -1136,11 +1139,39 @@ class GameVM @Inject constructor(
     fun onScreenPaused() {
         _state.update { it.copy(isPaused = true) }
         runCatching { bridge.setAmbienceLevel(0f); bridge.setHumVolume(0f) }
+        saveNow()
     }
 
     fun onScreenResumed() {
         runCatching { bridge.setAmbienceLevel(0.4f); bridge.setHumVolume(0.3f) }
         _state.update { it.copy(isPaused = false) }
+    }
+
+    /** Writes a resumable snapshot. The level itself isn't stored — it's fully
+     *  reproducible from the seed — so this stays small enough to run on a timer
+     *  without hitching the game loop. */
+    private fun saveNow() {
+        val s = _state.value
+        if (s.isGameOver || s.isEscaped) return
+        viewModelScope.launch(Dispatchers.IO) {
+            saveStore.save(
+                SavedRun(
+                    seed = s.seed, difficulty = s.difficulty, elapsedMs = elapsedMs,
+                    score = score, kills = kills, sanity = s.sanity,
+                    battery = s.flashlightBattery, playerHp = s.playerHp,
+                    savedAtMs = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private fun startAutosave() {
+        autosaveJob = viewModelScope.launch {
+            while (isActive) {
+                delay(60_000)
+                if (!_state.value.isPaused) saveNow()
+            }
+        }
     }
 
     /** Drops the player in from above and lets them stand up, rather than just
@@ -1175,6 +1206,9 @@ class GameVM @Inject constructor(
      *  submission shouldn't block the player from seeing their own results. */
     private fun submitScoreToServer() {
         viewModelScope.launch {
+            // The run is over, so a stale snapshot must not linger behind
+            // "Continue".
+            runCatching { saveStore.clear() }
             val s = _state.value
             runCatching {
                 api.submitScore(ScoreSubmitRequest(s.level, score, if (s.isEscaped) 1 else 0, s.difficulty, elapsedMs, kills))
@@ -1195,7 +1229,7 @@ class GameVM @Inject constructor(
     }
 
     override fun onCleared() {
-        physicsJob?.cancel(); entityJob?.cancel(); scoreJob?.cancel()
+        physicsJob?.cancel(); entityJob?.cancel(); scoreJob?.cancel(); autosaveJob?.cancel()
         runBlocking { bridge.destroyEntities(); bridge.destroySound(); bridge.destroyCore() }
         super.onCleared()
     }
@@ -1251,11 +1285,16 @@ fun MainMenu(
     onMarket     : () -> Unit,
     onLeaderboard: () -> Unit,
     onProfile    : () -> Unit,
-    profileVm    : ProfileVM = hiltViewModel()
+    profileVm    : ProfileVM = hiltViewModel(),
+    lobbyVm      : LobbyVM   = hiltViewModel()
 ) {
     val profile by profileVm.profile.collectAsState()
+    val hasSave by lobbyVm.hasSave.collectAsState()
+    val guestName by lobbyVm.guestName.collectAsState()
     var toast by remember { mutableStateOf<String?>(null) }
+    var showOfflineChoice by remember { mutableStateOf(false) }
     val comingSoon = stringResource(R.string.menu_coming_soon)
+    val noSaveMsg  = stringResource(R.string.menu_no_save)
 
     LaunchedEffect(toast) {
         if (toast != null) { delay(1800); toast = null }
@@ -1282,7 +1321,7 @@ fun MainMenu(
             Spacer(Modifier.width(10.dp))
             Column {
                 Text(
-                    profile.name,
+                    profile.name.takeIf { it.isNotBlank() && it != "Wanderer" } ?: guestName,
                     color = Yellow, fontSize = 15.sp,
                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp
                 )
@@ -1321,8 +1360,18 @@ fun MainMenu(
             verticalArrangement   = Arrangement.spacedBy(14.dp),
             horizontalAlignment   = Alignment.End
         ) {
-            PlayModeButton(stringResource(R.string.menu_play_offline), SuccessGreen, onPlay)   { drawOfflineGlyph(it) }
+            PlayModeButton(stringResource(R.string.menu_play_offline), SuccessGreen, { showOfflineChoice = true }) { drawOfflineGlyph(it) }
             PlayModeButton(stringResource(R.string.menu_play_online),  OmniumCol,    onOnline) { drawOnlineGlyph(it) }
+        }
+
+        if (showOfflineChoice) {
+            OfflineChoiceDialog(
+                hasSave     = hasSave,
+                onNewGame   = { showOfflineChoice = false; lobbyVm.clearSave(); onPlay() },
+                onContinue  = { showOfflineChoice = false; onPlay() },
+                onNoSave    = { toast = noSaveMsg },
+                onDismiss   = { showOfflineChoice = false }
+            )
         }
 
         androidx.compose.animation.AnimatedVisibility(
@@ -1741,6 +1790,15 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private val smoothEntities = HashMap<Int, FloatArray>() // id -> [x,y,z]
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        // The EGL context is destroyed when the app is backgrounded, so every GL
+        // object below is being (re)created from scratch here. Invalidate the
+        // cached mesh key too, or the level geometry is never re-uploaded and
+        // the screen comes back black with only the HUD drawn over it.
+        lastSegKey = Int.MIN_VALUE
+        floorCount = 0; wallCount = 0; roofCount = 0
+        smoothInit = false
+        smoothEntities.clear()
+
         GLES30.glClearColor(0.02f, 0.02f, 0.017f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glEnable(GLES30.GL_BLEND)
@@ -2199,6 +2257,10 @@ fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel(), settingsVm: Set
     val glView = remember {
         GLSurfaceView(ctx).apply {
             setEGLContextClientVersion(3)
+            // Avoids a full GL teardown/rebuild on every backgrounding where the
+            // driver supports it; onSurfaceCreated still handles the case where
+            // the context really is lost.
+            preserveEGLContextOnPause = true
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
@@ -2230,6 +2292,7 @@ fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel(), settingsVm: Set
             state.isGameOver -> GameOverOverlay(state)  { onExit() }
             state.isEscaped  -> EscapedOverlay(state)   { onExit() }
             state.isPaused   -> PauseOverlay(onResume = { vm.togglePause() }, onExit = { onExit() })
+            state.spawnPhase != SpawnPhase.READY -> SpawnSequenceOverlay(state.spawnPhase)
             else -> GameHud(
                 gameState  = state,
                 canEscape  = vm.canEscape,
@@ -2625,7 +2688,6 @@ fun GameHud(
             Modifier.align(Alignment.TopStart).padding(16.dp).width(160.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            StatusBar(stringResource(R.string.game_hud_hp),      gameState.playerHp / gameState.playerMaxHp,  DangerRed)
             StatusBar(stringResource(R.string.game_hud_sanity),  gameState.sanity / 100f,                     SouliumCol)
             StatusBar(stringResource(R.string.game_hud_stamina), gameState.stamina / gameState.staminaMax,    SuccessGreen)
             StatusBar(stringResource(R.string.game_hud_battery), gameState.flashlightBattery,                 CrtAmber)
@@ -3403,4 +3465,128 @@ private fun formatCompactAmount(v: Long): String = when {
     v >= 1_000_000 -> String.format(Locale.US, "%.1fM", v / 1_000_000.0)
     v >= 1_000     -> String.format(Locale.US, "%.1fK", v / 1_000.0)
     else           -> v.toString()
+}
+
+
+/** Arrival cinematic overlay. The first stretch of the fall is fully black —
+ *  the player is "above the world" and there's nothing coherent to show — then
+ *  it opens up as they descend through the ceiling. On landing the view drops
+ *  to floor level, blinks, and rises back to standing height. */
+@Composable
+fun SpawnSequenceOverlay(phase: SpawnPhase, modifier: Modifier = Modifier) {
+    if (phase == SpawnPhase.READY) return
+
+    val falling = phase == SpawnPhase.FALLING
+    // Opaque at the start of the fall, clearing as the player nears the ceiling.
+    val veil by animateFloatAsState(
+        targetValue   = if (falling) 0f else 1f,
+        animationSpec = tween(durationMillis = if (falling) 1100 else 250, easing = EaseOutCubic),
+        label         = "spawnVeil"
+    )
+
+    // Blink pattern once grounded: two quick lid closures before standing.
+    var blink by remember { mutableStateOf(0f) }
+    LaunchedEffect(phase) {
+        if (phase == SpawnPhase.LANDED) {
+            delay(180); blink = 1f; delay(110); blink = 0f
+            delay(220); blink = 1f; delay(130); blink = 0f
+        }
+    }
+    val lid by animateFloatAsState(blink, tween(120), label = "blinkLid")
+
+    Box(modifier.fillMaxSize()) {
+        // The fall veil.
+        if (veil < 1f) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(1f - veil)))
+        }
+        // Eyelids: two panels closing from top and bottom.
+        if (phase == SpawnPhase.LANDED && lid > 0.01f) {
+            Box(
+                Modifier.fillMaxWidth().fillMaxHeight(0.5f * lid)
+                    .align(Alignment.TopCenter).background(Color.Black)
+            )
+            Box(
+                Modifier.fillMaxWidth().fillMaxHeight(0.5f * lid)
+                    .align(Alignment.BottomCenter).background(Color.Black)
+            )
+        }
+    }
+}
+
+
+@HiltViewModel
+class LobbyVM @Inject constructor(
+    private val saveStore: SaveGameStore,
+    private val identity : GuestIdentityManager
+) : ViewModel() {
+
+    val hasSave: StateFlow<Boolean> = saveStore.observeHasSave()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private val _guestName = MutableStateFlow("")
+    val guestName: StateFlow<String> = _guestName.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            // Also performs the one-week guest expiry check.
+            _guestName.value = identity.currentName()
+        }
+    }
+
+    fun clearSave() { viewModelScope.launch(Dispatchers.IO) { saveStore.clear() } }
+}
+
+/** Offline entry point: start fresh, or resume the autosaved run. "Continue"
+ *  is visibly disabled with no save present, and says so if tapped anyway. */
+@Composable
+private fun OfflineChoiceDialog(
+    hasSave   : Boolean,
+    onNewGame : () -> Unit,
+    onContinue: () -> Unit,
+    onNoSave  : () -> Unit,
+    onDismiss : () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.72f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(PanelBg)
+                .border(1.dp, YellowDim, RoundedCornerShape(14.dp))
+                .padding(horizontal = 22.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                stringResource(R.string.menu_play_offline),
+                color = Yellow, fontSize = 13.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 2.sp
+            )
+            AtmosphericButton(
+                label   = stringResource(R.string.menu_new_run),
+                icon    = Icons.Default.PlayArrow,
+                accent  = SuccessGreen,
+                width   = 220.dp, height = 44.dp,
+                onClick = onNewGame,
+                isPrimary = true
+            )
+            AtmosphericButton(
+                label   = stringResource(R.string.menu_continue),
+                icon    = Icons.Default.Restore,
+                accent  = if (hasSave) CrtAmber else TextDim,
+                width   = 220.dp, height = 44.dp,
+                onClick = { if (hasSave) onContinue() else onNoSave() },
+                enabled = true
+            )
+        }
+    }
 }
