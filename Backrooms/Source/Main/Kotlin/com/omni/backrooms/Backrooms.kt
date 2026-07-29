@@ -2664,7 +2664,7 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
             .pointerInput(Unit) {
                 // Travel radius derived from the actual laid-out size, so the knob
                 // stays inside the ring on every screen density.
-                val travel = size.minDimension / 2f * 0.62f
+                val travel = minOf(size.width, size.height) / 2f * 0.62f
                 fun emit(raw: Offset) {
                     val len = kotlin.math.hypot(raw.x, raw.y)
                     val clamped = if (len > travel && len > 0f) raw * (travel / len) else raw
