@@ -39,6 +39,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -165,6 +166,7 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashLogger()
         System.loadLibrary("il2cpp")
         appScope.launch(Dispatchers.IO) {
             val bridge = NativeBridge()
@@ -175,6 +177,73 @@ class App : Application() {
                 FirebaseCrashlytics.getInstance().log("APP_START_THREAT flags=$flags report=$report")
             }
             FirebaseMessaging.getInstance().subscribeToTopic("backrooms_global")
+        }
+    }
+
+    /** Writes every uncaught exception to Documents/OmniBackrooms/crash.txt so
+     *  crashes can be read off the device directly, then delegates to the
+     *  previous handler so Crashlytics still records it. */
+    private fun installCrashLogger() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching { writeCrashReport(thread, error) }
+            previous?.uncaughtException(thread, error)
+        }
+    }
+
+    private fun writeCrashReport(thread: Thread, error: Throwable) {
+        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(java.util.Date())
+        val text = buildString {
+            appendLine("===== OMNI BACKROOMS CRASH =====")
+            appendLine("time    : $stamp")
+            appendLine("version : ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            appendLine("device  : ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+            appendLine("android : ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})")
+            appendLine("abi     : ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
+            appendLine("thread  : ${thread.name}")
+            appendLine()
+            appendLine(java.io.StringWriter().also { sw ->
+                error.printStackTrace(java.io.PrintWriter(sw))
+            }.toString())
+            appendLine()
+        }
+
+        // Scoped storage (API 29+) disallows writing straight into Documents, so
+        // go through MediaStore there and fall back to a direct file otherwise.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val resolver = contentResolver
+            val relPath = "${android.os.Environment.DIRECTORY_DOCUMENTS}/OmniBackrooms"
+            val collection = android.provider.MediaStore.Files.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val selection = "${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=? AND " +
+                            "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME}=?"
+            val existing = resolver.query(
+                collection,
+                arrayOf(android.provider.MediaStore.MediaColumns._ID),
+                selection,
+                arrayOf("$relPath/", "crash.txt"),
+                null
+            )?.use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+
+            val uri = if (existing != null) {
+                android.content.ContentUris.withAppendedId(collection, existing)
+            } else {
+                resolver.insert(collection, android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "crash.txt")
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, relPath)
+                })
+            }
+            uri?.let { target ->
+                // "wa" = append, so earlier crashes aren't lost.
+                resolver.openOutputStream(target, "wa")?.use { it.write(text.toByteArray()) }
+            }
+        } else {
+            val dir = java.io.File(
+                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
+                "OmniBackrooms"
+            )
+            if (!dir.exists()) dir.mkdirs()
+            java.io.File(dir, "crash.txt").appendText(text)
         }
     }
 }
@@ -939,7 +1008,7 @@ class GameVM @Inject constructor(
      *  entity spawner can reuse them without depending on StateFlow emission timing. */
     private var segments: List<LevelSegment> = emptyList()
 
-    fun startGame(difficulty: String = "normal", seed: Long = System.currentTimeMillis(), mapId: String = "level_0") {
+    fun startGame(difficulty: String = "normal", seed: Long = System.currentTimeMillis()) {
         if (started) return
         started = true
         viewModelScope.launch {
@@ -951,9 +1020,9 @@ class GameVM @Inject constructor(
             bridge.setHumVolume(0.3f)
             bridge.setSpatialRolloff(1f, 40f)
 
+            // Level 0 always — there is deliberately no map selection.
             val nodeCount = if (difficulty == "hard") 60 else 40
-            val levelDepth = mapId.substringAfterLast('_').toIntOrNull() ?: 0
-            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = levelDepth))
+            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = 0))
             val exit = segments.lastOrNull()
             val exitX = exit?.endX ?: 0f
             val exitZ = exit?.endZ ?: 0f
@@ -961,12 +1030,14 @@ class GameVM @Inject constructor(
             val cfg = assetManager.getSpawnConfig(difficulty)
             spawnInitialEntities(bridge, segments, cfg)
             _state.value = GameState(
-                seed = seed, difficulty = difficulty, mapId = mapId,
-                levelSegments = segments, exitX = exitX, exitZ = exitZ
+                seed = seed, difficulty = difficulty, mapId = "level_0",
+                levelSegments = segments, exitX = exitX, exitZ = exitZ,
+                spawnPhase = SpawnPhase.FALLING
             )
             startPhysicsLoop(sensitivity)
             startEntitySpawner(difficulty, cfg)
             startScoreAccumulator()
+            playSpawnDrop()
         }
     }
 
@@ -1040,6 +1111,7 @@ class GameVM @Inject constructor(
     private var footstepTimer = 0f
 
     fun onMove(dx: Float, dy: Float, dz: Float) {
+        if (_state.value.spawnPhase != SpawnPhase.READY) return
         moveX = dx.coerceIn(-1f, 1f)
         moveZ = dz.coerceIn(-1f, 1f)
         if (dy != 0f) bridge.applyMovement(0f, dy * MOVE_FORCE, 0f)
@@ -1058,6 +1130,33 @@ class GameVM @Inject constructor(
     /** True once the player is close enough to the exit for [onInteract] to work; the HUD
      *  uses this to show a prompt so the player knows the exit is reachable. */
     val canEscape: Boolean get() = _state.value.distanceToExit < 3.5f
+
+    /** Silences the native audio engine when the game screen isn't foreground.
+     *  Without this the ambience/hum kept playing after leaving the screen. */
+    fun onScreenPaused() {
+        _state.update { it.copy(isPaused = true) }
+        runCatching { bridge.setAmbienceLevel(0f); bridge.setHumVolume(0f) }
+    }
+
+    fun onScreenResumed() {
+        runCatching { bridge.setAmbienceLevel(0.4f); bridge.setHumVolume(0.3f) }
+        _state.update { it.copy(isPaused = false) }
+    }
+
+    /** Drops the player in from above and lets them stand up, rather than just
+     *  appearing on the floor. Input stays locked until they're upright. */
+    private fun playSpawnDrop() {
+        viewModelScope.launch {
+            _state.update { it.copy(spawnPhase = SpawnPhase.FALLING) }
+            // The engine's gravity does the actual falling; we just hold input
+            // and let the camera ride the body down from its elevated start.
+            delay(1500)
+            _state.update { it.copy(spawnPhase = SpawnPhase.LANDED) }
+            runCatching { bridge.triggerFootstep(60f, 1.0f) }
+            delay(1200)
+            _state.update { it.copy(spawnPhase = SpawnPhase.READY) }
+        }
+    }
 
     fun onInteract() {
         if (canEscape) {
@@ -1151,153 +1250,95 @@ fun MainMenu(
     onStory      : () -> Unit,
     onMarket     : () -> Unit,
     onLeaderboard: () -> Unit,
-    onProfile    : () -> Unit
+    onProfile    : () -> Unit,
+    profileVm    : ProfileVM = hiltViewModel()
 ) {
-    val inf    = rememberInfiniteTransition(label = "menu")
-    val pulse  by inf.animateFloat(0.7f, 1f, infiniteRepeatable(tween(2500, easing = EaseInOut), RepeatMode.Reverse), "pulse")
-    val scanY  by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(8000, easing = LinearEasing)), "scan")
-    val glitch by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(60, easing = LinearEasing), RepeatMode.Reverse), "glitch")
+    val profile by profileVm.profile.collectAsState()
+    var toast by remember { mutableStateOf<String?>(null) }
+    val comingSoon = stringResource(R.string.menu_coming_soon)
 
-    var titleVisible   by remember { mutableStateOf(false) }
-    var buttonsVisible by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        delay(300); titleVisible = true
-        delay(600); buttonsVisible = true
+    LaunchedEffect(toast) {
+        if (toast != null) { delay(1800); toast = null }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        // Centre stays deliberately empty so the lobby video reads as the scene.
         LobbyVideoBackground(Modifier.fillMaxSize())
-
         Box(
             Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    listOf(Color.Black.copy(0.55f), DarkBg.copy(0.85f), Color.Black.copy(0.92f))
+                Brush.radialGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(0.55f)),
+                    radius = 900f
                 )
             )
         )
 
-        CrtScanlineOverlay(scanY)
-
-        Column(
-            Modifier
-                .align(Alignment.Center)
-                .width(300.dp)
-                .padding(horizontal = 16.dp),
-            verticalArrangement    = Arrangement.spacedBy(10.dp),
-            horizontalAlignment    = Alignment.CenterHorizontally
+        // ---- Top-left: identity + wallet -------------------------------------
+        Row(
+            Modifier.align(Alignment.TopStart).padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            androidx.compose.animation.AnimatedVisibility(
-                visible = titleVisible,
-                enter   = fadeIn(tween(800)) + slideInVertically(tween(800, easing = EaseOutBack)) { -80 }
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    GlitchText(
-                        text      = "OMNI",
-                        fontSize  = 52.sp,
-                        color     = Yellow.copy(pulse),
-                        glitchVal = glitch
-                    )
-                    Text(
-                        "BACKROOMS",
-                        color        = Yellow,
-                        fontSize     = 28.sp,
-                        fontWeight   = FontWeight.Black,
-                        letterSpacing = 12.sp
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "E A Q U E L  S T U D I O S",
-                        color        = TextDim,
-                        fontSize     = 9.sp,
-                        letterSpacing = 5.sp
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    FlickerDivider()
+            AvatarBadge(level = profile.level, onClick = onProfile)
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(
+                    profile.name,
+                    color = Yellow, fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp
+                )
+                Spacer(Modifier.height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CurrencyChip(OmniumCol, profile.omniumAmount, isOmnium = true)
+                    Spacer(Modifier.width(8.dp))
+                    CurrencyChip(SouliumCol, profile.souliumAmount, isOmnium = false)
                 }
             }
+        }
 
-            androidx.compose.animation.AnimatedVisibility(
-                visible = buttonsVisible,
-                enter   = fadeIn(tween(1000)) + slideInVertically(tween(1000, easing = EaseOutCubic)) { 60 }
+        // ---- Top-right: settings + leaderboard --------------------------------
+        Row(
+            Modifier.align(Alignment.TopEnd).padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            IconGlyphButton(40.dp, TextSec, onClick = { toast = comingSoon }) { drawLeaderboardGlyph(it) }
+            IconGlyphButton(40.dp, Yellow,  onClick = onSettings)            { drawGearGlyph(it) }
+        }
+
+        // ---- Left edge: navigation rail ---------------------------------------
+        Column(
+            Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            RailItem(stringResource(R.string.menu_market),    CrtAmber,     onMarket)  { drawMarketGlyph(it) }
+            RailItem(stringResource(R.string.menu_story),      Yellow,       onStory)   { drawBookGlyph(it) }
+            RailItem(stringResource(R.string.menu_abilities),  TextSec,      { toast = comingSoon }) { drawAbilityGlyph(it) }
+            RailItem(stringResource(R.string.menu_season),     SouliumCol,   { toast = comingSoon }) { drawSeasonGlyph(it) }
+        }
+
+        // ---- Right edge: play modes -------------------------------------------
+        Column(
+            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
+            verticalArrangement   = Arrangement.spacedBy(14.dp),
+            horizontalAlignment   = Alignment.End
+        ) {
+            PlayModeButton(stringResource(R.string.menu_play_offline), SuccessGreen, onPlay)   { drawOfflineGlyph(it) }
+            PlayModeButton(stringResource(R.string.menu_play_online),  OmniumCol,    onOnline) { drawOnlineGlyph(it) }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible  = toast != null,
+            enter    = fadeIn() + slideInVertically { it / 2 },
+            exit     = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
+        ) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(0.85f))
+                    .border(1.dp, YellowDim, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
             ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    AtmosphericButton(
-                        label    = stringResource(R.string.menu_play_offline),
-                        icon     = Icons.Default.PlayArrow,
-                        accent   = Yellow,
-                        width    = 280.dp,
-                        height   = 58.dp,
-                        isPrimary = true,
-                        onClick  = onPlay
-                    )
-                    AtmosphericButton(
-                        label  = stringResource(R.string.menu_play_online),
-                        icon   = Icons.Default.Public,
-                        accent = OmniumCol,
-                        width  = 280.dp,
-                        height = 52.dp,
-                        onClick = onOnline
-                    )
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AtmosphericButton(
-                            label  = stringResource(R.string.market_title),
-                            icon   = Icons.Default.Store,
-                            accent = SouliumCol,
-                            width  = 134.dp,
-                            height = 46.dp,
-                            onClick = onMarket,
-                            modifier = Modifier.weight(1f)
-                        )
-                        AtmosphericButton(
-                            label  = stringResource(R.string.story_title),
-                            icon   = Icons.AutoMirrored.Filled.MenuBook,
-                            accent = CrtAmber,
-                            width  = 134.dp,
-                            height = 46.dp,
-                            onClick = onStory,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AtmosphericButton(
-                            label  = stringResource(R.string.menu_leaderboard),
-                            icon   = Icons.Default.Leaderboard,
-                            accent = SuccessGreen,
-                            width  = 134.dp,
-                            height = 44.dp,
-                            onClick = onLeaderboard,
-                            modifier = Modifier.weight(1f)
-                        )
-                        AtmosphericButton(
-                            label  = stringResource(R.string.menu_profile),
-                            icon   = Icons.Default.AccountCircle,
-                            accent = TextSec,
-                            width  = 134.dp,
-                            height = 44.dp,
-                            onClick = onProfile,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    AtmosphericButton(
-                        label  = stringResource(R.string.menu_settings),
-                        icon   = Icons.Default.Settings,
-                        accent = BorderCol,
-                        width  = 280.dp,
-                        height = 40.dp,
-                        onClick = onSettings
-                    )
-                }
+                Text(toast ?: "", color = Yellow, fontSize = 12.sp, letterSpacing = 2.sp)
             }
         }
 
@@ -1888,7 +1929,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         if (entities.isEmpty()) return
         GLES30.glUseProgram(billboardProgram)
         GLES30.glUniformMatrix4fv(bVP, 1, false, vp, 0)
-        GLES30.glUniform3f(bRight, cos(yawRad), 0f, -sin(yawRad))
+        GLES30.glUniform3f(bRight, -cos(yawRad), 0f, sin(yawRad))
         GLES30.glUniform3f(bUp, 0f, 1f, 0f)
         GLES30.glUniform1f(bColorBlind, cbMix)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, billboardVbo)
@@ -2166,8 +2207,8 @@ fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel(), settingsVm: Set
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> glView.onResume()
-                Lifecycle.Event.ON_PAUSE  -> glView.onPause()
+                Lifecycle.Event.ON_RESUME -> { glView.onResume(); vm.onScreenResumed() }
+                Lifecycle.Event.ON_PAUSE  -> { glView.onPause();  vm.onScreenPaused() }
                 else -> {}
             }
         }
@@ -2175,9 +2216,10 @@ fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel(), settingsVm: Set
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             // Also pause when this screen leaves composition (navigating back),
-            // not just on Activity pause — otherwise the GL thread stays alive
-            // and the next surface comes up black.
+            // not just on Activity pause — otherwise the GL thread stays alive,
+            // the next surface comes up black, and the ambience keeps playing.
             glView.onPause()
+            vm.onScreenPaused()
         }
     }
 
@@ -3057,3 +3099,308 @@ fun formatElapsed(ms: Long): String {
 private val GameState.vhsEnabled: Boolean get() = true
 private val GameState.showFps   : Boolean get() = false
 private val GameState.showPing  : Boolean get() = true
+
+
+// ============================================================================
+// Lobby chrome. Every glyph below is drawn from vector paths in code — no
+// bitmap assets and no stock icon font — so they stay crisp at any density and
+// share one visual language with the rest of the UI.
+// ============================================================================
+
+private fun DrawScope.strokeW(f: Float = 0.055f) = size.minDimension * f
+
+private fun DrawScope.drawGearGlyph(c: Color) {
+    val r = size.minDimension * 0.30f
+    val teeth = 8
+    val w = strokeW(0.07f)
+    for (i in 0 until teeth) {
+        val a = (Math.PI * 2 / teeth * i).toFloat()
+        val inner = r * 1.02f
+        val outer = r * 1.42f
+        drawLine(
+            c, Offset(center.x + cos(a) * inner, center.y + sin(a) * inner),
+            Offset(center.x + cos(a) * outer, center.y + sin(a) * outer),
+            strokeWidth = w, cap = StrokeCap.Round
+        )
+    }
+    drawCircle(c, radius = r, center = center, style = Stroke(w))
+    drawCircle(c, radius = r * 0.38f, center = center, style = Stroke(w * 0.8f))
+}
+
+private fun DrawScope.drawLeaderboardGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val barW = w * 0.19f
+    val baseY = h * 0.76f
+    val heights = listOf(0.30f, 0.46f, 0.22f)
+    val xs = listOf(w * 0.24f, w * 0.50f, w * 0.76f)
+    heights.forEachIndexed { i, hf ->
+        val top = baseY - h * hf
+        drawRoundRect(
+            c.copy(if (i == 1) 1f else 0.65f),
+            topLeft = Offset(xs[i] - barW / 2f, top),
+            size = Size(barW, baseY - top),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.18f)
+        )
+    }
+    drawLine(c, Offset(w * 0.12f, baseY), Offset(w * 0.88f, baseY), strokeWidth = strokeW(0.05f), cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawMarketGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = strokeW(0.06f)
+    // Bag body
+    val left = w * 0.24f; val right = w * 0.76f
+    val top = h * 0.38f;  val bottom = h * 0.80f
+    drawRoundRect(
+        c, topLeft = Offset(left, top), size = Size(right - left, bottom - top),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.06f),
+        style = Stroke(sw)
+    )
+    // Handle
+    val path = Path().apply {
+        moveTo(w * 0.37f, top)
+        cubicTo(w * 0.37f, h * 0.18f, w * 0.63f, h * 0.18f, w * 0.63f, top)
+    }
+    drawPath(path, c, style = Stroke(sw, cap = StrokeCap.Round))
+    drawCircle(c.copy(0.55f), radius = w * 0.035f, center = Offset(w * 0.5f, h * 0.58f))
+}
+
+private fun DrawScope.drawBookGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = strokeW(0.055f)
+    val top = h * 0.24f; val bottom = h * 0.78f
+    val spine = w * 0.5f
+    val path = Path().apply {
+        moveTo(spine, top + h * 0.05f)
+        cubicTo(w * 0.36f, top, w * 0.28f, top, w * 0.20f, top + h * 0.03f)
+        lineTo(w * 0.20f, bottom - h * 0.03f)
+        cubicTo(w * 0.28f, bottom - h * 0.06f, w * 0.38f, bottom - h * 0.05f, spine, bottom)
+        cubicTo(w * 0.62f, bottom - h * 0.05f, w * 0.72f, bottom - h * 0.06f, w * 0.80f, bottom - h * 0.03f)
+        lineTo(w * 0.80f, top + h * 0.03f)
+        cubicTo(w * 0.72f, top, w * 0.64f, top, spine, top + h * 0.05f)
+        close()
+    }
+    drawPath(path, c, style = Stroke(sw))
+    drawLine(c.copy(0.7f), Offset(spine, top + h * 0.05f), Offset(spine, bottom), strokeWidth = sw * 0.8f)
+}
+
+private fun DrawScope.drawAbilityGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = strokeW(0.055f)
+    val hub = Offset(w * 0.5f, h * 0.5f)
+    val nodes = listOf(
+        Offset(w * 0.5f,  h * 0.20f),
+        Offset(w * 0.80f, h * 0.62f),
+        Offset(w * 0.20f, h * 0.62f)
+    )
+    nodes.forEach { n ->
+        drawLine(c.copy(0.55f), hub, n, strokeWidth = sw * 0.7f, cap = StrokeCap.Round)
+        drawCircle(c, radius = w * 0.085f, center = n, style = Stroke(sw * 0.8f))
+    }
+    drawCircle(c, radius = w * 0.10f, center = hub)
+}
+
+private fun DrawScope.drawSeasonGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = strokeW(0.055f)
+    // Trophy cup
+    val path = Path().apply {
+        moveTo(w * 0.33f, h * 0.24f)
+        lineTo(w * 0.67f, h * 0.24f)
+        lineTo(w * 0.63f, h * 0.55f)
+        cubicTo(w * 0.60f, h * 0.64f, w * 0.40f, h * 0.64f, w * 0.37f, h * 0.55f)
+        close()
+    }
+    drawPath(path, c, style = Stroke(sw))
+    // Handles
+    drawArc(c, 90f, 180f, false,
+        topLeft = Offset(w * 0.18f, h * 0.26f), size = Size(w * 0.18f, h * 0.20f), style = Stroke(sw * 0.8f))
+    drawArc(c, 270f, 180f, false,
+        topLeft = Offset(w * 0.64f, h * 0.26f), size = Size(w * 0.18f, h * 0.20f), style = Stroke(sw * 0.8f))
+    // Stem + base
+    drawLine(c, Offset(w * 0.5f, h * 0.62f), Offset(w * 0.5f, h * 0.74f), strokeWidth = sw)
+    drawLine(c, Offset(w * 0.34f, h * 0.78f), Offset(w * 0.66f, h * 0.78f), strokeWidth = sw, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawOfflineGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = strokeW(0.055f)
+    // Play triangle inside a ring = start a solo run
+    drawCircle(c.copy(0.75f), radius = w * 0.36f, center = center, style = Stroke(sw))
+    val tri = Path().apply {
+        moveTo(w * 0.42f, h * 0.35f)
+        lineTo(w * 0.68f, h * 0.50f)
+        lineTo(w * 0.42f, h * 0.65f)
+        close()
+    }
+    drawPath(tri, c)
+}
+
+private fun DrawScope.drawOnlineGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = strokeW(0.05f)
+    drawCircle(c, radius = w * 0.34f, center = center, style = Stroke(sw))
+    // Meridian + equator to read as a globe
+    drawArc(c.copy(0.8f), 0f, 360f, false,
+        topLeft = Offset(w * 0.36f, h * 0.16f), size = Size(w * 0.28f, h * 0.68f), style = Stroke(sw * 0.75f))
+    drawLine(c.copy(0.8f), Offset(w * 0.16f, h * 0.5f), Offset(w * 0.84f, h * 0.5f), strokeWidth = sw * 0.75f)
+}
+
+private fun DrawScope.drawOmniumGlyph(c: Color) {
+    val r = size.minDimension * 0.34f
+    drawCircle(c, radius = r, center = center, style = Stroke(size.minDimension * 0.11f))
+    drawCircle(c, radius = r * 0.34f, center = center)
+}
+
+private fun DrawScope.drawSouliumGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val d = Path().apply {
+        moveTo(w * 0.5f, h * 0.16f)
+        lineTo(w * 0.82f, h * 0.5f)
+        lineTo(w * 0.5f, h * 0.84f)
+        lineTo(w * 0.18f, h * 0.5f)
+        close()
+    }
+    drawPath(d, c, style = Stroke(size.minDimension * 0.10f))
+}
+
+/** Square, bordered icon button whose artwork is a code-drawn vector path. */
+@Composable
+private fun IconGlyphButton(
+    size: Dp,
+    accent: Color,
+    onClick: () -> Unit,
+    glyph: DrawScope.(Color) -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, spring(), label = "glyphScale")
+    Box(
+        Modifier
+            .size(size)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(9.dp))
+            .background(Color.Black.copy(0.45f))
+            .border(1.dp, accent.copy(0.45f), RoundedCornerShape(9.dp))
+            .clickable(interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(9.dp)) { glyph(accent) }
+    }
+}
+
+/** Left-rail entry: code-drawn glyph with its label underneath. */
+@Composable
+private fun RailItem(
+    label: String,
+    accent: Color,
+    onClick: () -> Unit,
+    glyph: DrawScope.(Color) -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.9f else 1f, spring(), label = "railScale")
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(interaction, indication = null, onClick = onClick)
+    ) {
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(0.42f))
+                .border(1.dp, accent.copy(0.42f), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(12.dp)) { glyph(accent) }
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(label, color = accent.copy(0.85f), fontSize = 9.sp, letterSpacing = 1.sp)
+    }
+}
+
+/** Right-edge play button: glyph plus label, sized for a confident tap target. */
+@Composable
+private fun PlayModeButton(
+    label: String,
+    accent: Color,
+    onClick: () -> Unit,
+    glyph: DrawScope.(Color) -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.93f else 1f, spring(), label = "playScale")
+    val inf = rememberInfiniteTransition(label = "playGlow")
+    val glow by inf.animateFloat(0.35f, 0.75f, infiniteRepeatable(tween(2200, easing = EaseInOut), RepeatMode.Reverse), "glow")
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(0.55f))
+            .border(1.5.dp, accent.copy(glow), RoundedCornerShape(12.dp))
+            .clickable(interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    ) {
+        Text(label, color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+        Spacer(Modifier.width(9.dp))
+        androidx.compose.foundation.Canvas(Modifier.size(26.dp)) { glyph(accent) }
+    }
+}
+
+/** Circular avatar with the player's level on a badge, drawn in code. */
+@Composable
+private fun AvatarBadge(level: Int, onClick: () -> Unit) {
+    Box(Modifier.size(48.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val r = size.minDimension * 0.42f
+            drawCircle(Color.Black.copy(0.6f), radius = r, center = center)
+            drawCircle(Yellow.copy(0.75f), radius = r, center = center, style = Stroke(size.minDimension * 0.045f))
+            // Simple head-and-shoulders silhouette
+            drawCircle(Yellow.copy(0.85f), radius = r * 0.30f, center = Offset(center.x, center.y - r * 0.22f))
+            val body = Path().apply {
+                moveTo(center.x - r * 0.48f, center.y + r * 0.60f)
+                cubicTo(
+                    center.x - r * 0.44f, center.y + r * 0.10f,
+                    center.x + r * 0.44f, center.y + r * 0.10f,
+                    center.x + r * 0.48f, center.y + r * 0.60f
+                )
+                close()
+            }
+            drawPath(body, Yellow.copy(0.85f))
+        }
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color.Black)
+                .border(1.dp, CrtAmber, RoundedCornerShape(5.dp))
+                .padding(horizontal = 4.dp, vertical = 1.dp)
+        ) {
+            Text("$level", color = CrtAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** Currency readout with its own code-drawn symbol. */
+@Composable
+private fun CurrencyChip(accent: Color, amount: Long, isOmnium: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.Canvas(Modifier.size(13.dp)) {
+            if (isOmnium) drawOmniumGlyph(accent) else drawSouliumGlyph(accent)
+        }
+        Spacer(Modifier.width(4.dp))
+        Text(
+            formatCompactAmount(amount),
+            color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
+        )
+    }
+}
+
+private fun formatCompactAmount(v: Long): String = when {
+    v >= 1_000_000 -> String.format(Locale.US, "%.1fM", v / 1_000_000.0)
+    v >= 1_000     -> String.format(Locale.US, "%.1fK", v / 1_000.0)
+    else           -> v.toString()
+}

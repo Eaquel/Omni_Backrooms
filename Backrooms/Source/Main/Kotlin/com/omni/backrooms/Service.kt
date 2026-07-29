@@ -269,6 +269,10 @@ data class GameSettings(
 
 data class UiButtonLayout(val buttonId: String, val offset: Offset, val sizeScale: Float = 1f)
 
+/** Stages of the arrival sequence: the player falls in from above, hits the
+ *  floor, then rises to standing before regaining control. */
+enum class SpawnPhase { FALLING, LANDED, READY }
+
 data class GameState(
     val level             : Int     = 0,
     val seed              : Long    = 0L,
@@ -295,7 +299,8 @@ data class GameState(
     val levelSegments     : List<LevelSegment>    = emptyList(),
     val exitX             : Float   = 0f,
     val exitZ             : Float   = 0f,
-    val distanceToExit    : Float   = Float.MAX_VALUE
+    val distanceToExit    : Float   = Float.MAX_VALUE,
+    val spawnPhase        : SpawnPhase = SpawnPhase.READY
 )
 
 data class LeaderboardEntry(

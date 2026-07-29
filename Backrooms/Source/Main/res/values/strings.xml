@@ -175,6 +175,9 @@
     <string name="menu_play_offline">Çevrimdışı Oyna</string>
     <string name="menu_play_online">Çevrimiçi Oyna</string>
     <string name="menu_profile">Profil</string>
+    <string name="menu_abilities">Yetenekler</string>
+    <string name="menu_season">Sezon</string>
+    <string name="menu_coming_soon">Yakında Eklenecek</string>
 
     <string name="quality_low">Düşük</string>
     <string name="quality_medium">Orta</string>

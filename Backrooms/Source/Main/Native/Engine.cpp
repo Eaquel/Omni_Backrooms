@@ -21,6 +21,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <functional>
+#include <limits>
 #include <linux/prctl.h>
 #include <memory>
 #include <mutex>
@@ -165,7 +166,7 @@ public:
             seg.light={phD(rng_),inD(rng_),spD(rng_),0.002f+levelDepth*0.001f,brD(rng_)};
             int dc=dcD(rng_); seg.decals.reserve(dc);
             for(int d=0;d<dc;++d) seg.decals.push_back({uvD(rng_),uvD(rng_),uvD(rng_)*6.2831853f,static_cast<uint8_t>(dtD(rng_))});
-            float ad=perlin_.noise2d(i*0.2f,0.5f)*0.8f;
+            float ad=perlin_.noise2d(i*0.2f,0.5f)*0.30f;
             prevAngle+=ad; seg.heading=prevAngle;
             cursor.x+=std::sin(prevAngle)*seg.length; cursor.y+=std::cos(prevAngle)*seg.length;
             if(i>0)            seg.connectedTo[0]=i-1;
@@ -204,24 +205,76 @@ private:
 // lateral position within the current segment's walls and hands off to the
 // next/previous segment when the player crosses a length boundary. This is
 // what turns the abstract procedural graph into real, walkable geometry.
-inline void resolveCorridorCollision(const LevelGraph& graph,int& segIdx,PhysicsBody& body) noexcept {
-    if(graph.nodes.empty()) return;
-    if(segIdx<0||segIdx>=static_cast<int>(graph.nodes.size())) segIdx=0;
-    for(int hop=0;hop<4;++hop){
-        const auto& seg=graph.nodes[segIdx];
+inline void resolveCorridorCollision(const LevelGraph& graph,int& segIdx,PhysicsBody& body,bool skipCeiling=false) noexcept {
+    const int n=static_cast<int>(graph.nodes.size());
+    if(n==0) return;
+    if(segIdx<0||segIdx>=n) segIdx=0;
+
+    constexpr float kEyeHeight=1.7f;   // matches CameraController's eye offset
+    constexpr float kHeadroom =0.15f;  // keep the head just under the ceiling
+
+    // Search a window around the last known segment. Corridors are a chain, so
+    // the player is always near their previous segment; this stays O(1) while
+    // still letting us recover if they drift across a bend.
+    const int kWindow=6;
+    int lo=std::max(0,segIdx-kWindow), hi=std::min(n-1,segIdx+kWindow);
+
+    int   bestInside=-1;
+    int   bestNear=segIdx;
+    float bestNearDist=std::numeric_limits<float>::max();
+    float bestFwd=0, bestLat=0, nearFwd=0, nearLat=0;
+
+    for(int i=lo;i<=hi;++i){
+        const auto& seg=graph.nodes[i];
         float s=std::sin(seg.heading), c=std::cos(seg.heading);
         float dx=body.pos.x-seg.position.x, dz=body.pos.z-seg.position.y;
         float fwd=dx*s+dz*c;
         float lat=dx*c-dz*s;
         float halfW=std::max(seg.width*0.5f-body.radius,0.15f);
-        lat=std::clamp(lat,-halfW,halfW);
-        if(fwd>seg.length&&seg.connectedTo[1]>=0){ segIdx=seg.connectedTo[1]; continue; }
-        if(fwd<0.0f&&seg.connectedTo[0]>=0){ segIdx=seg.connectedTo[0]; continue; }
-        fwd=std::clamp(fwd,0.0f,seg.length);
-        body.pos.x=seg.position.x+s*fwd+c*lat;
-        body.pos.z=seg.position.y+c*fwd-s*lat;
-        return;
+
+        bool insideLen=(fwd>=0.0f&&fwd<=seg.length);
+        if(insideLen&&std::fabs(lat)<=halfW){
+            // Prefer the segment the player is genuinely standing in.
+            if(bestInside==-1){ bestInside=i; bestFwd=fwd; bestLat=lat; }
+        }
+        // Distance to this segment's centerline, for the fallback snap.
+        float clampedFwd=std::clamp(fwd,0.0f,seg.length);
+        float ddx=fwd-clampedFwd;
+        float dist=std::sqrt(ddx*ddx+lat*lat);
+        if(dist<bestNearDist){ bestNearDist=dist; bestNear=i; nearFwd=clampedFwd; nearLat=lat; }
     }
+
+    int   useIdx; float useFwd, useLat;
+    if(bestInside>=0){ useIdx=bestInside; useFwd=bestFwd; useLat=bestLat; }
+    else             { useIdx=bestNear;   useFwd=nearFwd; useLat=nearLat; }
+
+    const auto& seg=graph.nodes[useIdx];
+    float s=std::sin(seg.heading), c=std::cos(seg.heading);
+    float halfW=std::max(seg.width*0.5f-body.radius,0.15f);
+    float clampedLat=std::clamp(useLat,-halfW,halfW);
+    float clampedFwd=std::clamp(useFwd,0.0f,seg.length);
+
+    // Kill lateral velocity when we actually hit a wall, so the player slides
+    // along it instead of jittering against it.
+    if(clampedLat!=useLat){
+        float vlat=body.vel.x*c-body.vel.z*s;
+        float vfwd=body.vel.x*s+body.vel.z*c;
+        vlat=0.0f;
+        body.vel.x=s*vfwd+c*vlat;
+        body.vel.z=c*vfwd-s*vlat;
+    }
+
+    body.pos.x=seg.position.x+s*clampedFwd+c*clampedLat;
+    body.pos.z=seg.position.y+c*clampedFwd-s*clampedLat;
+
+    // Ceiling: stop the player's head passing through the roof mesh. Skipped
+    // during the arrival drop, when the player is deliberately above the level.
+    if(!skipCeiling){
+        float maxBodyY=std::max(seg.height-kEyeHeight-kHeadroom,0.0f);
+        if(body.pos.y>maxBodyY){ body.pos.y=maxBodyY; if(body.vel.y>0.0f) body.vel.y=0.0f; }
+    }
+
+    segIdx=useIdx;
 }
 
 class VhsRenderer {
@@ -299,7 +352,9 @@ public:
         cam.rollAngle+=(targetRoll-cam.rollAngle)*6.0f*dt;
     }
     void look(CameraState& cam,float dx,float dy,float sensitivity) noexcept {
-        cam.targetYaw  +=dx*sensitivity;
+        // Screen-right is (-cos(yaw),0,sin(yaw)) (gluLookAt side = forward x up),
+        // so increasing yaw swings the view LEFT. Drag-right must decrease yaw.
+        cam.targetYaw  -=dx*sensitivity;
         cam.targetPitch-=dy*sensitivity;
         cam.targetPitch=std::clamp(cam.targetPitch,-89.0f,89.0f);
     }
@@ -1110,6 +1165,7 @@ static omni::core::CameraState       gCamState;
 static omni::core::PhysicsBody       gPlayerBody;
 static omni::core::LevelGraph        gLevelGraph;
 static int                           gPlayerSegIdx=0;
+static bool                          gSpawnFalling=false;
 static omni::net::NetState           gNet;
 static omni::guard::GuardState       gGuard;
 static omni::entity::EntitySystem    gEntitySys;
@@ -1187,10 +1243,19 @@ Java_com_omni_backrooms_NativeBridge_generateLevel(JNIEnv* env, jobject, jint co
     if(!gCorridor) return nullptr;
     gLevelGraph=gCorridor->generate(count,depth);
     gPlayerSegIdx=0;
+    gSpawnFalling=false;
     if(!gLevelGraph.nodes.empty()){
-        const auto& first=gLevelGraph.nodes[0];
-        gPlayerBody.pos.x=first.position.x; gPlayerBody.pos.z=first.position.y;
+        // Random arrival point (never the exit segment), dropped in from above.
+        int last=static_cast<int>(gLevelGraph.nodes.size())-1;
+        int spawnIdx=(last>1)?(std::rand()%std::max(1,last)):0;
+        gPlayerSegIdx=spawnIdx;
+        const auto& sp=gLevelGraph.nodes[spawnIdx];
+        float mid=sp.length*0.5f;
+        gPlayerBody.pos.x=sp.position.x+std::sin(sp.heading)*mid;
+        gPlayerBody.pos.z=sp.position.y+std::cos(sp.heading)*mid;
+        gPlayerBody.pos.y=16.0f;
         gPlayerBody.vel={};
+        gSpawnFalling=true;
     }
     const int fpn=15;
     auto total=static_cast<jsize>(gLevelGraph.nodes.size()*fpn);
@@ -1246,7 +1311,8 @@ JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_physicsTick(JNIEnv*, jobject, jfloat dt) {
     if(!gPhysics) return;
     gPhysics->update(gPlayerBody,dt);
-    omni::core::resolveCorridorCollision(gLevelGraph,gPlayerSegIdx,gPlayerBody);
+    omni::core::resolveCorridorCollision(gLevelGraph,gPlayerSegIdx,gPlayerBody,gSpawnFalling);
+    if(gSpawnFalling&&gPlayerBody.onGround) gSpawnFalling=false;
     if(gCamera) gCamera->update(gCamState,gPlayerBody,dt,1.0f);
 }
 
@@ -1254,13 +1320,14 @@ JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_applyMovement(JNIEnv*, jobject, jfloat fx, jfloat fy, jfloat fz) {
     if(!gPhysics) return;
     // fx = joystick right/strafe axis, fz = joystick forward axis (input space).
-    // Rotate into world space by the camera's current yaw so movement is always
-    // relative to where the player is looking, matching the heading convention
-    // used by the corridor generator (forward = (sin(yaw), cos(yaw))).
+    // forward = (sin(yaw), cos(yaw)); right = forward x up = (-cos(yaw), sin(yaw)).
     float yawRad=gCamState.yaw*0.017453293f;
     float s=std::sin(yawRad), c=std::cos(yawRad);
-    float wx= fx*c+fz*s;
-    float wz=-fx*s+fz*c;
+    float wx=-fx*c+fz*s;
+    float wz= fx*s+fz*c;
+    // Upward impulses only from the ground: without this the player could jump
+    // again every frame while airborne and climb straight through the ceiling.
+    if(fy>0.0f && !gPlayerBody.onGround) fy=0.0f;
     gPhysics->applyForce(gPlayerBody,{wx,fy,wz});
 }
 
