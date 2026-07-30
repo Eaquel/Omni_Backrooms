@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.util.Log
 import android.graphics.Bitmap
 import android.os.Binder
 import android.os.Build
@@ -311,7 +312,7 @@ data class GameState(
     val isEscaped         : Boolean = false,
     val camera            : CameraSnapshot?      = null,
     val entities          : List<EntityState>    = emptyList(),
-    val levelSegments     : List<LevelSegment>    = emptyList(),
+    val grid              : GridLevelData = GridLevelData.EMPTY,
     val exitX             : Float   = 0f,
     val exitZ             : Float   = 0f,
     val distanceToExit    : Float   = Float.MAX_VALUE,
@@ -366,56 +367,6 @@ data class CameraSnapshot(
         fun fromFloatArray(data: FloatArray?): CameraSnapshot? {
             if (data == null || data.size < 9) return null
             return CameraSnapshot(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8])
-        }
-    }
-}
-
-data class LevelSegment(
-    val posX         : Float,
-    val posY         : Float,
-    val width        : Float,
-    val length       : Float,
-    val height       : Float,
-    val heading      : Float,
-    val lightPhase   : Float,
-    val lightIntensity: Float,
-    val lightSpeed   : Float,
-    val lightBroken  : Boolean,
-    val roomType     : Int,
-    val wallDamage   : Float,
-    val moisture     : Float,
-    val hasHazard    : Boolean,
-    val decalCount   : Int
-) {
-    /** World-space point at the far end of this corridor piece. */
-    val endX: Float get() = posX + kotlin.math.sin(heading) * length
-    val endZ: Float get() = posY + kotlin.math.cos(heading) * length
-
-    /** World-space point at a given fraction (0..1) along this segment's length. */
-    fun pointAt(t: Float, lateral: Float = 0f): Pair<Float, Float> {
-        val s = kotlin.math.sin(heading); val c = kotlin.math.cos(heading)
-        val fwd = length * t.coerceIn(0f, 1f)
-        return (posX + s * fwd + c * lateral) to (posY + c * fwd - s * lateral)
-    }
-
-    companion object {
-        const val FLOATS_PER_NODE = 15
-
-        fun fromFloatArray(data: FloatArray, index: Int): LevelSegment? {
-            val base = index * FLOATS_PER_NODE
-            if (base + (FLOATS_PER_NODE - 1) >= data.size) return null
-            return LevelSegment(
-                data[base], data[base+1], data[base+2], data[base+3], data[base+4], data[base+5],
-                data[base+6], data[base+7], data[base+8], data[base+9] > 0.5f,
-                data[base+10].toInt(), data[base+11], data[base+12],
-                data[base+13] > 0.5f, data[base+14].toInt()
-            )
-        }
-
-        fun listFromFloatArray(data: FloatArray?): List<LevelSegment> {
-            if (data == null || data.isEmpty()) return emptyList()
-            val count = data.size / FLOATS_PER_NODE
-            return (0 until count).mapNotNull { fromFloatArray(data, it) }
         }
     }
 }
@@ -517,32 +468,29 @@ class RoomRepository @Inject constructor(private val api: ApiService) {
 // in the whole app.
 // ============================================================================
 
-/** A random point inside a random corridor segment, biased away from the
- *  first couple of segments so the player isn't ambushed standing at spawn. */
-private fun pickAmbushSafeSpawnPoint(segments: List<LevelSegment>): Pair<Float, Float>? {
-    if (segments.isEmpty()) return null
-    val idx = (2 + (Math.random() * (segments.size - 2).coerceAtLeast(1))).toInt().coerceIn(0, segments.lastIndex)
-    val seg = segments[idx]
-    val lateral = (Math.random().toFloat() * 2f - 1f) * (seg.width * 0.35f)
-    return seg.pointAt(Math.random().toFloat(), lateral)
+/** A random walkable cell, kept a minimum distance from the player's arrival
+ *  point so nothing is standing on top of them the moment they land. */
+private fun pickOpenPoint(grid: GridLevelData, minDistFromSpawn: Float): Pair<Float, Float>? {
+    if (grid.isEmpty) return null
+    repeat(200) {
+        val cx = (Math.random() * grid.dim).toInt().coerceIn(0, grid.dim - 1)
+        val cz = (Math.random() * grid.dim).toInt().coerceIn(0, grid.dim - 1)
+        if (grid.isSolid(cx, cz)) return@repeat
+        val wx = grid.worldX(cx) + grid.cellSize * 0.5f
+        val wz = grid.worldZ(cz) + grid.cellSize * 0.5f
+        val dx = wx - grid.spawnX; val dz = wz - grid.spawnZ
+        if (dx * dx + dz * dz >= minDistFromSpawn * minDistFromSpawn) return wx to wz
+    }
+    return null
 }
 
-/** A random point inside any corridor segment, for the periodic re-spawner
- *  where ambush-safety no longer matters once the player is already moving. */
-private fun pickRandomSpawnPoint(segments: List<LevelSegment>): Pair<Float, Float>? {
-    if (segments.isEmpty()) return null
-    val seg = segments[(Math.random() * segments.size).toInt().coerceIn(0, segments.lastIndex)]
-    val lateral = (Math.random().toFloat() * 2f - 1f) * (seg.width * 0.35f)
-    return seg.pointAt(Math.random().toFloat(), lateral)
-}
-
-/** Spawns cfg.count entities across the level's real corridors, cycling
+/** Spawns cfg.count entities across the level's real walkable space, cycling
  *  through every lore creature with its correct native AI id. */
-fun spawnInitialEntities(bridge: NativeBridge, segments: List<LevelSegment>, cfg: SpawnConfig) {
-    if (segments.isEmpty()) return
+fun spawnInitialEntities(bridge: NativeBridge, grid: GridLevelData, cfg: SpawnConfig) {
+    if (grid.isEmpty) return
     repeat(cfg.count) { i ->
         val entity = EntityType.entries[i % EntityType.entries.size]
-        val (sx, sz) = pickAmbushSafeSpawnPoint(segments) ?: return@repeat
+        val (sx, sz) = pickOpenPoint(grid, minDistFromSpawn = 22f) ?: return@repeat
         bridge.spawnEntity(
             x = sx, y = 0f, z = sz,
             speed = entity.baseSpeed * cfg.speedMult,
@@ -554,8 +502,8 @@ fun spawnInitialEntities(bridge: NativeBridge, segments: List<LevelSegment>, cfg
 }
 
 /** One periodic re-spawn, used by both hosts' entity-spawner loop. */
-fun spawnOneRandomEntity(bridge: NativeBridge, segments: List<LevelSegment>, cfg: SpawnConfig) {
-    val (sx, sz) = pickRandomSpawnPoint(segments) ?: return
+fun spawnOneRandomEntity(bridge: NativeBridge, grid: GridLevelData, cfg: SpawnConfig) {
+    val (sx, sz) = pickOpenPoint(grid, minDistFromSpawn = 14f) ?: return
     val entity = EntityType.entries[(Math.random() * EntityType.entries.size).toInt().coerceIn(0, EntityType.entries.lastIndex)]
     bridge.spawnEntity(
         x = sx, y = 0f, z = sz,
@@ -665,7 +613,7 @@ class SessionService : Service() {
     private var kills      = 0
     /** Segments for the currently loaded level, kept alongside gameState the same
      *  way GameVM keeps its own copy (see stepSimulation/spawnInitialEntities). */
-    private var segments: List<LevelSegment> = emptyList()
+    private var grid: GridLevelData = GridLevelData.EMPTY
 
     companion object {
         private const val CHANNEL_ID    = "omni_session"
@@ -741,16 +689,15 @@ class SessionService : Service() {
             bridge.setHumVolume(0.3f)
             bridge.setSpatialRolloff(1f, 40f)
 
-            val nodeCount = if (difficulty == "hard") 60 else 40
-            val levelDepth = mapId.substringAfterLast('_').toIntOrNull() ?: 0
-            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = levelDepth))
-            val exit = segments.lastOrNull()
+            // Level 0 always — there is deliberately no map selection anywhere.
+            val roomBudget = if (difficulty == "hard") 180 else 130
+            grid = GridLevelData.parse(bridge.generateLevel(roomBudget, depth = 0))
 
             val cfg = assetManager.getSpawnConfig(difficulty)
-            spawnInitialEntities(bridge, segments, cfg)
+            spawnInitialEntities(bridge, grid, cfg)
             _gameState.value = GameState(
-                seed = seed, difficulty = difficulty, isOnline = false, mapId = mapId,
-                levelSegments = segments, exitX = exit?.endX ?: 0f, exitZ = exit?.endZ ?: 0f
+                seed = seed, difficulty = difficulty, isOnline = false, mapId = "level_0",
+                grid = grid, exitX = grid.exitX, exitZ = grid.exitZ
             )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
@@ -768,15 +715,14 @@ class SessionService : Service() {
             bridge.initSocket(0)
             bridge.setLocalId((Math.random() * Int.MAX_VALUE).toInt())
 
-            val nodeCount = if (difficulty == "hard") 60 else 40
-            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = 0))
-            val exit = segments.lastOrNull()
+            val roomBudget = if (difficulty == "hard") 180 else 130
+            grid = GridLevelData.parse(bridge.generateLevel(roomBudget, depth = 0))
 
             val cfg = assetManager.getSpawnConfig(difficulty)
-            spawnInitialEntities(bridge, segments, cfg)
+            spawnInitialEntities(bridge, grid, cfg)
             _gameState.value = GameState(
                 seed = seed, difficulty = difficulty, isOnline = true,
-                levelSegments = segments, exitX = exit?.endX ?: 0f, exitZ = exit?.endZ ?: 0f
+                grid = grid, exitX = grid.exitX, exitZ = grid.exitZ
             )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
@@ -809,9 +755,9 @@ class SessionService : Service() {
             var timer = 0L
             while (isActive) {
                 delay(5_000); timer += 5_000
-                if (timer >= cfg.spawnIntervalMs && segments.isNotEmpty()) {
+                if (timer >= cfg.spawnIntervalMs && !grid.isEmpty) {
                     timer = 0
-                    spawnOneRandomEntity(bridge, segments, cfg)
+                    spawnOneRandomEntity(bridge, grid, cfg)
                 }
             }
         }
@@ -1491,5 +1437,189 @@ class SaveGameStore @Inject constructor(@ApplicationContext private val ctx: Con
 
     suspend fun clear() {
         runCatching { ctx.identityStore.edit { it.remove(key) } }
+    }
+}
+
+
+// ============================================================================
+// Diagnostics. Everything notable the app does gets appended to a ring buffer
+// in memory and mirrored into Documents/OmniBackrooms/, so when something goes
+// wrong the file explains *why* rather than just showing a stack trace with no
+// surrounding context.
+// ============================================================================
+
+object OmniLog {
+
+    enum class Level { DEBUG, INFO, WARN, ERROR }
+
+    private const val TAG = "OmniBackrooms"
+    private const val RING_CAPACITY = 400
+    private val ring = ArrayDeque<String>(RING_CAPACITY)
+    private val lock = Any()
+    private val stamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    @Volatile private var sink: java.io.File? = null
+
+    /** Points the logger at app-private storage first (always writable, no
+     *  permission needed) so nothing is lost even if the public Documents copy
+     *  fails on a given device. */
+    fun attach(ctx: Context) {
+        runCatching {
+            val dir = java.io.File(ctx.filesDir, "diagnostics").apply { if (!exists()) mkdirs() }
+            sink = java.io.File(dir, "session.log")
+            // Keep the private log from growing without bound across launches.
+            sink?.let { if (it.exists() && it.length() > 512 * 1024) it.delete() }
+        }
+        i("Log", "attached; app-private sink=${sink?.absolutePath}")
+    }
+
+    fun d(tag: String, msg: String) = write(Level.DEBUG, tag, msg, null)
+    fun i(tag: String, msg: String) = write(Level.INFO,  tag, msg, null)
+    fun w(tag: String, msg: String, t: Throwable? = null) = write(Level.WARN, tag, msg, t)
+    fun e(tag: String, msg: String, t: Throwable? = null) = write(Level.ERROR, tag, msg, t)
+
+    private fun write(level: Level, tag: String, msg: String, t: Throwable?) {
+        val line = buildString {
+            append(stamp.format(java.util.Date())); append(' ')
+            append(level.name.first()); append('/')
+            append(tag); append(": "); append(msg)
+            if (t != null) {
+                append('\n')
+                append(java.io.StringWriter().also { sw -> t.printStackTrace(java.io.PrintWriter(sw)) })
+            }
+        }
+        synchronized(lock) {
+            if (ring.size >= RING_CAPACITY) ring.removeFirst()
+            ring.addLast(line)
+        }
+        when (level) {
+            Level.DEBUG -> Log.d(TAG, "[$tag] $msg")
+            Level.INFO  -> Log.i(TAG, "[$tag] $msg")
+            Level.WARN  -> Log.w(TAG, "[$tag] $msg", t)
+            Level.ERROR -> Log.e(TAG, "[$tag] $msg", t)
+        }
+        // Crashlytics keeps the same breadcrumbs, so remote reports carry the
+        // identical context as the on-device file.
+        runCatching { FirebaseCrashlytics.getInstance().log(line) }
+        runCatching { sink?.appendText(line + "\n") }
+    }
+
+    /** The recent history, newest last — this is what gets attached to a crash
+     *  report so the lines leading up to the failure are visible. */
+    fun recentHistory(): String = synchronized(lock) { ring.joinToString("\n") }
+
+    fun clearRing() = synchronized(lock) { ring.clear() }
+}
+
+
+/** Parsed Level 0 occupancy grid. Replaces the old corridor-segment list: a
+ *  grid can't have seams between pieces, so there is nowhere left for the
+ *  player to fall out of the world. */
+class GridLevelData(
+    val dim      : Int,
+    val cellSize : Float,
+    val height   : Float,
+    val spawnX   : Float,
+    val spawnZ   : Float,
+    val exitX    : Float,
+    val exitZ    : Float,
+    private val solid  : ByteArray,
+    private val zone   : ByteArray,
+    private val feature: ByteArray
+) {
+    fun isSolid(x: Int, z: Int): Boolean =
+        if (x < 0 || z < 0 || x >= dim || z >= dim) true else solid[z * dim + x] != 0.toByte()
+
+    fun zoneAt(x: Int, z: Int): Int =
+        if (x < 0 || z < 0 || x >= dim || z >= dim) 0 else zone[z * dim + x].toInt()
+
+    fun featureAt(x: Int, z: Int): Int =
+        if (x < 0 || z < 0 || x >= dim || z >= dim) 0 else feature[z * dim + x].toInt()
+
+    fun worldX(cx: Int): Float = (cx - dim * 0.5f) * cellSize
+    fun worldZ(cz: Int): Float = (cz - dim * 0.5f) * cellSize
+
+    val isEmpty: Boolean get() = dim <= 0
+
+    companion object {
+        const val HEADER_FLOATS = 8
+        const val FLOATS_PER_CELL = 3
+
+        val EMPTY = GridLevelData(0, 3.2f, 3f, 0f, 0f, 0f, 0f, ByteArray(0), ByteArray(0), ByteArray(0))
+
+        fun parse(data: FloatArray?): GridLevelData {
+            if (data == null || data.size < HEADER_FLOATS) return EMPTY
+            val dim = data[0].toInt()
+            val cells = dim * dim
+            if (dim <= 0 || data.size < HEADER_FLOATS + cells * FLOATS_PER_CELL) return EMPTY
+            val solid = ByteArray(cells)
+            val zone = ByteArray(cells)
+            val feature = ByteArray(cells)
+            var p = HEADER_FLOATS
+            for (i in 0 until cells) {
+                solid[i]   = data[p].toInt().toByte()
+                zone[i]    = data[p + 1].toInt().toByte()
+                feature[i] = data[p + 2].toInt().toByte()
+                p += FLOATS_PER_CELL
+            }
+            return GridLevelData(
+                dim = dim, cellSize = data[1], height = data[2],
+                spawnX = data[3], spawnZ = data[4], exitX = data[5], exitZ = data[6],
+                solid = solid, zone = zone, feature = feature
+            )
+        }
+    }
+}
+
+
+/** Cosmetic + personal-best storage. Deliberately local-only: none of this
+ *  affects gameplay, so it needs no server round-trip and keeps working offline.
+ *  Lives in the same identity store as the guest account, so wiping the guest
+ *  also wipes their cosmetics — which is the behaviour we want. */
+@Singleton
+class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Context) {
+
+    private object Keys {
+        val AVATAR_URI   = stringPreferencesKey("avatar_uri")
+        val FRAME        = stringPreferencesKey("frame")
+        val OWNED_FRAMES = stringPreferencesKey("owned_frames")
+        val BEST_SURVIVAL= longPreferencesKey("best_survival_ms")
+    }
+
+    fun observeAvatarUri(): Flow<String?> = ctx.identityStore.data.map { it[Keys.AVATAR_URI] }
+    fun observeFrame(): Flow<String> = ctx.identityStore.data.map { it[Keys.FRAME] ?: "default" }
+    fun observeBestSurvival(): Flow<Long> = ctx.identityStore.data.map { it[Keys.BEST_SURVIVAL] ?: 0L }
+
+    fun observeOwnedFrames(): Flow<List<String>> = ctx.identityStore.data.map { prefs ->
+        prefs[Keys.OWNED_FRAMES]?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
+    }
+
+    suspend fun setAvatarUri(uri: String) {
+        runCatching { ctx.identityStore.edit { it[Keys.AVATAR_URI] = uri } }
+    }
+
+    suspend fun setFrame(key: String) {
+        runCatching { ctx.identityStore.edit { it[Keys.FRAME] = key } }
+    }
+
+    suspend fun grantFrame(key: String) {
+        runCatching {
+            ctx.identityStore.edit { prefs ->
+                val cur = prefs[Keys.OWNED_FRAMES]?.split(',')?.filter { it.isNotBlank() }?.toMutableSet()
+                    ?: mutableSetOf()
+                cur.add(key)
+                prefs[Keys.OWNED_FRAMES] = cur.joinToString(",")
+            }
+        }
+    }
+
+    /** Only writes when the new run actually beats the record. */
+    suspend fun recordSurvival(ms: Long) {
+        runCatching {
+            ctx.identityStore.edit { prefs ->
+                val best = prefs[Keys.BEST_SURVIVAL] ?: 0L
+                if (ms > best) prefs[Keys.BEST_SURVIVAL] = ms
+            }
+        }
     }
 }

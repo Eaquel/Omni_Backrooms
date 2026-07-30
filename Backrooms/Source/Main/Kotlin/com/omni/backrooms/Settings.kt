@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -690,19 +691,47 @@ private fun GameplayTab(
     onFpsLimit  : (Int) -> Unit
 ) {
     SettingsSection(stringResource(R.string.settings_color_blind))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("none" to "Yok", "deuteranopia" to "D.", "protanopia" to "P.", "tritanopia" to "T.").forEach { (key, label) ->
+    val cbOptions = listOf(
+        Triple("none",          R.string.cb_none,          R.string.cb_none_desc),
+        Triple("deuteranopia",  R.string.cb_deuteranopia,  R.string.cb_deuteranopia_desc),
+        Triple("protanopia",    R.string.cb_protanopia,    R.string.cb_protanopia_desc),
+        Triple("tritanopia",    R.string.cb_tritanopia,    R.string.cb_tritanopia_desc)
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        cbOptions.forEach { (key, titleRes, descRes) ->
             val sel   = s.colorBlindMode == key
-            val scale by animateFloatAsState(if (sel) 1.05f else 1f, spring(), label = "cb_$key")
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.scale(scale)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(if (sel) Yellow.copy(0.15f) else MetalBg)
-                    .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
+            val scale by animateFloatAsState(if (sel) 1.01f else 1f, spring(), label = "cb_$key")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .scale(scale)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (sel) Yellow.copy(0.12f) else MetalBg)
+                    .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(4.dp))
                     .clickable { onColorBlind(key) }
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            ) { Text(label, color = if (sel) Yellow else TextDim, fontSize = 10.sp) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                // Radio indicator drawn in code so it matches the rest of the UI.
+                androidx.compose.foundation.Canvas(Modifier.size(16.dp)) {
+                    val r = size.minDimension / 2f
+                    drawCircle(if (sel) Yellow else TextDim, radius = r * 0.9f, center = center, style = Stroke(1.5f))
+                    if (sel) drawCircle(Yellow, radius = r * 0.45f, center = center)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(titleRes),
+                        color = if (sel) Yellow else TextSec,
+                        fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        stringResource(descRes),
+                        color = TextDim, fontSize = 10.sp, lineHeight = 14.sp
+                    )
+                }
+            }
         }
     }
     Spacer(Modifier.height(8.dp))

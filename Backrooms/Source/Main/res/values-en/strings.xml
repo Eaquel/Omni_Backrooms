@@ -200,4 +200,26 @@
 
     <string name="notif_channel_session">Omni Backrooms Game Session</string>
 
+    <string name="cb_none">Off</string>
+    <string name="cb_none_desc">Colors are shown unmodified</string>
+    <string name="cb_deuteranopia">Deuteranopia (Green-Blind)</string>
+    <string name="cb_deuteranopia_desc">Most common type. Red and green tones blend together — warning colors shift to blue/orange</string>
+    <string name="cb_protanopia">Protanopia (Red-Blind)</string>
+    <string name="cb_protanopia_desc">Reds appear washed out — danger cues use a blue/orange axis instead</string>
+    <string name="cb_tritanopia">Tritanopia (Blue-Yellow-Blind)</string>
+    <string name="cb_tritanopia_desc">Rare type. Blue and yellow are hard to tell apart — contrast moves to a red/green axis</string>
+    <string name="perm_notif_title">Allow Notifications</string>
+    <string name="perm_notif_body">Notifications are used for session reminders, season announcements and friend invites. The game works completely normally if you decline.</string>
+    <string name="perm_allow">Allow</string>
+    <string name="perm_later">Not Now</string>
+    <string name="profile_frame">Frame</string>
+    <string name="profile_change_photo">Change Photo</string>
+    <string name="profile_best_survival">Best Survival</string>
+    <string name="profile_frame_locked">Unlocked in the market or through events</string>
+    <string name="market_tab_frames">Frames</string>
+    <string name="market_tab_looks">Looks</string>
+    <string name="market_tab_trails">Trails</string>
+    <string name="market_cosmetic_note">Nothing here grants a gameplay advantage — it is all cosmetic.</string>
+    <string name="market_owned">Owned</string>
+    <string name="market_equipped">Equipped</string>
 </resources>

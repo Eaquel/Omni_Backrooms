@@ -203,4 +203,26 @@
     <string name="notif_push_toggle">Anlık Bildirimler</string>
     <string name="notif_info_text">Bildirimler, yeni sezonlar ve özel etkinlikler için gönderilir.</string>
 
+    <string name="cb_none">Kapalı</string>
+    <string name="cb_none_desc">Renkler olduğu gibi gösterilir</string>
+    <string name="cb_deuteranopia">Döteranopi (Yeşil Körlüğü)</string>
+    <string name="cb_deuteranopia_desc">En yaygın tür. Kırmızı ve yeşil tonları birbirine karışır — uyarı renkleri mavi/turuncuya kaydırılır</string>
+    <string name="cb_protanopia">Protanopi (Kırmızı Körlüğü)</string>
+    <string name="cb_protanopia_desc">Kırmızı tonlar soluk görünür — tehlike göstergeleri mavi/turuncu eksende gösterilir</string>
+    <string name="cb_tritanopia">Tritanopi (Mavi-Sarı Körlüğü)</string>
+    <string name="cb_tritanopia_desc">Nadir tür. Mavi ve sarı ayırt edilemez — kontrast kırmızı/yeşil eksene taşınır</string>
+    <string name="perm_notif_title">Bildirimlere İzin Ver</string>
+    <string name="perm_notif_body">Oturum hatırlatmaları, sezon duyuruları ve arkadaş davetleri için bildirim izni gerekiyor. İstemezsen oyun tamamen normal çalışmaya devam eder.</string>
+    <string name="perm_allow">İzin Ver</string>
+    <string name="perm_later">Şimdi Değil</string>
+    <string name="profile_frame">Çerçeve</string>
+    <string name="profile_change_photo">Fotoğrafı Değiştir</string>
+    <string name="profile_best_survival">En Yüksek Hayatta Kalma</string>
+    <string name="profile_frame_locked">Bu çerçeve markette veya etkinliklerde açılır</string>
+    <string name="market_tab_frames">Çerçeveler</string>
+    <string name="market_tab_looks">Görünüm</string>
+    <string name="market_tab_trails">İzler</string>
+    <string name="market_cosmetic_note">Buradaki hiçbir ürün oyun içi avantaj sağlamaz — tamamı görsel.</string>
+    <string name="market_owned">Sahipsin</string>
+    <string name="market_equipped">Takılı</string>
 </resources>

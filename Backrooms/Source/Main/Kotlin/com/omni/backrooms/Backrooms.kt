@@ -10,6 +10,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import kotlinx.coroutines.withContext
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -41,6 +52,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -166,8 +178,12 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        OmniLog.attach(this)
         installCrashLogger()
-        System.loadLibrary("il2cpp")
+        OmniLog.i("App", "onCreate device=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} sdk=${android.os.Build.VERSION.SDK_INT}")
+        runCatching { System.loadLibrary("il2cpp") }
+            .onFailure { OmniLog.e("App", "native library load FAILED", it) }
+            .onSuccess { OmniLog.i("App", "native library loaded") }
         appScope.launch(Dispatchers.IO) {
             val bridge = NativeBridge()
             bridge.initGuard(applicationContext, BuildConfig.EXPECTED_SIG_HASH)
@@ -202,6 +218,9 @@ class App : Application() {
             appendLine("abi     : ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
             appendLine("thread  : ${thread.name}")
             appendLine()
+            appendLine("----- recent log (oldest first) -----")
+            appendLine(OmniLog.recentHistory())
+            appendLine("----- stack trace -----")
             appendLine(java.io.StringWriter().also { sw ->
                 error.printStackTrace(java.io.PrintWriter(sw))
             }.toString())
@@ -353,6 +372,7 @@ fun OmniBackroomsApp() {
         if (BuildConfig.ENABLE_GUARD && guardReport.threatLevel >= ThreatLevel.HIGH) showGuardDialog = true
     }
     MaterialTheme(colorScheme = darkColorScheme()) {
+        NotificationPermissionGate()
         if (showGuardDialog) {
             AlertDialog(
                 onDismissRequest = { showGuardDialog = false },
@@ -702,13 +722,39 @@ class GuardManager @Inject constructor(
         val hook      = detectHooking()
         val memTamper = detectMemoryTampering()
         val reportStr = bridge.getThreatReport()
-        val level     = when {
-            frida || debugged || hook          -> ThreatLevel.CRITICAL
+
+        // Log every individual signal, always. Previously a warning appeared with
+        // no way to tell which check caused it.
+        OmniLog.i(
+            "Guard",
+            "scan flags=0x${Integer.toHexString(flags)} rooted=$rooted frida=$frida " +
+            "debugged=$debugged emulator=$emulator sigCheckOn=$sigCheckOn sigValid=$sigValid " +
+            "hook=$hook memTamper=$memTamper native='$reportStr'"
+        )
+
+        // `debugged` is deliberately NOT a threat: it trips on ordinary retail
+        // devices whenever a debugger could attach (developer options enabled,
+        // some vendor ROMs), and it used to escalate to CRITICAL — which killed
+        // the process outright. It stays in the log as an observation only.
+        val level = when {
+            frida || hook                       -> ThreatLevel.CRITICAL
             rooted || (sigCheckOn && !sigValid) -> ThreatLevel.HIGH
             memTamper                           -> ThreatLevel.HIGH
             emulator                            -> ThreatLevel.SUSPICIOUS
             flags != 0                          -> ThreatLevel.SUSPICIOUS
             else                                -> ThreatLevel.CLEAN
+        }
+        if (level != ThreatLevel.CLEAN) {
+            val reasons = buildList {
+                if (frida) add("frida")
+                if (hook) add("hook")
+                if (rooted) add("root")
+                if (sigCheckOn && !sigValid) add("signature")
+                if (memTamper) add("memory")
+                if (emulator) add("emulator")
+                if (flags != 0) add("nativeFlags=0x${Integer.toHexString(flags)}")
+            }
+            OmniLog.w("Guard", "threat level=$level reasons=${reasons.joinToString(",")}")
         }
         _report.value = GuardReport(flags, rooted, frida, debugged, emulator, sigValid, hook, memTamper, reportStr, level)
         if (level != ThreatLevel.CLEAN) _threatEvent.tryEmit(level)
@@ -774,10 +820,13 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
     fun verifySignature(): Boolean = guardManager.verifyApkSignature()
 }
 
+/** Cosmetic-only storefront. There is deliberately no tab that sells power:
+ *  nothing purchasable may change HP, speed, stamina, sanity drain or spawn
+ *  rates, so buying is never a shortcut past the game. */
 enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
-    Boosts    (R.string.market_tab_boosts,     Icons.Default.Bolt),
-    Characters(R.string.market_tab_characters, Icons.Default.Person),
-    Soulium   (R.string.market_tab_soulium,    Icons.Default.AutoAwesome),
+    Frames    (R.string.market_tab_frames,     Icons.Default.CropSquare),
+    Looks     (R.string.market_tab_looks,      Icons.Default.Person),
+    Trails    (R.string.market_tab_trails,     Icons.Default.AutoAwesome),
     Vip       (R.string.market_tab_vip,        Icons.Default.Star),
     Daily     (R.string.market_tab_daily,      Icons.Default.LocalOffer)
 }
@@ -799,7 +848,7 @@ data class MarketUiState(
     val error       : String?             = null,
     val purchasing  : String?             = null,
     val successMsg  : String?             = null,
-    val tab         : MarketTab           = MarketTab.Boosts,
+    val tab         : MarketTab           = MarketTab.Frames,
     val omniumBal   : Long                = 0L,
     val souliumBal  : Long                = 0L,
     val isVip       : Boolean             = false,
@@ -819,7 +868,7 @@ class MarketVM @Inject constructor(
     private val _state = MutableStateFlow(MarketUiState())
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
 
-    init { loadTab(MarketTab.Boosts); loadDaily(); loadProfile() }
+    init { loadTab(MarketTab.Frames); loadDaily(); loadProfile() }
 
     private fun loadProfile() {
         viewModelScope.launch {
@@ -831,7 +880,7 @@ class MarketVM @Inject constructor(
 
     fun setTab(tab: MarketTab) {
         _state.update { it.copy(tab = tab) }
-        when (tab) { MarketTab.Characters -> loadCharacters(); MarketTab.Daily -> return; else -> loadTab(tab) }
+        when (tab) { MarketTab.Looks -> loadCharacters(); MarketTab.Daily -> return; else -> loadTab(tab) }
     }
 
     private fun loadTab(tab: MarketTab) {
@@ -909,19 +958,26 @@ class MarketVM @Inject constructor(
         }
     }
 
+    /** Offline catalogue. Every entry is purely visual by design — no stat
+     *  changes, no consumables, nothing that alters difficulty. */
     private fun fallbackItems(tab: MarketTab): List<MarketItemDto> = when (tab) {
-        MarketTab.Boosts -> listOf(
-            MarketItemDto("boost_hp","HP Boost","HP Boost","Anında HP yenileme","Instant HP restore","boosts",150,"soulium",null,false,false,false,null),
-            MarketItemDto("boost_stamina","Stamina Boost","Stamina Boost","Sonsuz koşma","Infinite sprint","boosts",200,"soulium",null,false,false,false,null)
+        MarketTab.Frames -> listOf(
+            MarketItemDto("frame_gold","Altın Çerçeve","Gold Frame","Profil fotoğrafını saran altın halka","A gold ring around your avatar","frames",450,"soulium",null,false,false,false,null),
+            MarketItemDto("frame_soulium","Soulium Çerçeve","Soulium Frame","Mor kristal düğümlü çerçeve","Frame studded with violet crystal","frames",900,"soulium",null,false,false,false,null),
+            MarketItemDto("frame_omnium","Omnium Çerçeve","Omnium Frame","Dönen camgöbeği yay","Rotating cyan arc","frames",1_400,"omnium",null,false,false,false,null)
+        )
+        MarketTab.Trails -> listOf(
+            MarketItemDto("trail_dust","Toz İzi","Dust Trail","Arkanda asılı kalan ince toz","Fine dust hanging behind you","trails",600,"soulium",null,false,false,false,null),
+            MarketItemDto("trail_static","Statik İz","Static Trail","VHS parazit izi","VHS static wake","trails",750,"soulium",null,false,false,false,null)
         )
         MarketTab.Vip -> listOf(
-            MarketItemDto("vip_month","VIP Ay","VIP Month","30 Günlük VIP","30-Day VIP","vip",29_900,"tl",null,false,false,true,null)
+            MarketItemDto("vip_month","VIP Ay","VIP Month","Özel çerçeveler, isim rengi ve rozet — oyun içi avantaj yok","Exclusive frames, name color and a badge — no gameplay advantage","vip",29_900,"tl",null,false,false,true,null)
         )
         else -> emptyList()
     }
 
     private fun fallbackDaily(): List<MarketItemDto> = listOf(
-        MarketItemDto("daily_1","Günlük Paket","Daily Pack","Özel günlük fırsat","Special daily deal","daily",99,"soulium",null,false,false,true,null)
+        MarketItemDto("daily_frame","Günlük Çerçeve","Daily Frame","Bugüne özel görsel çerçeve","Today only cosmetic frame","daily",250,"soulium",null,false,false,true,null)
     )
 }
 
@@ -979,7 +1035,8 @@ class GameVM @Inject constructor(
     private val assetManager: AssetManager,
     private val settings    : SettingsRepository,
     private val api         : ApiService,
-    private val saveStore   : SaveGameStore
+    private val saveStore   : SaveGameStore,
+    private val cosmetics   : CosmeticsStore
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(GameState())
@@ -1006,9 +1063,9 @@ class GameVM @Inject constructor(
         const val MOVE_FORCE = 2_300f
     }
 
-    /** Segments for the currently loaded level; kept here (not just in GameState) so the
-     *  entity spawner can reuse them without depending on StateFlow emission timing. */
-    private var segments: List<LevelSegment> = emptyList()
+    /** Grid for the currently loaded level; kept here (not just in GameState) so the
+     *  entity spawner can reuse it without depending on StateFlow emission timing. */
+    private var grid: GridLevelData = GridLevelData.EMPTY
 
     fun startGame(difficulty: String = "normal", seed: Long = System.currentTimeMillis()) {
         if (started) return
@@ -1023,17 +1080,15 @@ class GameVM @Inject constructor(
             bridge.setSpatialRolloff(1f, 40f)
 
             // Level 0 always — there is deliberately no map selection.
-            val nodeCount = if (difficulty == "hard") 60 else 40
-            segments = LevelSegment.listFromFloatArray(bridge.generateLevel(nodeCount, depth = 0))
-            val exit = segments.lastOrNull()
-            val exitX = exit?.endX ?: 0f
-            val exitZ = exit?.endZ ?: 0f
+            val roomBudget = if (difficulty == "hard") 180 else 130
+            grid = GridLevelData.parse(bridge.generateLevel(roomBudget, depth = 0))
+            OmniLog.i("Game", "level dim=${grid.dim} cell=${grid.cellSize} exit=(${grid.exitX},${grid.exitZ})")
 
             val cfg = assetManager.getSpawnConfig(difficulty)
-            spawnInitialEntities(bridge, segments, cfg)
+            spawnInitialEntities(bridge, grid, cfg)
             _state.value = GameState(
                 seed = seed, difficulty = difficulty, mapId = "level_0",
-                levelSegments = segments, exitX = exitX, exitZ = exitZ,
+                grid = grid, exitX = grid.exitX, exitZ = grid.exitZ,
                 spawnPhase = SpawnPhase.FALLING
             )
             startPhysicsLoop(sensitivity)
@@ -1088,9 +1143,9 @@ class GameVM @Inject constructor(
             var timer = 0L
             while (isActive) {
                 delay(5_000); timer += 5_000
-                if (timer >= cfg.spawnIntervalMs && segments.isNotEmpty()) {
+                if (timer >= cfg.spawnIntervalMs && !grid.isEmpty) {
                     timer = 0
-                    spawnOneRandomEntity(bridge, segments, cfg)
+                    spawnOneRandomEntity(bridge, grid, cfg)
                 }
             }
         }
@@ -1209,6 +1264,8 @@ class GameVM @Inject constructor(
             // The run is over, so a stale snapshot must not linger behind
             // "Continue".
             runCatching { saveStore.clear() }
+            // Personal best is only meaningful for a completed run.
+            runCatching { cosmetics.recordSurvival(elapsedMs) }
             val s = _state.value
             runCatching {
                 api.submitScore(ScoreSubmitRequest(s.level, score, if (s.isEscaped) 1 else 0, s.difficulty, elapsedMs, kills))
@@ -1243,10 +1300,40 @@ class LeaderboardVM @Inject constructor(private val api: ApiService) : ViewModel
 }
 
 @HiltViewModel
-class ProfileVM @Inject constructor(private val api: ApiService) : ViewModel() {
+class ProfileVM @Inject constructor(
+    private val api      : ApiService,
+    private val cosmetics: CosmeticsStore,
+    private val identity : GuestIdentityManager
+) : ViewModel() {
     private val _profile = MutableStateFlow(PlayerProfile())
     val profile: StateFlow<PlayerProfile> = _profile.asStateFlow()
-    init { viewModelScope.launch { runCatching { api.getProfile() }.onSuccess { _profile.value = it } } }
+
+    val localAvatarUri : StateFlow<String?> = cosmetics.observeAvatarUri()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val equippedFrame  : StateFlow<String>  = cosmetics.observeFrame()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "default")
+    val bestSurvivalMs : StateFlow<Long>    = cosmetics.observeBestSurvival()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+    private var owned: List<String> = emptyList()
+
+    init {
+        viewModelScope.launch {
+            // Server profile is best-effort; a guest with no account still gets a
+            // usable name rather than the placeholder "Wanderer".
+            runCatching { api.getProfile() }
+                .onSuccess { _profile.value = it }
+                .onFailure { OmniLog.w("Profile", "getProfile failed, using local identity", it) }
+            if (_profile.value.name.isBlank() || _profile.value.name == "Wanderer") {
+                _profile.value = _profile.value.copy(name = identity.currentName())
+            }
+        }
+        viewModelScope.launch { cosmetics.observeOwnedFrames().collect { owned = it } }
+    }
+
+    fun ownedFrames(): List<String> = owned
+    fun setLocalAvatar(uri: String) { viewModelScope.launch { cosmetics.setAvatarUri(uri) } }
+    fun equipFrame(key: String)     { viewModelScope.launch { cosmetics.setFrame(key) } }
 }
 
 @Composable
@@ -1890,9 +1977,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             lastResScale = resScale
         }
 
-        val segKey = state.levelSegments.size * 73856093 xor (state.levelSegments.firstOrNull()?.posX?.hashCode() ?: 0)
-        if (state.levelSegments.isNotEmpty() && segKey != lastSegKey) {
-            uploadLevelMesh(state.levelSegments)
+        val g = state.grid
+        val segKey = g.dim * 73856093 xor g.spawnX.hashCode() xor g.exitZ.hashCode()
+        if (!g.isEmpty && segKey != lastSegKey) {
+            uploadLevelMesh(g)
             lastSegKey = segKey
         }
 
@@ -2077,69 +2165,127 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         else -> Triple(0.30f, 0.30f, 0.35f) // Faceling Dark
     }
 
-    private fun uploadLevelMesh(segments: List<LevelSegment>) {
+    /** Builds the level mesh from the occupancy grid. Two things this fixes over
+     *  the old segment mesh: walls are emitted only on open/solid boundaries, so
+     *  there is no seam anywhere for a black gap to show through; and UVs are
+     *  offset per cell from a hash, so the same small texture no longer reads as
+     *  one obviously repeating pattern across the whole floor. */
+    private fun uploadLevelMesh(g: GridLevelData) {
         val floorV = ArrayList<Float>(); val floorI = ArrayList<Int>(); var floorB = 0
         val wallV  = ArrayList<Float>(); val wallI  = ArrayList<Int>(); var wallB  = 0
         val roofV  = ArrayList<Float>(); val roofI  = ArrayList<Int>(); var roofB  = 0
-        val uvScale = 0.5f
 
         fun quad(
             verts: ArrayList<Float>, idx: ArrayList<Int>, base: Int,
             p0: FloatArray, p1: FloatArray, p2: FloatArray, p3: FloatArray,
-            n: FloatArray, light: Float, uTile: Float, vTile: Float
+            n: FloatArray, light: Float, u0: Float, v0: Float, u1: Float, v1: Float
         ): Int {
             val pts = arrayOf(p0, p1, p2, p3)
-            val uvs = floatArrayOf(0f,0f, uTile,0f, uTile,vTile, 0f,vTile)
+            val uvs = floatArrayOf(u0, v0, u1, v0, u1, v1, u0, v1)
             for (k in 0 until 4) {
                 verts.add(pts[k][0]); verts.add(pts[k][1]); verts.add(pts[k][2])
                 verts.add(n[0]); verts.add(n[1]); verts.add(n[2])
-                verts.add(uvs[k*2]); verts.add(uvs[k*2+1])
+                verts.add(uvs[k * 2]); verts.add(uvs[k * 2 + 1])
                 verts.add(light)
             }
-            idx.add(base); idx.add(base+1); idx.add(base+2)
-            idx.add(base); idx.add(base+2); idx.add(base+3)
+            idx.add(base); idx.add(base + 1); idx.add(base + 2)
+            idx.add(base); idx.add(base + 2); idx.add(base + 3)
             return base + 4
         }
 
-        for (seg in segments) {
-            val s = sin(seg.heading); val c = cos(seg.heading)
-            val rx = c; val rz = -s
-            val fxv = s; val fzv = c
-            val hw = seg.width * 0.5f
-            val light = seg.lightIntensity * (if (seg.lightBroken) 0.3f else 1f)
-            val uTile = seg.length * uvScale; val vTile = seg.width * uvScale
-            val hTile = seg.height * uvScale
-
-            val p00 = floatArrayOf(seg.posX-rx*hw,        0f,          seg.posY-rz*hw)
-            val p10 = floatArrayOf(seg.posX+rx*hw,        0f,          seg.posY+rz*hw)
-            val p11 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, 0f,  seg.posY+rz*hw+fzv*seg.length)
-            val p01 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, 0f,  seg.posY-rz*hw+fzv*seg.length)
-            floorB = quad(floorV, floorI, floorB, p00, p10, p11, p01, floatArrayOf(0f,1f,0f), light, vTile, uTile)
-
-            val q00 = floatArrayOf(seg.posX-rx*hw,        seg.height, seg.posY-rz*hw)
-            val q01 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, seg.height, seg.posY-rz*hw+fzv*seg.length)
-            val q11 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, seg.height, seg.posY+rz*hw+fzv*seg.length)
-            val q10 = floatArrayOf(seg.posX+rx*hw,        seg.height, seg.posY+rz*hw)
-            roofB = quad(roofV, roofI, roofB, q00, q01, q11, q10, floatArrayOf(0f,-1f,0f), light*1.3f, vTile, uTile)
-
-            val l0 = floatArrayOf(seg.posX-rx*hw, 0f, seg.posY-rz*hw)
-            val l1 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, 0f, seg.posY-rz*hw+fzv*seg.length)
-            val l2 = floatArrayOf(seg.posX-rx*hw+fxv*seg.length, seg.height, seg.posY-rz*hw+fzv*seg.length)
-            val l3 = floatArrayOf(seg.posX-rx*hw, seg.height, seg.posY-rz*hw)
-            wallB = quad(wallV, wallI, wallB, l0, l1, l2, l3, floatArrayOf(rx,0f,rz), light*0.8f, uTile, hTile)
-
-            val r0 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, 0f, seg.posY+rz*hw+fzv*seg.length)
-            val r1 = floatArrayOf(seg.posX+rx*hw, 0f, seg.posY+rz*hw)
-            val r2 = floatArrayOf(seg.posX+rx*hw, seg.height, seg.posY+rz*hw)
-            val r3 = floatArrayOf(seg.posX+rx*hw+fxv*seg.length, seg.height, seg.posY+rz*hw+fzv*seg.length)
-            wallB = quad(wallV, wallI, wallB, r0, r1, r2, r3, floatArrayOf(-rx,0f,-rz), light*0.8f, uTile, hTile)
+        // Per-cell UV jitter breaks up visible tiling without extra textures.
+        fun uvOffset(cx: Int, cz: Int): Pair<Float, Float> {
+            val h = (cx * 73856093) xor (cz * 19349663)
+            return ((h shr 3 and 3) * 0.25f) to ((h shr 7 and 3) * 0.25f)
         }
 
-        uploadMeshBuffers(floorVbo, floorIbo, floorV, floorI).also { floorCount = it }
-        uploadMeshBuffers(roofVbo,  roofIbo,  roofV,  roofI ).also { roofCount  = it }
-        uploadMeshBuffers(wallVbo,  wallIbo,  wallV,  wallI ).also { wallCount  = it }
-    }
+        // Lighting zone -> baked vertex brightness. Zone 0 is genuinely dark,
+        // so those stretches are only visible by flashlight.
+        fun zoneLight(z: Int): Float = when (z) {
+            0 -> 0.05f
+            1 -> 0.42f
+            2 -> 0.78f
+            else -> 1.05f
+        }
 
+        val cs = g.cellSize
+        val hgt = g.height
+        val tile = 1.0f   // one texture repeat per cell keeps texel density even
+
+        for (cz in 0 until g.dim) {
+            for (cx in 0 until g.dim) {
+                if (g.isSolid(cx, cz)) continue
+                val x0 = g.worldX(cx); val x1 = x0 + cs
+                val z0 = g.worldZ(cz); val z1 = z0 + cs
+                val lit = zoneLight(g.zoneAt(cx, cz))
+                val (uo, vo) = uvOffset(cx, cz)
+                val feature = g.featureAt(cx, cz)
+
+                // Floor (skipped for a hole feature, which becomes a pit)
+                if (feature != 4) {
+                    floorB = quad(
+                        floorV, floorI, floorB,
+                        floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
+                        floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
+                        floatArrayOf(0f, 1f, 0f), lit,
+                        uo, vo, uo + tile, vo + tile
+                    )
+                }
+
+                // Ceiling — a doorway threshold gets none, which reads as a gap
+                // in the ceiling grid and adds vertical variety.
+                if (feature != 1) {
+                    roofB = quad(
+                        roofV, roofI, roofB,
+                        floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
+                        floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
+                        floatArrayOf(0f, -1f, 0f), lit * 1.25f,
+                        uo, vo, uo + tile, vo + tile
+                    )
+                }
+
+                // Walls: one quad per solid neighbour, facing inward. Emitting
+                // only on boundaries is what removes the old black gaps.
+                val wallLit = lit * 0.85f
+                if (g.isSolid(cx - 1, cz)) {
+                    wallB = quad(
+                        wallV, wallI, wallB,
+                        floatArrayOf(x0, 0f, z1), floatArrayOf(x0, 0f, z0),
+                        floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
+                        floatArrayOf(1f, 0f, 0f), wallLit, uo, vo, uo + tile, vo + tile
+                    )
+                }
+                if (g.isSolid(cx + 1, cz)) {
+                    wallB = quad(
+                        wallV, wallI, wallB,
+                        floatArrayOf(x1, 0f, z0), floatArrayOf(x1, 0f, z1),
+                        floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
+                        floatArrayOf(-1f, 0f, 0f), wallLit, uo, vo, uo + tile, vo + tile
+                    )
+                }
+                if (g.isSolid(cx, cz - 1)) {
+                    wallB = quad(
+                        wallV, wallI, wallB,
+                        floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
+                        floatArrayOf(x1, hgt, z0), floatArrayOf(x0, hgt, z0),
+                        floatArrayOf(0f, 0f, 1f), wallLit, uo, vo, uo + tile, vo + tile
+                    )
+                }
+                if (g.isSolid(cx, cz + 1)) {
+                    wallB = quad(
+                        wallV, wallI, wallB,
+                        floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
+                        floatArrayOf(x0, hgt, z1), floatArrayOf(x1, hgt, z1),
+                        floatArrayOf(0f, 0f, -1f), wallLit, uo, vo, uo + tile, vo + tile
+                    )
+                }
+            }
+        }
+
+        floorCount = uploadMeshBuffers(floorVbo, floorIbo, floorV, floorI)
+        roofCount  = uploadMeshBuffers(roofVbo,  roofIbo,  roofV,  roofI)
+        wallCount  = uploadMeshBuffers(wallVbo,  wallIbo,  wallV,  wallI)
+    }
     private fun uploadMeshBuffers(vbo: Int, ibo: Int, verts: ArrayList<Float>, idx: ArrayList<Int>): Int {
         if (idx.isEmpty()) return 0
         val vArr = FloatArray(verts.size) { verts[it] }
@@ -2328,6 +2474,15 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                 }
                 if (s.isVip) VipBadge()
             }
+            // States the store's promise plainly, so nobody has to guess whether
+            // paying makes the game easier.
+            Text(
+                stringResource(R.string.market_cosmetic_note),
+                color = TextDim, fontSize = 9.sp, lineHeight = 12.sp,
+                modifier = Modifier.fillMaxWidth()
+                    .background(Color.Black.copy(0.35f))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
             DividerLine()
             ScrollableTabRow(
                 selectedTabIndex = MarketTab.entries.indexOf(s.tab),
@@ -2356,7 +2511,7 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
             DividerLine()
             Box(Modifier.weight(1f)) {
                 when (s.tab) {
-                    MarketTab.Characters -> {
+                    MarketTab.Looks -> {
                         if (s.charsLoading) Box(Modifier.fillMaxSize(), Alignment.Center) {
                             CircularProgressIndicator(color = Yellow, strokeWidth = 2.dp)
                         } else {
@@ -2549,19 +2704,363 @@ fun LeaderboardScreen(onBack: () -> Unit, vm: LeaderboardVM = hiltViewModel()) {
 @Composable
 fun ProfileScreen(onBack: () -> Unit, vm: ProfileVM = hiltViewModel()) {
     val profile by vm.profile.collectAsState()
+    val localAvatar by vm.localAvatarUri.collectAsState()
+    val equippedFrame by vm.equippedFrame.collectAsState()
+    val bestSurvivalMs by vm.bestSurvivalMs.collectAsState()
+    var showFramePicker by remember { mutableStateOf(false) }
+
+    // The modern photo picker needs no storage permission at all, which is both
+    // the Play-recommended approach and far less intrusive than READ_MEDIA_IMAGES.
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            vm.setLocalAvatar(uri.toString())
+            OmniLog.i("Profile", "avatar picked")
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(DarkBg)) {
         CrtScanlineOverlay(0f)
         Column(Modifier.fillMaxSize()) {
             TopBarBack(stringResource(R.string.menu_profile), onBack)
             DividerLine()
-            Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                PlayerCard(profile)
-                StatRow(stringResource(R.string.game_stat_kills), profile.totalGames.toString(), Yellow)
-                StatRow("Hayatta Kalma", profile.totalSurvived.toString(), SuccessGreen)
-                StatRow("En Yüksek Skor", formatCurrency(profile.highScore), OmniumCol)
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // --- Identity: framed avatar, name, level and XP -------------
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FramedAvatar(
+                        frame = equippedFrame,
+                        localUri = localAvatar,
+                        size = 84.dp,
+                        onClick = {
+                            photoPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            profile.name, color = Yellow, fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "${stringResource(R.string.player_level_prefix)}${profile.level}",
+                            color = CrtAmber, fontSize = 11.sp
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        // XP bar sits directly under the level, as requested.
+                        XpBar(progress = profile.xpProgress, xp = profile.xp, xpToNext = profile.xpToNext)
+                    }
+                }
+
+                DividerLine()
+
+                // --- The three things the profile actually shows -------------
+                ProfileActionRow(
+                    label = stringResource(R.string.profile_frame),
+                    value = frameDisplayName(equippedFrame),
+                    accent = SouliumCol,
+                    onClick = { showFramePicker = true }
+                ) { drawFrameGlyph(it) }
+
+                ProfileActionRow(
+                    label = stringResource(R.string.profile_change_photo),
+                    value = if (localAvatar != null) "✓" else "—",
+                    accent = OmniumCol,
+                    onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }
+                ) { drawCameraGlyph(it) }
+
+                ProfileActionRow(
+                    label = stringResource(R.string.profile_best_survival),
+                    value = formatDuration(bestSurvivalMs),
+                    accent = SuccessGreen,
+                    onClick = null
+                ) { drawStopwatchGlyph(it) }
             }
         }
+
+        if (showFramePicker) {
+            FramePickerSheet(
+                current = equippedFrame,
+                owned = vm.ownedFrames(),
+                onPick = { vm.equipFrame(it); showFramePicker = false },
+                onDismiss = { showFramePicker = false }
+            )
+        }
     }
+}
+
+/** Level progress bar. Drawn by hand for the same reason the HUD bars are:
+ *  Material's indicator inserts a gap and a stop cap that look broken here. */
+@Composable
+private fun XpBar(progress: Float, xp: Long, xpToNext: Long) {
+    val anim by animateFloatAsState(progress.coerceIn(0f, 1f), tween(400, easing = EaseOutCubic), label = "xp")
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(7.dp)) {
+            val r = size.height / 2f
+            val corner = androidx.compose.ui.geometry.CornerRadius(r)
+            drawRoundRect(MetalBg, size = size, cornerRadius = corner)
+            drawRoundRect(CrtAmber.copy(0.22f), size = size, cornerRadius = corner, style = Stroke(1f))
+            val w = size.width * anim
+            if (w > 0.5f) {
+                clipRect(right = w) {
+                    drawRoundRect(
+                        Brush.horizontalGradient(listOf(CrtAmber.copy(0.65f), CrtAmber)),
+                        size = size, cornerRadius = corner
+                    )
+                }
+            }
+        }
+        Text("$xp / $xpToNext XP", color = TextDim, fontSize = 9.sp)
+    }
+}
+
+/** Avatar with an equippable decorative frame drawn in code. */
+@Composable
+private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: () -> Unit) {
+    Box(Modifier.size(size).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val r = this.size.minDimension * 0.36f
+            drawCircle(Color.Black.copy(0.65f), radius = r, center = center)
+            // Silhouette placeholder; a picked photo is drawn over it below.
+            drawCircle(Yellow.copy(0.8f), radius = r * 0.30f, center = Offset(center.x, center.y - r * 0.22f))
+            val body = Path().apply {
+                moveTo(center.x - r * 0.48f, center.y + r * 0.60f)
+                cubicTo(
+                    center.x - r * 0.44f, center.y + r * 0.10f,
+                    center.x + r * 0.44f, center.y + r * 0.10f,
+                    center.x + r * 0.48f, center.y + r * 0.60f
+                )
+                close()
+            }
+            drawPath(body, Yellow.copy(0.8f))
+            drawFrameRing(frame, r)
+        }
+        // Decoded directly rather than via an image-loading library: it's one
+        // small avatar, so pulling in a whole dependency for it isn't warranted.
+        val ctx = LocalContext.current
+        val bmp by produceState<ImageBitmap?>(null, localUri) {
+            value = localUri?.let { uriStr ->
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        ctx.contentResolver.openInputStream(Uri.parse(uriStr))?.use { stream ->
+                            BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                        }
+                    }.getOrNull()
+                }
+            }
+        }
+        bmp?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(0.66f).clip(CircleShape)
+            )
+        }
+    }
+}
+
+/** Frame styles are pure decoration — deliberately no gameplay effect. */
+private fun DrawScope.drawFrameRing(frame: String, r: Float) {
+    val w = size.minDimension * 0.035f
+    when (frame) {
+        "gold" -> {
+            drawCircle(CrtAmber, radius = r * 1.16f, center = center, style = Stroke(w * 1.5f))
+            drawCircle(CrtAmber.copy(0.45f), radius = r * 1.28f, center = center, style = Stroke(w * 0.6f))
+        }
+        "soulium" -> {
+            drawCircle(SouliumCol, radius = r * 1.16f, center = center, style = Stroke(w * 1.3f))
+            for (i in 0 until 8) {
+                val a = (Math.PI * 2 / 8 * i).toFloat()
+                drawCircle(
+                    SouliumCol.copy(0.8f), radius = w * 0.9f,
+                    center = Offset(center.x + cos(a) * r * 1.30f, center.y + sin(a) * r * 1.30f)
+                )
+            }
+        }
+        "omnium" -> {
+            drawCircle(OmniumCol, radius = r * 1.16f, center = center, style = Stroke(w * 1.3f))
+            drawArc(
+                OmniumCol.copy(0.55f), -40f, 260f, false,
+                topLeft = Offset(center.x - r * 1.30f, center.y - r * 1.30f),
+                size = Size(r * 2.60f, r * 2.60f), style = Stroke(w * 0.7f)
+            )
+        }
+        "event" -> {
+            drawCircle(DangerRed.copy(0.85f), radius = r * 1.16f, center = center, style = Stroke(w * 1.4f))
+            for (i in 0 until 3) {
+                val a = (Math.PI * 2 / 3 * i - Math.PI / 2).toFloat()
+                val p = Path().apply {
+                    moveTo(center.x + cos(a) * r * 1.34f, center.y + sin(a) * r * 1.34f)
+                    lineTo(center.x + cos(a + 0.22f) * r * 1.16f, center.y + sin(a + 0.22f) * r * 1.16f)
+                    lineTo(center.x + cos(a - 0.22f) * r * 1.16f, center.y + sin(a - 0.22f) * r * 1.16f)
+                    close()
+                }
+                drawPath(p, DangerRed.copy(0.85f))
+            }
+        }
+        else -> drawCircle(BorderCol, radius = r * 1.14f, center = center, style = Stroke(w))
+    }
+}
+
+private fun DrawScope.drawFrameGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.07f
+    drawRoundRect(
+        c, topLeft = Offset(w * 0.18f, h * 0.18f), size = Size(w * 0.64f, h * 0.64f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f), style = Stroke(sw)
+    )
+    drawCircle(c.copy(0.6f), radius = w * 0.13f, center = center)
+}
+
+private fun DrawScope.drawCameraGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.065f
+    drawRoundRect(
+        c, topLeft = Offset(w * 0.14f, h * 0.30f), size = Size(w * 0.72f, h * 0.44f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.07f), style = Stroke(sw)
+    )
+    drawCircle(c, radius = w * 0.14f, center = Offset(w * 0.5f, h * 0.52f), style = Stroke(sw * 0.85f))
+    drawLine(c, Offset(w * 0.36f, h * 0.30f), Offset(w * 0.44f, h * 0.22f), strokeWidth = sw, cap = StrokeCap.Round)
+    drawLine(c, Offset(w * 0.64f, h * 0.30f), Offset(w * 0.56f, h * 0.22f), strokeWidth = sw, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawStopwatchGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.065f
+    drawCircle(c, radius = w * 0.30f, center = Offset(w * 0.5f, h * 0.56f), style = Stroke(sw))
+    drawLine(c, Offset(w * 0.5f, h * 0.56f), Offset(w * 0.5f, h * 0.36f), strokeWidth = sw, cap = StrokeCap.Round)
+    drawLine(c, Offset(w * 0.5f, h * 0.56f), Offset(w * 0.64f, h * 0.60f), strokeWidth = sw * 0.85f, cap = StrokeCap.Round)
+    drawLine(c, Offset(w * 0.42f, h * 0.20f), Offset(w * 0.58f, h * 0.20f), strokeWidth = sw, cap = StrokeCap.Round)
+}
+
+@Composable
+private fun ProfileActionRow(
+    label: String,
+    value: String,
+    accent: Color,
+    onClick: (() -> Unit)?,
+    glyph: DrawScope.(Color) -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed && onClick != null) 0.98f else 1f, spring(), label = "prow")
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(scale)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MetalBg)
+            .border(1.dp, accent.copy(0.35f), RoundedCornerShape(6.dp))
+            .then(
+                if (onClick != null) Modifier.clickable(interaction, indication = null, onClick = onClick)
+                else Modifier
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(22.dp)) { glyph(accent) }
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = TextSec, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Text(value, color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        if (onClick != null) {
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = accent.copy(0.55f), modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+@Composable
+private fun FramePickerSheet(
+    current: String,
+    owned: List<String>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val all = listOf("default", "gold", "soulium", "omnium", "event")
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.75f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null, onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(PanelBg)
+                .border(1.dp, YellowDim, RoundedCornerShape(14.dp))
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                stringResource(R.string.profile_frame),
+                color = Yellow, fontSize = 13.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 2.sp
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                all.forEach { f ->
+                    val unlocked = f == "default" || owned.contains(f)
+                    val sel = f == current
+                    Box(
+                        Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (sel) Yellow.copy(0.12f) else MetalBg)
+                            .border(1.dp, if (sel) Yellow else BorderCol, RoundedCornerShape(8.dp))
+                            .clickable(enabled = unlocked) { onPick(f) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(8.dp)) {
+                            drawFrameRing(f, size.minDimension * 0.28f)
+                            if (!unlocked) {
+                                drawLine(
+                                    TextDim, Offset(size.width * 0.2f, size.height * 0.8f),
+                                    Offset(size.width * 0.8f, size.height * 0.2f), strokeWidth = 2f
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Text(
+                stringResource(R.string.profile_frame_locked),
+                color = TextDim, fontSize = 9.sp, textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+private fun frameDisplayName(key: String): String = when (key) {
+    "gold" -> "Gold"
+    "soulium" -> "Soulium"
+    "omnium" -> "Omnium"
+    "event" -> "Event"
+    else -> "Default"
+}
+
+private fun formatDuration(ms: Long): String {
+    if (ms <= 0L) return "—"
+    val totalSec = ms / 1000
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s)
+    else String.format(Locale.US, "%02d:%02d", m, s)
 }
 
 @Composable
@@ -2609,15 +3108,41 @@ fun OmniPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.()
 
 @Composable
 fun StatusBar(label: String, progress: Float, color: Color) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, color = TextDim, fontSize = 9.sp, letterSpacing = 1.sp)
-        val animProgress by animateFloatAsState(progress.coerceIn(0f, 1f), tween(300), label = "status")
-        LinearProgressIndicator(
-            progress  = { animProgress },
-            modifier  = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(2.dp)),
-            color     = color,
-            trackColor = MetalBg
-        )
+    val animProgress by animateFloatAsState(
+        progress.coerceIn(0f, 1f),
+        tween(280, easing = EaseOutCubic),
+        label = "status"
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = TextDim, fontSize = 9.sp, letterSpacing = 1.sp)
+            Text("${(animProgress * 100).roundToInt()}", color = color.copy(0.75f), fontSize = 9.sp)
+        }
+        androidx.compose.foundation.Canvas(
+            Modifier.fillMaxWidth().height(6.dp)
+        ) {
+            val r = size.height / 2f
+            val corner = androidx.compose.ui.geometry.CornerRadius(r)
+            // Track
+            drawRoundRect(MetalBg, size = size, cornerRadius = corner)
+            drawRoundRect(
+                color.copy(0.20f), size = size, cornerRadius = corner,
+                style = Stroke(1f)
+            )
+            // Fill — a single continuous rounded rect, no gaps, no stop indicator.
+            val w = size.width * animProgress
+            if (w > 0.5f) {
+                clipRect(right = w) {
+                    drawRoundRect(color, size = size, cornerRadius = corner)
+                }
+                // Leading-edge glow so movement is readable at a glance.
+                drawCircle(
+                    color.copy(0.55f),
+                    radius = r * 1.15f,
+                    center = Offset(w.coerceIn(r, size.width - r), r)
+                )
+            }
+        }
     }
 }
 
@@ -2670,9 +3195,7 @@ fun GameHud(
         tween(500), label = "sanity_tint"
     )
     Box(Modifier.fillMaxSize()) {
-        // Full-screen look surface, laid out first so it sits behind every other
-        // control below; the joystick/buttons have their own pointerInput regions
-        // and claim touches within their bounds before this one sees them.
+        // Look surface first, so every control laid out after it takes priority.
         Box(
             Modifier
                 .fillMaxSize()
@@ -2684,49 +3207,176 @@ fun GameHud(
                 }
         )
         if (sanityTint != Color.Transparent) Box(Modifier.fillMaxSize().background(sanityTint))
+
+        // --- Top-left: vitals only. HP is gone; these three are the ones the
+        // player can actually act on. ---------------------------------------
         Column(
-            Modifier.align(Alignment.TopStart).padding(16.dp).width(160.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 14.dp).width(150.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            StatusBar(stringResource(R.string.game_hud_sanity),  gameState.sanity / 100f,                     SouliumCol)
-            StatusBar(stringResource(R.string.game_hud_stamina), gameState.stamina / gameState.staminaMax,    SuccessGreen)
-            StatusBar(stringResource(R.string.game_hud_battery), gameState.flashlightBattery,                 CrtAmber)
+            StatusBar(stringResource(R.string.game_hud_sanity),  gameState.sanity / 100f,                  SouliumCol)
+            StatusBar(stringResource(R.string.game_hud_stamina), gameState.stamina / gameState.staminaMax, SuccessGreen)
+            StatusBar(stringResource(R.string.game_hud_battery), gameState.flashlightBattery,              CrtAmber)
         }
+
+        // --- Top-right: session readouts and pause -------------------------
         Row(
-            Modifier.align(Alignment.TopEnd).padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.align(Alignment.TopEnd).padding(end = 10.dp, top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment     = Alignment.CenterVertically
         ) {
-            if (gameState.showPing) HudBadge("${gameState.entitiesNearby * 3 + 12} ms", SuccessGreen)
-            if (gameState.showFps)  HudBadge("60 FPS", Yellow)
-            IconButton(onClick = onPause, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.Pause, null, tint = Yellow.copy(0.7f))
+            HudBadge(formatDuration(gameState.sessionElapsed), TextSec)
+            if (gameState.entitiesNearby > 0) {
+                HudBadge("◉ ${gameState.entitiesNearby}", DangerRed)
             }
+            if (gameState.showPing) HudBadge("${gameState.entitiesNearby * 3 + 12} ms", SuccessGreen)
+            if (gameState.showFps)  HudBadge("60", Yellow)
+            IconGlyphButton(34.dp, Yellow.copy(0.8f), onClick = onPause) { drawPauseGlyph(it) }
         }
+
+        // --- Exit proximity prompt -----------------------------------------
         androidx.compose.animation.AnimatedVisibility(
             visible = canEscape,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 58.dp),
             enter = fadeIn(), exit = fadeOut()
         ) {
             HudBadge(stringResource(R.string.game_hud_exit_near), SuccessGreen)
         }
-        Row(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 16.dp, start = 16.dp, end = 16.dp),
-            Arrangement.SpaceBetween,
-            Alignment.Bottom
-        ) {
+
+        // --- Bottom-left: movement ------------------------------------------
+        Box(Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 22.dp)) {
             VirtualJoystick(Modifier.size(140.dp), onMove = { dx, dy -> onMove(dx, 0f, -dy) })
+        }
+
+        // --- Bottom-right: actions, arranged as a thumb-reachable cluster ---
+        // Jump sits highest and interact closest to the thumb, since interact is
+        // the most-used action and jump the least.
+        Box(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 18.dp)) {
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                HudIconButton(Icons.Default.FlashlightOn,    CrtAmber, onFlash)
-                HudIconButton(Icons.Default.NearMe,          if (canEscape) SuccessGreen else TextSec, onInteract)
-                HudIconButton(Icons.Default.KeyboardArrowUp, Yellow,   onJump)
-                HudIconButton(Icons.Default.ArrowDownward,   TextSec,  onCrouch)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HudActionButton(46.dp, TextSec, onCrouch) { drawCrouchGlyph(it) }
+                    HudActionButton(46.dp, Yellow,  onJump)   { drawJumpGlyph(it) }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    HudActionButton(
+                        52.dp,
+                        if (gameState.flashlightOn) CrtAmber else TextDim,
+                        onFlash
+                    ) { drawFlashlightGlyph(it) }
+                    HudActionButton(
+                        62.dp,
+                        if (canEscape) SuccessGreen else TextSec,
+                        onInteract,
+                        emphasised = canEscape
+                    ) { drawInteractGlyph(it) }
+                }
             }
         }
     }
+}
+
+/** Round in-game action button. Larger and higher-contrast than the menu glyph
+ *  buttons because it has to be hit reliably while something is chasing you. */
+@Composable
+private fun HudActionButton(
+    size: Dp,
+    accent: Color,
+    onClick: () -> Unit,
+    emphasised: Boolean = false,
+    glyph: DrawScope.(Color) -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.86f else 1f, spring(), label = "hudBtn")
+    val inf = rememberInfiniteTransition(label = "hudPulse")
+    val pulse by inf.animateFloat(
+        0.45f, 0.9f,
+        infiniteRepeatable(tween(1200, easing = EaseInOut), RepeatMode.Reverse),
+        "hudPulseV"
+    )
+    val ringAlpha = if (emphasised) pulse else 0.5f
+    Box(
+        Modifier
+            .size(size)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .background(Color.Black.copy(0.5f))
+            .border(1.5.dp, accent.copy(ringAlpha), CircleShape)
+            .clickable(interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(size * 0.24f)) { glyph(accent) }
+    }
+}
+
+private fun DrawScope.drawPauseGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val barW = w * 0.18f
+    drawRoundRect(c, topLeft = Offset(w * 0.28f - barW / 2, h * 0.18f), size = Size(barW, h * 0.64f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.3f))
+    drawRoundRect(c, topLeft = Offset(w * 0.72f - barW / 2, h * 0.18f), size = Size(barW, h * 0.64f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.3f))
+}
+
+private fun DrawScope.drawFlashlightGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.09f
+    // Torch body
+    val body = Path().apply {
+        moveTo(w * 0.38f, h * 0.16f); lineTo(w * 0.62f, h * 0.16f)
+        lineTo(w * 0.58f, h * 0.44f); lineTo(w * 0.42f, h * 0.44f); close()
+    }
+    drawPath(body, c, style = Stroke(sw))
+    // Beam
+    val beam = Path().apply {
+        moveTo(w * 0.42f, h * 0.46f); lineTo(w * 0.58f, h * 0.46f)
+        lineTo(w * 0.80f, h * 0.92f); lineTo(w * 0.20f, h * 0.92f); close()
+    }
+    drawPath(beam, c.copy(0.28f))
+    drawPath(beam, c.copy(0.8f), style = Stroke(sw * 0.7f))
+}
+
+private fun DrawScope.drawInteractGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.085f
+    // A hand reaching out — reads as "use" better than a generic arrow.
+    drawRoundRect(
+        c, topLeft = Offset(w * 0.34f, h * 0.42f), size = Size(w * 0.32f, h * 0.40f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.10f), style = Stroke(sw)
+    )
+    for (i in 0 until 3) {
+        val x = w * (0.40f + i * 0.10f)
+        drawLine(c, Offset(x, h * 0.42f), Offset(x, h * 0.20f), strokeWidth = sw * 0.9f, cap = StrokeCap.Round)
+    }
+    drawLine(c, Offset(w * 0.34f, h * 0.56f), Offset(w * 0.20f, h * 0.48f), strokeWidth = sw * 0.9f, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawJumpGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.10f
+    drawLine(c, Offset(w * 0.5f, h * 0.78f), Offset(w * 0.5f, h * 0.26f), strokeWidth = sw, cap = StrokeCap.Round)
+    val head = Path().apply {
+        moveTo(w * 0.5f, h * 0.14f); lineTo(w * 0.72f, h * 0.40f); lineTo(w * 0.28f, h * 0.40f); close()
+    }
+    drawPath(head, c)
+    drawLine(c.copy(0.45f), Offset(w * 0.26f, h * 0.88f), Offset(w * 0.74f, h * 0.88f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawCrouchGlyph(c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.10f
+    drawLine(c, Offset(w * 0.5f, h * 0.22f), Offset(w * 0.5f, h * 0.74f), strokeWidth = sw, cap = StrokeCap.Round)
+    val head = Path().apply {
+        moveTo(w * 0.5f, h * 0.86f); lineTo(w * 0.72f, h * 0.60f); lineTo(w * 0.28f, h * 0.60f); close()
+    }
+    drawPath(head, c)
+    drawLine(c.copy(0.45f), Offset(w * 0.26f, h * 0.12f), Offset(w * 0.74f, h * 0.12f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
 }
 
 @Composable
@@ -2734,21 +3384,6 @@ private fun HudBadge(text: String, color: Color) {
     Box(
         Modifier.clip(RoundedCornerShape(2.dp)).background(MetalBg.copy(0.8f)).padding(horizontal = 6.dp, vertical = 3.dp)
     ) { Text(text, color = color, fontSize = 10.sp) }
-}
-
-@Composable
-private fun HudIconButton(icon: ImageVector, tint: Color, onClick: () -> Unit) {
-    val interSrc  = remember { MutableInteractionSource() }
-    val isPressed by interSrc.collectIsPressedAsState()
-    val scale     by animateFloatAsState(if (isPressed) 0.92f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "hud_btn")
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(60.dp).scale(scale)
-            .clip(RoundedCornerShape(4.dp))
-            .background(MetalBg.copy(0.75f))
-            .border(1.dp, tint.copy(0.4f), RoundedCornerShape(4.dp))
-            .clickable(interactionSource = interSrc, indication = null, onClick = onClick)
-    ) { Icon(icon, null, tint = tint, modifier = Modifier.size(28.dp)) }
 }
 
 @Composable
@@ -3588,5 +4223,60 @@ private fun OfflineChoiceDialog(
                 enabled = true
             )
         }
+    }
+}
+
+
+/** Asks for POST_NOTIFICATIONS the way Play's 2026 guidance expects: only on
+ *  Android 13+, with a plain-language rationale shown *before* the system
+ *  dialog, and with a graceful path when the user declines. The permission was
+ *  declared in the manifest but never requested, so on modern devices no
+ *  notification could ever appear. */
+@Composable
+fun NotificationPermissionGate() {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
+
+    val ctx = LocalContext.current
+    var showRationale by remember { mutableStateOf(false) }
+    var resolved by remember { mutableStateOf(false) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        resolved = true
+        OmniLog.i("Perm", "POST_NOTIFICATIONS granted=$granted")
+    }
+
+    LaunchedEffect(Unit) {
+        val already = ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (already) {
+            resolved = true
+            OmniLog.i("Perm", "POST_NOTIFICATIONS already granted")
+        } else {
+            showRationale = true
+        }
+    }
+
+    if (showRationale && !resolved) {
+        AlertDialog(
+            onDismissRequest = { showRationale = false; resolved = true },
+            title = { Text(stringResource(R.string.perm_notif_title), color = Yellow) },
+            text  = { Text(stringResource(R.string.perm_notif_body), color = TextSec, fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRationale = false
+                    launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }) { Text(stringResource(R.string.perm_allow), color = SuccessGreen) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showRationale = false; resolved = true
+                    OmniLog.i("Perm", "POST_NOTIFICATIONS rationale declined")
+                }) { Text(stringResource(R.string.perm_later), color = TextDim) }
+            },
+            containerColor = PanelBg
+        )
     }
 }
