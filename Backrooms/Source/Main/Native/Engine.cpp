@@ -1363,6 +1363,20 @@ static void recvLoop() {
     }
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_omni_backrooms_NativeBridge_setPlayerState(JNIEnv*, jobject, jfloat x, jfloat y, jfloat z, jfloat yaw, jfloat pitch) {
+    // Used when resuming a saved run: generateLevel() always drops the player at
+    // a fresh random cell, so a resume has to put them back afterwards.
+    gPlayerBody.pos = {x, y, z};
+    gPlayerBody.vel = {};
+    gPlayerBody.onGround = true;
+    gPrevPos = gPlayerBody.pos;
+    gSpawnFalling = false;
+    gCamState.yaw = yaw;  gCamState.targetYaw = yaw;
+    gCamState.pitch = pitch; gCamState.targetPitch = pitch;
+    LOGI_C("Player state restored (%.2f, %.2f, %.2f) yaw=%.1f", x, y, z, yaw);
+}
+
 extern "C" {
 
 JNIEXPORT void JNICALL

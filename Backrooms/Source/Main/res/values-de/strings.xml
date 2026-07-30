@@ -211,4 +211,13 @@
     <string name="story_codex_exit">DER AUSGANG</string>
     <string name="story_codex_exit_body">Jeder Durchgang platziert den Ausgang am weitesten Punkt von deiner Landestelle. Bei Annäherung erscheint ein Hinweis; die Aktionstaste bringt dich hinaus.</string>
     <string name="story_chapters_header">KAPITEL</string>
+    <string name="settings_tab_language">Sprache</string>
+    <string name="room_server_unavailable">Server nicht erreichbar. Der Online-Modus ist noch nicht aktiv — du kannst offline spielen.</string>
+    <string name="market_tab_characters_new">Charaktere</string>
+    <string name="char_preview_title">Charaktervorschau</string>
+    <string name="char_preview_rotate">Zum Drehen ziehen</string>
+    <string name="char_preview_equip">Ausrüsten</string>
+    <string name="char_preview_equipped">Ausgerüstet</string>
+    <string name="char_anim_idle">Ruhe</string>
+    <string name="char_anim_walk">Gehen</string>
 </resources>

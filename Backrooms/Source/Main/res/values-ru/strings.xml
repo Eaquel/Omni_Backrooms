@@ -211,4 +211,13 @@
     <string name="story_codex_exit">ВЫХОД</string>
     <string name="story_codex_exit_body">В каждом забеге выход размещается в самой далёкой точке от места приземления. При приближении появится подсказка; кнопка действия выводит наружу.</string>
     <string name="story_chapters_header">ГЛАВЫ</string>
+    <string name="settings_tab_language">Язык</string>
+    <string name="room_server_unavailable">Не удаётся связаться с сервером. Онлайн-режим ещё не запущен — можно играть офлайн.</string>
+    <string name="market_tab_characters_new">Персонажи</string>
+    <string name="char_preview_title">Просмотр персонажа</string>
+    <string name="char_preview_rotate">Тяните, чтобы повернуть</string>
+    <string name="char_preview_equip">Экипировать</string>
+    <string name="char_preview_equipped">Экипировано</string>
+    <string name="char_anim_idle">Покой</string>
+    <string name="char_anim_walk">Ходьба</string>
 </resources>

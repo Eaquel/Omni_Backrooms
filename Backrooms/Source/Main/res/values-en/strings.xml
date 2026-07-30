@@ -238,4 +238,13 @@
     <string name="story_codex_exit">THE EXIT</string>
     <string name="story_codex_exit_body">Every run places the exit at the furthest point from where you landed. A prompt appears once you are close; the interact button gets you out.</string>
     <string name="story_chapters_header">CHAPTERS</string>
+    <string name="settings_tab_language">Language</string>
+    <string name="room_server_unavailable">Cannot reach the server. Online mode is not live yet — you can play offline.</string>
+    <string name="market_tab_characters_new">Characters</string>
+    <string name="char_preview_title">Character Preview</string>
+    <string name="char_preview_rotate">Drag to rotate</string>
+    <string name="char_preview_equip">Equip</string>
+    <string name="char_preview_equipped">Equipped</string>
+    <string name="char_anim_idle">Idle</string>
+    <string name="char_anim_walk">Walk</string>
 </resources>

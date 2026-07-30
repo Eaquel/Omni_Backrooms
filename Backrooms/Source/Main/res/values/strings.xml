@@ -241,4 +241,13 @@
     <string name="story_codex_exit">ÇIKIŞ</string>
     <string name="story_codex_exit_body">Her koşuda çıkış, doğduğunuz noktadan en uzak konuma yerleştirilir. Yakınına vardığınızda ekranda uyarı çıkar; etkileşim tuşuyla kaçabilirsiniz.</string>
     <string name="story_chapters_header">BÖLÜMLER</string>
+    <string name="settings_tab_language">Dil</string>
+    <string name="room_server_unavailable">Sunucuya ulaşılamıyor. Çevrimiçi mod için sunucu henüz yayında değil — çevrimdışı oynayabilirsin.</string>
+    <string name="market_tab_characters_new">Karakterler</string>
+    <string name="char_preview_title">Karakter İncelemesi</string>
+    <string name="char_preview_rotate">Döndürmek için sürükle</string>
+    <string name="char_preview_equip">Kuşan</string>
+    <string name="char_preview_equipped">Kuşanıldı</string>
+    <string name="char_anim_idle">Bekleme</string>
+    <string name="char_anim_walk">Yürüyüş</string>
 </resources>

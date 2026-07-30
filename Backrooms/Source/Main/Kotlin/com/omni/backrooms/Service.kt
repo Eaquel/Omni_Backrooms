@@ -89,6 +89,7 @@ class NativeBridge @Inject constructor() {
     external fun getMoistureAt(x: Float, y: Float): Float
     external fun applyVhs(bitmap: Bitmap, t: Float, intensity: Float): Boolean
     external fun applyFlicker(bitmap: Bitmap, value: Float)
+    external fun setPlayerState(x: Float, y: Float, z: Float, yaw: Float, pitch: Float)
     external fun physicsTick(dt: Float)
     external fun applyMovement(fx: Float, fy: Float, fz: Float)
     external fun cameraLook(dx: Float, dy: Float, sensitivity: Float)
@@ -888,8 +889,9 @@ data class CreateRoomUiState(
     val passwordEnabled : Boolean = false,
     val password        : String  = "",
     val passwordError   : Int?    = null,
+    val errorRes        : Int?    = null,
     val mapId           : String  = "level_0",
-    val language        : String  = "TR",
+    val language        : String  = java.util.Locale.getDefault().language.uppercase(),
     val isCreating      : Boolean = false,
     val createdRoomId   : String? = null,
     val error           : String? = null
@@ -964,7 +966,13 @@ class CreateRoomVM @Inject constructor(private val repo: RoomRepository) : ViewM
             _state.update { it.copy(isCreating = true) }
             runCatching { repo.createRoom(s.name, s.size, s.difficulty, if (s.passwordEnabled) s.password else null) }
                 .onSuccess { id -> _state.update { it.copy(isCreating = false, createdRoomId = id) } }
-                .onFailure { e  -> _state.update { it.copy(isCreating = false, error = e.message) } }
+                .onFailure { e ->
+                    // The multiplayer backend isn't deployed yet, so this always
+                    // fails with a raw network error. Surface something a player
+                    // can act on instead of "Unable to resolve host".
+                    OmniLog.w("Room", "createRoom failed", e)
+                    _state.update { it.copy(isCreating = false, errorRes = R.string.room_server_unavailable, error = null) }
+                }
         }
     }
 
@@ -1103,17 +1111,32 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
 
                 DifficultySelector(s.difficulty, vm::onDifficulty)
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("TR","EN","DE","RU").forEach { l ->
-                        val sel = s.language == l
+                // All five supported languages, derived from AppLanguage so this
+                // can never drift out of step with the rest of the app again.
+                // Tighter spacing and smaller type keeps five chips on one row.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    AppLanguage.entries.forEach { lang ->
+                        val code = lang.tag.uppercase()
+                        val sel = s.language.equals(code, ignoreCase = true)
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.weight(1f).height(34.dp)
-                                .clip(RoundedCornerShape(2.dp))
+                                .clip(RoundedCornerShape(4.dp))
                                 .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
-                                .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-                                .clickable { vm.onLanguage(l) }
-                        ) { Text(l, color = if (sel) Yellow else TextDim, fontSize = 11.sp) }
+                                .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(4.dp))
+                                .clickable { vm.onLanguage(code) }
+                        ) {
+                            Text(
+                                code,
+                                color = if (sel) Yellow else TextDim,
+                                fontSize = 10.sp,
+                                fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
 
@@ -1141,6 +1164,12 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
                     )
                 }
 
+                s.errorRes?.let {
+                    Text(
+                        stringResource(it), color = DangerRed, fontSize = 11.sp,
+                        lineHeight = 15.sp, textAlign = TextAlign.Center
+                    )
+                }
                 s.error?.let { Text(it, color = DangerRed, fontSize = 11.sp) }
 
                 AtmosphericButton(
@@ -1423,7 +1452,14 @@ data class SavedRun(
     val sanity      : Float,
     val battery     : Float,
     val playerHp    : Float,
-    val savedAtMs   : Long
+    val savedAtMs   : Long,
+    // Exact position and facing. Without these a resume restored the stats but
+    // re-dropped the player at a fresh random spawn cell.
+    val posX        : Float = 0f,
+    val posY        : Float = 1.7f,
+    val posZ        : Float = 0f,
+    val yaw         : Float = 0f,
+    val pitch       : Float = 0f
 )
 
 @Singleton

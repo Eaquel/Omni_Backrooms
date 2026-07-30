@@ -418,7 +418,8 @@ private enum class SettingsTab(val labelRes: Int, val icon: ImageVector) {
     Controls    (R.string.settings_tab_controls,  Icons.Default.SportsEsports),
     Account     (R.string.settings_tab_account,   Icons.Default.AccountCircle),
     Gameplay    (R.string.settings_tab_gameplay,  Icons.Default.Tune),
-    Notif       (R.string.settings_tab_notif,     Icons.Default.Notifications)
+    Notif       (R.string.settings_tab_notif,     Icons.Default.Notifications),
+    Language    (R.string.settings_tab_language,  Icons.Default.Language)
 }
 
 @Composable
@@ -499,9 +500,10 @@ fun SettingsScreen(
                         2 -> ControlsTab(s, vm::onSensitivity, onUiEditor)
                         3 -> AccountTab(s, vm::onName, { activity?.let { a -> vm.signInWithGoogle(a) } }, vm::signOutGoogle, vm::syncToServer, vm::resetDefaults)
                         4 -> GameplayTab(s, vm::onColorBlind, vm::onFpsLimit)
-                        5 -> {
+                        5 -> NotifTab(s, vm::onPushNotif)
+                        6 -> {
                             val lang by vm.languageSelection.collectAsState()
-                            NotifTab(s, vm::onPushNotif, lang, vm::onLanguage)
+                            LanguageSection(current = lang, onSelect = vm::onLanguage)
                         }
                     }
                 }
@@ -795,12 +797,7 @@ private fun GameplayTab(
 }
 
 @Composable
-private fun NotifTab(
-    s: SettingsUiState,
-    onPush: (Boolean) -> Unit,
-    languageSelection: String = AppLanguage.SYSTEM,
-    onLanguage: (String) -> Unit = {}
-) {
+private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
     val ctx = LocalContext.current
     // The in-app toggle used to be a purely local preference defaulting to on,
     // so declining the system prompt still showed notifications as enabled.
@@ -868,8 +865,6 @@ private fun NotifTab(
         Icon(Icons.Default.Info, null, tint = TextDim, modifier = Modifier.size(14.dp))
         Text(stringResource(R.string.notif_info_text), color = TextDim, fontSize = 11.sp, lineHeight = 16.sp)
     }
-    Spacer(Modifier.height(16.dp))
-    LanguageSection(current = languageSelection, onSelect = onLanguage)
 }
 
 @Composable

@@ -895,19 +895,30 @@ data class MarketUiState(
     val characters  : List<CharacterDto>  = emptyList(),
     val selectedChar: CharacterDto?       = null,
     val charsLoading: Boolean             = false,
-    val equipping   : String?             = null
+    val equipping   : String?             = null,
+    /** Locally-owned item ids, so cards can show "Owned" immediately after a
+     *  purchase without waiting on a server round-trip. */
+    val ownedIds    : Set<String>         = emptySet()
 )
 
 @HiltViewModel
 class MarketVM @Inject constructor(
     private val api         : ApiService,
     private val assetManager: AssetManager,
+    private val cosmetics   : CosmeticsStore,
     @ApplicationContext private val appCtx: Context
 ) : ViewModel() {
     private val _state = MutableStateFlow(MarketUiState())
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
 
-    init { loadTab(MarketTab.Frames); loadDaily(); loadProfile() }
+    init {
+        loadTab(MarketTab.Frames); loadDaily(); loadProfile()
+        viewModelScope.launch {
+            cosmetics.observeOwnedFrames().collect { frames ->
+                _state.update { it.copy(ownedIds = frames.map { f -> "frame_$f" }.toSet()) }
+            }
+        }
+    }
 
     private fun loadProfile() {
         viewModelScope.launch {
@@ -968,20 +979,55 @@ class MarketVM @Inject constructor(
     fun buy(item: MarketItemDto) {
         viewModelScope.launch {
             _state.update { it.copy(purchasing = item.id, confirmItem = null) }
+
+            // Grant locally first. Cosmetics are client-side by design and
+            // everything is free in this phase, so a purchase must succeed even
+            // with no server reachable — previously the item was never unlocked
+            // because the only path went through an API that isn't running yet.
+            grantLocally(item)
+
+            // Then tell the server, best-effort. A failure here is logged but
+            // must not undo what the player already owns.
             runCatching { api.buyItem(BuyRequest(item.id, item.currency)) }
                 .onSuccess { r ->
                     _state.update {
                         it.copy(
-                            purchasing  = null,
-                            successMsg  = "Satın alındı!",
-                            omniumBal   = if (item.currency == "omnium") r.newBalance else it.omniumBal,
-                            souliumBal  = if (item.currency == "soulium") r.newBalance else it.souliumBal
+                            omniumBal  = if (item.currency == "omnium") r.newBalance else it.omniumBal,
+                            souliumBal = if (item.currency == "soulium") r.newBalance else it.souliumBal
                         )
                     }
-                    logPurchaseAnalytics(item)
                 }
-                .onFailure { e -> _state.update { it.copy(purchasing = null, error = e.message) } }
+                .onFailure { e -> OmniLog.w("Market", "server sync failed for ${item.id}", e) }
+
+            _state.update {
+                it.copy(
+                    purchasing = null,
+                    ownedIds   = it.ownedIds + item.id,
+                    successMsg = item.id
+                )
+            }
+            logPurchaseAnalytics(item)
         }
+    }
+
+    /** Applies the purchase client-side: frames become equippable (and are
+     *  equipped straight away, which is what a player expects after buying one),
+     *  and the privileges bundle unlocks every cosmetic at once. */
+    private suspend fun grantLocally(item: MarketItemDto) {
+        runCatching {
+            when {
+                item.id.startsWith("frame_") -> {
+                    val key = item.id.removePrefix("frame_")
+                    cosmetics.grantFrame(key)
+                    cosmetics.setFrame(key)
+                }
+                item.id.startsWith("priv_") || item.category == "vip" -> {
+                    listOf("gold", "soulium", "omnium", "event").forEach { cosmetics.grantFrame(it) }
+                }
+                item.id == "daily_frame" -> cosmetics.grantFrame("event")
+                else -> Unit
+            }
+        }.onFailure { OmniLog.e("Market", "local grant failed for ${item.id}", it) }
     }
 
     fun clearSuccess() { _state.update { it.copy(successMsg = null) } }
@@ -1007,6 +1053,14 @@ class MarketVM @Inject constructor(
             MarketItemDto("frame_soulium","Soulium Çerçeve","Soulium Frame","Mor kristal düğümlü çerçeve","Frame studded with violet crystal","frames",0,"soulium",null,false,false,false,null),
             MarketItemDto("frame_omnium","Omnium Çerçeve","Omnium Frame","Dönen camgöbeği yay","Rotating cyan arc","frames",0,"omnium",null,false,false,false,null),
             MarketItemDto("frame_event","Etkinlik Çerçevesi","Event Frame","Kırmızı dikenli etkinlik halkası","Red-spiked event ring","frames",0,"soulium",null,false,false,true,null)
+        )
+        MarketTab.Looks -> listOf(
+            MarketItemDto(
+                "char_anime", "Anime Kız", "Anime Girl",
+                "Ana karakter — görsele dokunup inceleyebilirsin",
+                "The main character — tap the art to inspect her",
+                "characters", 0, "soulium", null, false, false, true, null
+            )
         )
         MarketTab.Trails -> listOf(
             MarketItemDto("trail_dust","Toz İzi","Dust Trail","Arkanda asılı kalan ince toz","Fine dust hanging behind you","trails",0,"soulium",null,false,false,false,null),
@@ -1144,10 +1198,16 @@ class GameVM @Inject constructor(
             score     = saved?.score ?: 0L
             kills     = saved?.kills ?: 0
 
+            // A resumed run puts the player exactly where they left off and
+            // skips the arrival cinematic — they already landed once.
+            if (saved != null) {
+                bridge.setPlayerState(saved.posX, saved.posY, saved.posZ, saved.yaw, saved.pitch)
+                OmniLog.i("Game", "resumed at (${saved.posX}, ${saved.posZ}) yaw=${saved.yaw}")
+            }
             val base = GameState(
                 seed = useSeed, difficulty = useDiff, mapId = "level_0",
                 grid = grid, exitX = grid.exitX, exitZ = grid.exitZ,
-                spawnPhase = SpawnPhase.FALLING
+                spawnPhase = if (saved != null) SpawnPhase.READY else SpawnPhase.FALLING
             )
             _state.value = if (saved != null) base.copy(
                 sanity = saved.sanity,
@@ -1161,7 +1221,7 @@ class GameVM @Inject constructor(
             startEntitySpawner(useDiff, cfg)
             startScoreAccumulator()
             startAutosave()
-            playSpawnDrop()
+            if (saved == null) playSpawnDrop()
         }
     }
 
@@ -1310,12 +1370,15 @@ class GameVM @Inject constructor(
         if (s.grid.isEmpty) return   // nothing meaningful to resume yet
         // Detached on purpose: this is called while the screen is being torn
         // down, and a viewModelScope coroutine would be cancelled mid-write.
+        val cam = s.camera
         saveStore.saveDetached(
             SavedRun(
                 seed = s.seed, difficulty = s.difficulty, elapsedMs = elapsedMs,
                 score = score, kills = kills, sanity = s.sanity,
                 battery = s.flashlightBattery, playerHp = s.playerHp,
-                savedAtMs = System.currentTimeMillis()
+                savedAtMs = System.currentTimeMillis(),
+                posX = cam?.posX ?: 0f, posY = cam?.posY ?: 1.7f, posZ = cam?.posZ ?: 0f,
+                yaw = cam?.yaw ?: 0f, pitch = cam?.pitch ?: 0f
             )
         )
     }
@@ -1999,10 +2062,25 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var billboardVbo = 0
     private var postVbo = 0
 
+    // Character model + its own program. Null when the asset is missing, in
+    // which case entities fall back to the billboard path.
+    private var charProgram = 0
+    private var charVbo = 0; private var charIbo = 0; private var charIndexCount = 0
+    private var charTex = 0
+    private var cMVP = 0; private var cModel = 0; private var cTime = 0; private var cWalk = 0
+    private var cHeight = 0; private var cTexU = 0; private var cCamPos = 0
+    private var cFlashDir = 0; private var cFlashOn = 0; private var cFogD = 0
+    private var cFogCol = 0; private var cAmbient = 0
+    private val charModelM = FloatArray(16)
+    private val charMvpM = FloatArray(16)
+
     private var fbo = 0; private var fboTex = 0; private var fboDepth = 0
     private var surfaceW = 1; private var surfaceH = 1
     private var renderW = 1; private var renderH = 1
     private var lastResScale = -1f
+
+    /** World height of a character in metres. The mesh is normalised to 1.0. */
+    private val CHAR_SCALE = 1.75f
 
     private val projM = FloatArray(16)
     private val viewM = FloatArray(16)
@@ -2068,6 +2146,41 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         sCenter = GLES30.glGetUniformLocation(shadowProgram, "uCenter")
         sSize = GLES30.glGetUniformLocation(shadowProgram, "uSize")
         sAlpha = GLES30.glGetUniformLocation(shadowProgram, "uAlpha")
+
+        // Character: program, geometry and texture. Any failure leaves
+        // charIndexCount at 0 and the renderer simply skips it.
+        runCatching {
+            charProgram = linkGlProgram(OMNI_CHAR_VERT, OMNI_CHAR_FRAG)
+            cMVP = GLES30.glGetUniformLocation(charProgram, "uMVP")
+            cModel = GLES30.glGetUniformLocation(charProgram, "uModel")
+            cTime = GLES30.glGetUniformLocation(charProgram, "uTime")
+            cWalk = GLES30.glGetUniformLocation(charProgram, "uWalk")
+            cHeight = GLES30.glGetUniformLocation(charProgram, "uHeight")
+            cTexU = GLES30.glGetUniformLocation(charProgram, "uTex")
+            cCamPos = GLES30.glGetUniformLocation(charProgram, "uCamPos")
+            cFlashDir = GLES30.glGetUniformLocation(charProgram, "uFlashDir")
+            cFlashOn = GLES30.glGetUniformLocation(charProgram, "uFlashOn")
+            cFogD = GLES30.glGetUniformLocation(charProgram, "uFogDensity")
+            cFogCol = GLES30.glGetUniformLocation(charProgram, "uFogColor")
+            cAmbient = GLES30.glGetUniformLocation(charProgram, "uAmbient")
+
+            val mesh = CharacterMesh.load(appContext, "character.omesh")
+            if (mesh != null) {
+                charVbo = genGlBuffer(); charIbo = genGlBuffer()
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
+                GLES30.glBufferData(
+                    GLES30.GL_ARRAY_BUFFER, mesh.vertexBuffer.size * 4,
+                    glFloatBuffer(mesh.vertexBuffer), GLES30.GL_STATIC_DRAW
+                )
+                val ib = ByteBuffer.allocateDirect(mesh.indices.size * 2)
+                    .order(ByteOrder.nativeOrder()).asShortBuffer()
+                ib.put(mesh.indices); ib.position(0)
+                GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
+                GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 2, ib, GLES30.GL_STATIC_DRAW)
+                charIndexCount = mesh.indices.size
+            }
+            charTex = loadOmniTexture("character_texture.png", 0xFFE8D5C8.toInt())
+        }.onFailure { OmniLog.e("Render", "character setup failed; falling back to billboards", it) }
 
         floorTex = loadOmniTexture("Level_0/Floor.png", 0xFF3A3020.toInt())
         wallTex  = loadOmniTexture("Level_0/Wall.png",  0xFF4A4030.toInt())
@@ -2178,7 +2291,14 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             smoothEntities.keys.retainAll(activeIds)
 
             if (shadowsOn) drawShadows(vpM, state.entities, smoothX, smoothZ, entityRange)
-            drawEntities(vpM, state.entities, yawRad.toFloat(), smoothX, smoothZ, entityRange, timeSec, cbMix)
+            if (charIndexCount > 0) {
+                drawCharacters(
+                    vpM, state.entities, smoothX, eyeY, smoothZ, fx, fy, fz,
+                    state.flashlightOn, fogDensity, entityRange, timeSec
+                )
+            } else {
+                drawEntities(vpM, state.entities, yawRad.toFloat(), smoothX, smoothZ, entityRange, timeSec, cbMix)
+            }
         }
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
@@ -2249,6 +2369,65 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
         GLES30.glDisableVertexAttribArray(0)
+    }
+
+
+    /** Draws entities as full 3D characters when the model is available, falling
+     *  back to the billboard path when it isn't. Each entity gets its own walk
+     *  weight from its AI state, so a chasing creature actually strides. */
+    private fun drawCharacters(
+        vp: FloatArray, entities: List<EntityState>, camX: Float, camY: Float, camZ: Float,
+        fx: Float, fy: Float, fz: Float, flashOn: Boolean, fogDensity: Float,
+        range: Float, timeSec: Float
+    ) {
+        if (charIndexCount <= 0 || entities.isEmpty()) return
+        GLES30.glUseProgram(charProgram)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, charTex)
+        GLES30.glUniform1i(cTexU, 0)
+        GLES30.glUniform3f(cCamPos, camX, camY, camZ)
+        GLES30.glUniform3f(cFlashDir, fx, fy, fz)
+        GLES30.glUniform1f(cFlashOn, if (flashOn) 1f else 0f)
+        GLES30.glUniform1f(cFogD, fogDensity)
+        GLES30.glUniform3f(cFogCol, 0.05f, 0.045f, 0.03f)
+        GLES30.glUniform1f(cHeight, 1.0f)   // mesh is normalised to unit height
+
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
+        val stride = CharacterMesh.FLOATS_PER_VERTEX * 4
+        GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
+        GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
+        GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
+
+        val rangeSq = range * range
+        for (e in entities) {
+            if (!e.isActive) continue
+            val sp = smoothEntities[e.id] ?: floatArrayOf(e.posX, e.posY, e.posZ)
+            val dx = sp[0] - camX; val dz = sp[2] - camZ
+            val d2 = dx * dx + dz * dz
+            if (d2 > rangeSq) continue
+
+            // Face the player. atan2 of the offset gives the yaw directly in the
+            // engine's (sin, cos) forward convention.
+            val yawDeg = Math.toDegrees(kotlin.math.atan2(dx.toDouble(), dz.toDouble())).toFloat()
+            Matrix.setIdentityM(charModelM, 0)
+            Matrix.translateM(charModelM, 0, sp[0], sp[1], sp[2])
+            Matrix.rotateM(charModelM, 0, yawDeg + 180f, 0f, 1f, 0f)
+            Matrix.scaleM(charModelM, 0, CHAR_SCALE, CHAR_SCALE, CHAR_SCALE)
+            Matrix.multiplyMM(charMvpM, 0, vp, 0, charModelM, 0)
+
+            GLES30.glUniformMatrix4fv(cMVP, 1, false, charMvpM, 0)
+            GLES30.glUniformMatrix4fv(cModel, 1, false, charModelM, 0)
+            // Per-entity time offset stops a crowd moving in lockstep.
+            GLES30.glUniform1f(cTime, timeSec + e.id * 0.83f)
+            // Chase/attack states stride; idle and wander only breathe.
+            GLES30.glUniform1f(cWalk, if (e.aiState >= 2) 1f else 0.15f)
+            GLES30.glUniform1f(cAmbient, if (e.playerInSight) 0.95f else 0.75f)
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES, charIndexCount, GLES30.GL_UNSIGNED_SHORT, 0)
+        }
+        GLES30.glDisableVertexAttribArray(0)
+        GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2)
     }
 
     private fun drawShadows(vp: FloatArray, entities: List<EntityState>, camX: Float, camZ: Float, range: Float) {
@@ -2614,7 +2793,16 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
 @Composable
 fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
     val s by vm.state.collectAsState()
+    var inspecting by remember { mutableStateOf(false) }
     LaunchedEffect(s.successMsg) { if (s.successMsg != null) { delay(2000); vm.clearSuccess() } }
+
+    // The inspection scene takes over the whole screen; it needs the space and
+    // shouldn't fight the store chrome for attention.
+    if (inspecting) {
+        CharacterPreviewSheet(onClose = { inspecting = false })
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(DarkBg)) {
         CrtScanlineOverlay(0f)
         Column(Modifier.fillMaxSize()) {
@@ -2764,7 +2952,10 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(s.dailyDeals) { item -> MarketCard(item, s.purchasing == item.id) { vm.confirmBuy(item) } }
+                            items(s.dailyDeals) { item ->
+                                MarketCard(item, s.purchasing == item.id, item.id in s.ownedIds,
+                                    onInspect = { inspecting = true }) { vm.confirmBuy(item) }
+                            }
                         }
                     }
                     else -> {
@@ -2778,7 +2969,10 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                items(s.items) { item -> MarketCard(item, s.purchasing == item.id) { vm.confirmBuy(item) } }
+                                items(s.items) { item ->
+                                    MarketCard(item, s.purchasing == item.id, item.id in s.ownedIds,
+                                        onInspect = { inspecting = true }) { vm.confirmBuy(item) }
+                                }
                             }
                         }
                     }
@@ -3912,7 +4106,13 @@ fun CarpetProgressBar(progress: Float, modifier: Modifier) {
 }
 
 @Composable
-private fun MarketCard(item: MarketItemDto, isPurchasing: Boolean, onBuy: () -> Unit) {
+private fun MarketCard(
+    item: MarketItemDto,
+    isPurchasing: Boolean,
+    owned: Boolean = false,
+    onInspect: () -> Unit = {},
+    onBuy: () -> Unit
+) {
     val currencyColor = when (item.currency.lowercase()) { "omnium" -> OmniumCol; "soulium" -> SouliumCol; "tl" -> SuccessGreen; else -> CrtAmber }
     val inf  = rememberInfiniteTransition(label = "card")
     val glow by inf.animateFloat(0.3f, 0.7f, infiniteRepeatable(tween(2000, easing = EaseInOut), RepeatMode.Reverse), "g")
@@ -3939,6 +4139,7 @@ private fun MarketCard(item: MarketItemDto, isPurchasing: Boolean, onBuy: () -> 
             infiniteRepeatable(tween(2100, easing = EaseInOut), RepeatMode.Reverse),
             "cardArt"
         )
+        val inspectable = item.category == "characters"
         Box(
             Modifier
                 .size(62.dp)
@@ -3946,13 +4147,34 @@ private fun MarketCard(item: MarketItemDto, isPurchasing: Boolean, onBuy: () -> 
                 .background(
                     Brush.radialGradient(listOf(currencyColor.copy(0.22f), Color.Black.copy(0.45f)))
                 )
-                .border(1.dp, currencyColor.copy(0.30f), RoundedCornerShape(8.dp)),
+                .border(
+                    if (inspectable) 1.5.dp else 1.dp,
+                    currencyColor.copy(if (inspectable) 0.65f else 0.30f),
+                    RoundedCornerShape(8.dp)
+                )
+                .then(if (inspectable) Modifier.clickable { onInspect() } else Modifier),
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.foundation.Canvas(
                 Modifier.fillMaxSize().padding(9.dp)
                     .graphicsLayer { scaleX = artPulse; scaleY = artPulse }
             ) { marketItemArt(item.id, item.category, currencyColor) }
+            // Small cue that this particular art opens a full 3D inspection.
+            if (inspectable) {
+                androidx.compose.foundation.Canvas(
+                    Modifier.size(15.dp).align(Alignment.BottomEnd).padding(1.dp)
+                ) {
+                    drawCircle(Color.Black.copy(0.75f), radius = size.minDimension * 0.5f, center = center)
+                    val r = size.minDimension * 0.26f
+                    drawCircle(currencyColor, radius = r, center = center, style = Stroke(1.4f))
+                    drawLine(
+                        currencyColor,
+                        Offset(center.x + r * 0.7f, center.y + r * 0.7f),
+                        Offset(center.x + r * 1.5f, center.y + r * 1.5f),
+                        strokeWidth = 1.6f, cap = StrokeCap.Round
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(8.dp))
         Text(item.nameTr, color = Yellow, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
@@ -3960,7 +4182,9 @@ private fun MarketCard(item: MarketItemDto, isPurchasing: Boolean, onBuy: () -> 
         Text(item.descTr, color = TextDim, fontSize = 9.sp, textAlign = TextAlign.Center, maxLines = 2,
             overflow = TextOverflow.Ellipsis, lineHeight = 13.sp, modifier = Modifier.padding(top = 3.dp))
         Spacer(Modifier.height(10.dp))
-        if (item.isOwned) {
+        // `owned` covers items unlocked locally this session; item.isOwned is the
+        // server's view, which lags behind (or is absent entirely).
+        if (item.isOwned || owned) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(14.dp))
                 Text(stringResource(R.string.market_equipped), color = SuccessGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -4627,6 +4851,40 @@ private fun DrawScope.marketItemArt(id: String, category: String, accent: Color)
                 drawCircle(accent.copy(0.18f + t * 0.7f), radius = r, center = Offset(x, y))
             }
         }
+        category == "characters" -> {
+            // Stylised bust: hair silhouette, face oval and the eye shape that
+            // reads as this specific character at thumbnail size.
+            val cx = size.width * 0.5f
+            drawCircle(accent.copy(0.16f), radius = size.minDimension * 0.40f, center = center)
+            val hair = Path().apply {
+                moveTo(cx, size.height * 0.12f)
+                cubicTo(size.width * 0.92f, size.height * 0.18f, size.width * 0.88f, size.height * 0.72f, size.width * 0.74f, size.height * 0.86f)
+                lineTo(size.width * 0.26f, size.height * 0.86f)
+                cubicTo(size.width * 0.12f, size.height * 0.72f, size.width * 0.08f, size.height * 0.18f, cx, size.height * 0.12f)
+                close()
+            }
+            drawPath(hair, accent.copy(0.55f))
+            drawPath(hair, accent, style = Stroke(size.minDimension * 0.05f))
+            val face = Path().apply {
+                moveTo(cx, size.height * 0.26f)
+                cubicTo(size.width * 0.76f, size.height * 0.30f, size.width * 0.74f, size.height * 0.66f, cx, size.height * 0.80f)
+                cubicTo(size.width * 0.26f, size.height * 0.66f, size.width * 0.24f, size.height * 0.30f, cx, size.height * 0.26f)
+                close()
+            }
+            drawPath(face, Color(0xFFF2DCD3))
+            // Large anime eyes.
+            listOf(0.38f, 0.62f).forEach { fx ->
+                drawOval(
+                    Color(0xFF3A2018),
+                    topLeft = Offset(size.width * (fx - 0.075f), size.height * 0.46f),
+                    size = Size(size.width * 0.15f, size.height * 0.16f)
+                )
+                drawCircle(
+                    Color.White, radius = size.minDimension * 0.028f,
+                    center = Offset(size.width * (fx + 0.012f), size.height * 0.50f)
+                )
+            }
+        }
         id.startsWith("priv_") || category == "vip" -> {
             // Laurel-style crest for privileges.
             val sw = size.minDimension * 0.075f
@@ -4696,28 +4954,6 @@ private fun DrawScope.marketItemArt(id: String, category: String, accent: Color)
 // for a GPU energy-shimmer; below that the Canvas layers alone carry the look,
 // so nothing is missing on older devices — just slightly less bloom.
 // ============================================================================
-
-/** A single growing tendril. Precomputed control points keep per-frame work to
- *  path construction only. */
-private class Vine(
-    val originX: Float,   // 0..1 along the button edge
-    val originY: Float,
-    val dirX: Float,
-    val dirY: Float,
-    val length: Float,    // relative to the button's smaller dimension
-    val curl: Float,      // lateral bow of the tendril
-    val leafCount: Int,
-    val phase: Float      // growth offset so they don't move in lockstep
-)
-
-private val EVENT_VINES = listOf(
-    Vine(0.02f, 0.50f, 0f, -1f, 0.92f,  0.34f, 3, 0.00f),
-    Vine(0.02f, 0.52f, 0f,  1f, 0.78f, -0.28f, 2, 0.18f),
-    Vine(0.98f, 0.48f, 0f, -1f, 0.86f, -0.31f, 3, 0.36f),
-    Vine(0.98f, 0.50f, 0f,  1f, 0.72f,  0.26f, 2, 0.54f),
-    Vine(0.24f, 0.02f, 1f,  0f, 0.55f,  0.22f, 2, 0.12f),
-    Vine(0.76f, 0.98f, -1f, 0f, 0.55f, -0.22f, 2, 0.44f)
-)
 
 /**
  * Cardiac-style pulse: two quick beats then a rest, rather than a sine wave.
@@ -4832,8 +5068,10 @@ fun PremiumEventButton(
     ) {
         androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
             drawEventButtonPlate(tint, pulse, sweep, pressDepth, progress)
-            drawEventVines(tint, growth, pulse)
         }
+        // Real lit tube geometry, rendered by GL over the plate. The old flat
+        // Canvas vines are gone — this is the actual 3D layer.
+        VineLayer(accent = tint, modifier = Modifier.matchParentSize())
 
         Row(
             Modifier.align(Alignment.Center).padding(horizontal = 24.dp, vertical = 12.dp),
@@ -4961,84 +5199,6 @@ private fun DrawScope.drawEventButtonPlate(
     }
 }
 
-/** Growing tendrils with leaves and a bud, drawn as bezier paths. */
-private fun DrawScope.drawEventVines(accent: Color, growth: Float, pulse: Float) {
-    val unit = size.minDimension
-
-    EVENT_VINES.forEach { v ->
-        // Each vine grows, holds, then recedes — a slow breathing cycle rather
-        // than an abrupt loop restart.
-        val local = ((growth + v.phase) % 1f)
-        val extend = when {
-            local < 0.55f -> local / 0.55f
-            local < 0.75f -> 1f
-            else          -> 1f - (local - 0.75f) / 0.25f
-        }.coerceIn(0f, 1f)
-        if (extend <= 0.01f) return@forEach
-
-        val ox = size.width * v.originX
-        val oy = size.height * v.originY
-        val len = unit * v.length * extend
-        val ex = ox + v.dirX * len
-        val ey = oy + v.dirY * len
-        // Perpendicular bow gives the tendril its curl.
-        val px = -v.dirY * unit * v.curl * extend
-        val py = v.dirX * unit * v.curl * extend
-
-        val stem = Path().apply {
-            moveTo(ox, oy)
-            cubicTo(
-                ox + v.dirX * len * 0.30f + px * 0.55f,
-                oy + v.dirY * len * 0.30f + py * 0.55f,
-                ox + v.dirX * len * 0.70f + px * 0.85f,
-                oy + v.dirY * len * 0.70f + py * 0.85f,
-                ex + px * 0.30f, ey + py * 0.30f
-            )
-        }
-        val alpha = (0.30f + pulse * 0.45f) * extend
-        // Two passes: a soft wide glow under a crisp core line, which is what
-        // makes the vine look lit rather than merely drawn.
-        drawPath(stem, accent.copy(alpha * 0.35f), style = Stroke(3.6f, cap = StrokeCap.Round))
-        drawPath(stem, accent.copy(alpha), style = Stroke(1.5f, cap = StrokeCap.Round))
-
-        // Leaves along the stem.
-        for (i in 1..v.leafCount) {
-            val t = i / (v.leafCount + 1f)
-            if (t > extend) break
-            val lx = ox + v.dirX * len * t + px * t
-            val ly = oy + v.dirY * len * t + py * t
-            val side = if (i % 2 == 0) 1f else -1f
-            val leafLen = unit * 0.085f * extend
-            val nx = -v.dirY * side
-            val ny = v.dirX * side
-            val leaf = Path().apply {
-                moveTo(lx, ly)
-                quadraticTo(
-                    lx + nx * leafLen * 0.6f + v.dirX * leafLen * 0.5f,
-                    ly + ny * leafLen * 0.6f + v.dirY * leafLen * 0.5f,
-                    lx + nx * leafLen, ly + ny * leafLen
-                )
-                quadraticTo(
-                    lx + nx * leafLen * 0.35f - v.dirX * leafLen * 0.35f,
-                    ly + ny * leafLen * 0.35f - v.dirY * leafLen * 0.35f,
-                    lx, ly
-                )
-                close()
-            }
-            drawPath(leaf, accent.copy(alpha * 0.55f))
-            drawPath(leaf, accent.copy(alpha * 0.9f), style = Stroke(0.9f))
-        }
-
-        // Bud at the tip, brightening on the beat.
-        drawCircle(
-            accent.copy((0.45f + pulse * 0.55f) * extend),
-            radius = unit * (0.016f + pulse * 0.010f),
-            center = Offset(ex + px * 0.30f, ey + py * 0.30f)
-        )
-    }
-}
-
-
 /** Expandable codex entry. Collapsed by default so the list stays scannable,
  *  and drawn with the same glyph language as the rest of the UI. */
 @Composable
@@ -5097,4 +5257,800 @@ private fun CodexEntry(
             }
         }
     }
+}
+
+
+// ============================================================================
+// Character model. Loaded from a compact binary produced from the source FBX
+// (position/normal/UV per vertex, 16-bit indices). A runtime FBX parser was not
+// worth carrying: the format is proprietary and heavyweight, and this file gets
+// the same geometry into memory with a few dozen lines and no dependency.
+//
+// The source FBX contains a skinned rig but ZERO animation curves, so there is
+// nothing to play back. Motion is therefore generated in the vertex shader from
+// a height-weighted sway model — the higher up the body a vertex sits, the more
+// it moves — which yields believable idle breathing and a walk cycle without a
+// skeleton.
+// ============================================================================
+
+class CharacterMesh(
+    val vertexBuffer: FloatArray,
+    val indices: ShortArray
+) {
+    companion object {
+        private const val MAGIC = 0x48534D4F   // "OMSH" little-endian
+        const val FLOATS_PER_VERTEX = 8        // pos3 + normal3 + uv2
+
+        /** Returns null rather than throwing: a missing or malformed model must
+         *  degrade to "no character drawn", never take the game down. */
+        fun load(ctx: Context, assetPath: String): CharacterMesh? = runCatching {
+            val bytes = ctx.assets.open(assetPath).use { it.readBytes() }
+            val bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val magic = bb.int
+            require(magic == MAGIC) { "bad magic 0x${Integer.toHexString(magic)}" }
+            bb.short; bb.short                       // version major/minor
+            val vertexCount = bb.int
+            val indexCount = bb.int
+            require(vertexCount in 1..500_000 && indexCount in 3..2_000_000) {
+                "implausible counts v=$vertexCount i=$indexCount"
+            }
+            val verts = FloatArray(vertexCount * FLOATS_PER_VERTEX)
+            bb.asFloatBuffer().get(verts)
+            bb.position(bb.position() + verts.size * 4)
+            val idx = ShortArray(indexCount)
+            bb.asShortBuffer().get(idx)
+            OmniLog.i("Model", "loaded $assetPath: $vertexCount verts, ${indexCount / 3} tris")
+            CharacterMesh(verts, idx)
+        }.onFailure { OmniLog.e("Model", "failed to load $assetPath", it) }.getOrNull()
+    }
+}
+
+private const val OMNI_CHAR_VERT = """#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+
+uniform mat4 uMVP;
+uniform mat4 uModel;
+uniform float uTime;
+uniform float uWalk;      // 0 = idle, 1 = full stride
+uniform float uHeight;    // model height in world units, for sway weighting
+
+out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
+
+void main(){
+    vec3 p = aPos;
+
+    // Height weight: feet stay planted, the torso and head carry the motion.
+    float h = clamp(p.y / max(uHeight, 0.001), 0.0, 1.0);
+    float upper = smoothstep(0.25, 1.0, h);
+
+    // Idle: slow breathing lift plus a lateral drift, out of phase so it reads
+    // as a living stance rather than a bobbing object.
+    float breathe = sin(uTime * 1.5) * 0.006 * upper;
+    float driftX  = sin(uTime * 0.7 + 1.2) * 0.008 * upper;
+
+    // Walk: vertical bob at twice stride frequency, counter-rotating lean, and
+    // a slight forward pitch of the upper body.
+    float stride  = uTime * 7.5;
+    float bob     = sin(stride * 2.0) * 0.035 * uWalk;
+    float leanX   = sin(stride) * 0.055 * uWalk * upper;
+    float pitch   = 0.12 * uWalk * upper;
+
+    p.y += breathe + bob;
+    p.x += driftX + leanX;
+    p.z += pitch * h * 0.15;
+
+    // Legs swing opposite to each other, split by the model's centre line.
+    float legMask = 1.0 - smoothstep(0.0, 0.45, h);
+    float side = sign(aPos.x + 0.0001);
+    p.z += sin(stride + (side > 0.0 ? 0.0 : 3.14159)) * 0.09 * uWalk * legMask;
+
+    vec4 world = uModel * vec4(p, 1.0);
+    vWorldPos = world.xyz;
+    vNormal = mat3(uModel) * aNormal;
+    vUV = aUV;
+    gl_Position = uMVP * vec4(p, 1.0);
+}
+"""
+
+private const val OMNI_CHAR_FRAG = """#version 300 es
+precision mediump float;
+in vec3 vNormal; in vec2 vUV; in vec3 vWorldPos;
+uniform sampler2D uTex;
+uniform vec3 uCamPos; uniform vec3 uFlashDir; uniform float uFlashOn;
+uniform float uFogDensity; uniform vec3 uFogColor; uniform float uAmbient;
+out vec4 fragColor;
+void main(){
+    vec4 tex = texture(uTex, vUV);
+    if (tex.a < 0.35) discard;
+    vec3 n = normalize(vNormal);
+    vec3 toCam = uCamPos - vWorldPos;
+    float dist = length(toCam);
+    vec3 toCamN = toCam / max(dist, 0.001);
+
+    // Cel shading: two flat bands plus a rim light. Matches the character's
+    // anime source art far better than a smooth Lambert ramp would.
+    float ndl = dot(n, normalize(vec3(0.3, 1.0, 0.4)));
+    float band = ndl > 0.25 ? 1.0 : (ndl > -0.15 ? 0.72 : 0.5);
+    float rim = pow(1.0 - max(dot(n, toCamN), 0.0), 2.5) * 0.45;
+
+    float flash = 0.0;
+    if (uFlashOn > 0.5) {
+        float spotCos = dot(-toCamN, normalize(uFlashDir));
+        float cone = smoothstep(0.80, 0.97, spotCos);
+        float atten = clamp(1.0 - dist / 20.0, 0.0, 1.0);
+        flash = cone * max(dot(n, toCamN), 0.0) * atten * 1.5;
+    }
+
+    vec3 col = tex.rgb * (uAmbient * band + flash) + vec3(rim) * 0.6;
+    float fog = 1.0 - exp(-uFogDensity * dist * dist * 0.008);
+    col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
+    fragColor = vec4(col, 1.0);
+}
+"""
+
+
+// ============================================================================
+// Real 3D vines. The earlier version drew flat Canvas strokes — no amount of
+// glow makes those read as three-dimensional. This builds actual tube geometry:
+// a Catmull-Rom spine is swept with a ring of vertices, producing genuine
+// surface normals, so the vine is lit, shaded and self-occluding like a solid
+// object. It renders through GLSurfaceView into the button, not onto a Canvas.
+// ============================================================================
+
+private class VineSpec(
+    val rootU: Float, val rootV: Float,   // 0..1 anchor on the button face
+    val dirX: Float, val dirY: Float,
+    val length: Float,
+    val curl: Float,
+    val twist: Float,
+    val leaves: Int,
+    val phase: Float
+)
+
+private val VINE_SPECS = listOf(
+    VineSpec(0.03f, 0.50f,  0.05f, -1f, 0.95f,  0.38f,  2.1f, 4, 0.00f),
+    VineSpec(0.03f, 0.55f,  0.10f,  1f, 0.80f, -0.30f, -1.7f, 3, 0.21f),
+    VineSpec(0.97f, 0.45f, -0.05f, -1f, 0.88f, -0.34f,  1.9f, 4, 0.42f),
+    VineSpec(0.97f, 0.52f, -0.10f,  1f, 0.74f,  0.28f, -2.3f, 3, 0.63f),
+    VineSpec(0.28f, 0.03f,  1.00f,  0.15f, 0.58f, 0.24f, 1.4f, 3, 0.15f),
+    VineSpec(0.72f, 0.97f, -1.00f, -0.15f, 0.58f,-0.24f,-1.4f, 3, 0.52f)
+)
+
+private const val OMNI_VINE_VERT = """#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in float aGrow;   // 0..1 position along the spine
+
+uniform mat4 uMVP;
+uniform float uGrowth;    // how far the vine has extended, 0..1
+uniform float uSway;
+out vec3 vNormal; out float vGrow; out vec3 vLocal;
+
+void main(){
+    // Vertices beyond the growth front collapse onto the spine tip, so the vine
+    // grows out of the surface instead of popping into existence.
+    float visible = step(aGrow, uGrowth);
+    vec3 p = aPos;
+    float sway = sin(uSway + aGrow * 4.0) * 0.018 * aGrow;
+    p.x += sway;
+    p.y += cos(uSway * 0.8 + aGrow * 3.0) * 0.012 * aGrow;
+    p *= visible;
+
+    vLocal = p;
+    vNormal = aNormal;
+    vGrow = aGrow;
+    gl_Position = uMVP * vec4(p, 1.0);
+}
+"""
+
+private const val OMNI_VINE_FRAG = """#version 300 es
+precision mediump float;
+in vec3 vNormal; in float vGrow; in vec3 vLocal;
+uniform vec3 uAccent;
+uniform float uPulse;
+uniform float uGrowth;
+out vec4 fragColor;
+void main(){
+    if (vGrow > uGrowth) discard;
+    vec3 n = normalize(vNormal);
+    // Two-point lighting: a key from upper-left and a cool fill from the right,
+    // which is what makes the tube read as round rather than as a flat ribbon.
+    vec3 key  = normalize(vec3(-0.45, 0.75, 0.5));
+    vec3 fill = normalize(vec3(0.7, -0.2, 0.35));
+    float kd = max(dot(n, key), 0.0);
+    float fd = max(dot(n, fill), 0.0) * 0.35;
+
+    // Specular highlight along the top of the tube — a real 3D cue.
+    vec3 view = vec3(0.0, 0.0, 1.0);
+    vec3 h = normalize(key + view);
+    float spec = pow(max(dot(n, h), 0.0), 24.0) * 0.7;
+
+    // Colour ramps from deep at the root to bright at the growing tip.
+    vec3 deep = uAccent * 0.28;
+    vec3 tip  = uAccent * (1.0 + uPulse * 0.6);
+    vec3 base = mix(deep, tip, vGrow);
+
+    float rim = pow(1.0 - max(dot(n, view), 0.0), 3.0) * 0.5 * (0.4 + uPulse);
+    vec3 col = base * (0.22 + kd * 0.85 + fd) + vec3(spec) * uAccent + uAccent * rim;
+
+    // The growing front glows hotter.
+    float front = smoothstep(uGrowth - 0.09, uGrowth, vGrow);
+    col += uAccent * front * (0.55 + uPulse * 0.9);
+
+    fragColor = vec4(col, 1.0);
+}
+"""
+
+/** Builds swept-tube geometry for one vine: interleaved pos3 + normal3 + grow1. */
+private fun buildVineMesh(spec: VineSpec, segments: Int = 26, sides: Int = 7):
+        Pair<FloatArray, ShortArray> {
+
+    val verts = ArrayList<Float>((segments + 1) * sides * 7)
+    val idx = ArrayList<Short>(segments * sides * 6)
+
+    // Spine control points: root, curl outward, taper back toward the tip.
+    val px = spec.rootU * 2f - 1f
+    val py = 1f - spec.rootV * 2f
+    val perpX = -spec.dirY
+    val perpY = spec.dirX
+
+    fun spineAt(t: Float): Triple<Float, Float, Float> {
+        // Quadratic-ish bow along the direction, bowed by curl on the perpendicular.
+        val bow = kotlin.math.sin(t * Math.PI).toFloat() * spec.curl
+        val x = px + spec.dirX * spec.length * t + perpX * bow
+        val y = py + spec.dirY * spec.length * t + perpY * bow
+        // Depth: the vine lifts off the surface in the middle, which is what
+        // gives it visible thickness against the button face.
+        val z = kotlin.math.sin(t * Math.PI).toFloat() * 0.16f + 0.02f
+        return Triple(x, y, z)
+    }
+
+    for (i in 0..segments) {
+        val t = i / segments.toFloat()
+        val (cx, cy, cz) = spineAt(t)
+        val (nx2, ny2, nz2) = spineAt((t + 0.02f).coerceAtMost(1f))
+        var tx = nx2 - cx; var ty = ny2 - cy; var tz = nz2 - cz
+        val tl = kotlin.math.sqrt(tx * tx + ty * ty + tz * tz).coerceAtLeast(1e-5f)
+        tx /= tl; ty /= tl; tz /= tl
+
+        // Frame perpendicular to the tangent.
+        var ux = -ty; var uy = tx; var uz = 0f
+        val ul = kotlin.math.sqrt(ux * ux + uy * uy + uz * uz).coerceAtLeast(1e-5f)
+        ux /= ul; uy /= ul; uz /= ul
+        val vx = ty * uz - tz * uy
+        val vy = tz * ux - tx * uz
+        val vz = tx * uy - ty * ux
+
+        // Tapers to a point at the tip; slight bulge near the root.
+        val radius = 0.030f * (1f - t * 0.75f) * (1f + 0.25f * kotlin.math.sin(t * 9f))
+
+        for (j in 0 until sides) {
+            val a = (j / sides.toFloat()) * (Math.PI * 2).toFloat() + spec.twist * t
+            val ca = kotlin.math.cos(a); val sa = kotlin.math.sin(a)
+            val nX = ux * ca + vx * sa
+            val nY = uy * ca + vy * sa
+            val nZ = uz * ca + vz * sa
+            verts.add(cx + nX * radius); verts.add(cy + nY * radius); verts.add(cz + nZ * radius)
+            verts.add(nX); verts.add(nY); verts.add(nZ)
+            verts.add(t)
+        }
+    }
+
+    for (i in 0 until segments) {
+        for (j in 0 until sides) {
+            val a = (i * sides + j)
+            val b = (i * sides + (j + 1) % sides)
+            val c = ((i + 1) * sides + j)
+            val d = ((i + 1) * sides + (j + 1) % sides)
+            idx.add(a.toShort()); idx.add(c.toShort()); idx.add(b.toShort())
+            idx.add(b.toShort()); idx.add(c.toShort()); idx.add(d.toShort())
+        }
+    }
+
+    // Leaves: flat quads angled off the spine, alternating sides.
+    var base = (segments + 1) * sides
+    for (l in 1..spec.leaves) {
+        val t = l / (spec.leaves + 1f)
+        val (cx, cy, cz) = spineAt(t)
+        val side = if (l % 2 == 0) 1f else -1f
+        val lx = perpX * side; val ly = perpY * side
+        val size = 0.085f * (1f - t * 0.4f)
+        val nz = 0.75f
+        // Simple diamond, normal tilted toward the viewer so it catches light.
+        val pts = arrayOf(
+            floatArrayOf(cx, cy, cz),
+            floatArrayOf(cx + lx * size * 0.5f - ly * size * 0.35f, cy + ly * size * 0.5f + lx * size * 0.35f, cz + 0.012f),
+            floatArrayOf(cx + lx * size, cy + ly * size, cz + 0.02f),
+            floatArrayOf(cx + lx * size * 0.5f + ly * size * 0.35f, cy + ly * size * 0.5f - lx * size * 0.35f, cz + 0.012f)
+        )
+        pts.forEach { p ->
+            verts.add(p[0]); verts.add(p[1]); verts.add(p[2])
+            verts.add(lx * 0.35f); verts.add(ly * 0.35f); verts.add(nz)
+            verts.add(t)
+        }
+        idx.add(base.toShort()); idx.add((base + 1).toShort()); idx.add((base + 2).toShort())
+        idx.add(base.toShort()); idx.add((base + 2).toShort()); idx.add((base + 3).toShort())
+        base += 4
+    }
+
+    return FloatArray(verts.size) { verts[it] } to ShortArray(idx.size) { idx[it] }
+}
+
+
+/** Renders the 3D vines for one button. A small dedicated GLSurfaceView sits
+ *  behind the button's content with a transparent background, so genuine lit
+ *  geometry composites over the UI. */
+class VineRenderer : GLSurfaceView.Renderer {
+    @Volatile var accent: Triple<Float, Float, Float> = Triple(0.3f, 0.85f, 0.4f)
+    @Volatile var enabled: Boolean = true
+
+    private var program = 0
+    private var uMVP = 0; private var uGrowth = 0; private var uSway = 0
+    private var uAccent = 0; private var uPulse = 0
+    private val vbos = IntArray(VINE_SPECS.size)
+    private val ibos = IntArray(VINE_SPECS.size)
+    private val counts = IntArray(VINE_SPECS.size)
+    private val mvp = FloatArray(16)
+    private val proj = FloatArray(16)
+    private val view = FloatArray(16)
+    private val start = System.nanoTime()
+
+    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        GLES30.glClearColor(0f, 0f, 0f, 0f)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        runCatching {
+            program = linkGlProgram(OMNI_VINE_VERT, OMNI_VINE_FRAG)
+            uMVP = GLES30.glGetUniformLocation(program, "uMVP")
+            uGrowth = GLES30.glGetUniformLocation(program, "uGrowth")
+            uSway = GLES30.glGetUniformLocation(program, "uSway")
+            uAccent = GLES30.glGetUniformLocation(program, "uAccent")
+            uPulse = GLES30.glGetUniformLocation(program, "uPulse")
+
+            VINE_SPECS.forEachIndexed { i, spec ->
+                val (v, idx) = buildVineMesh(spec)
+                val vb = IntArray(1); GLES30.glGenBuffers(1, vb, 0); vbos[i] = vb[0]
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbos[i])
+                GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, v.size * 4, glFloatBuffer(v), GLES30.GL_STATIC_DRAW)
+                val ib = IntArray(1); GLES30.glGenBuffers(1, ib, 0); ibos[i] = ib[0]
+                val buf = ByteBuffer.allocateDirect(idx.size * 2).order(ByteOrder.nativeOrder()).asShortBuffer()
+                buf.put(idx); buf.position(0)
+                GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibos[i])
+                GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, idx.size * 2, buf, GLES30.GL_STATIC_DRAW)
+                counts[i] = idx.size
+            }
+            OmniLog.i("Vine", "built ${VINE_SPECS.size} vine meshes")
+        }.onFailure { OmniLog.e("Vine", "vine setup failed", it) }
+    }
+
+    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        GLES30.glViewport(0, 0, width, height)
+        val aspect = width.toFloat() / height.coerceAtLeast(1)
+        // Mild perspective: enough for the tubes to show depth without the
+        // button looking like it is floating in a 3D scene.
+        Matrix.frustumM(proj, 0, -aspect * 0.5f, aspect * 0.5f, -0.5f, 0.5f, 1.2f, 12f)
+        Matrix.setLookAtM(view, 0, 0f, 0f, 2.6f, 0f, 0f, 0f, 0f, 1f, 0f)
+        Matrix.multiplyMM(mvp, 0, proj, 0, view, 0)
+    }
+
+    override fun onDrawFrame(gl: GL10?) {
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+        if (program == 0 || !enabled) return
+        val t = (System.nanoTime() - start) / 1_000_000_000f
+
+        GLES30.glUseProgram(program)
+        GLES30.glUniformMatrix4fv(uMVP, 1, false, mvp, 0)
+        GLES30.glUniform3f(uAccent, accent.first, accent.second, accent.third)
+        GLES30.glUniform1f(uPulse, heartbeat((t / 2.6f) % 1f))
+
+        VINE_SPECS.forEachIndexed { i, spec ->
+            if (counts[i] <= 0) return@forEachIndexed
+            // Grow, hold, recede — each vine on its own offset.
+            val local = ((t / 5.2f) + spec.phase) % 1f
+            val growth = when {
+                local < 0.55f -> local / 0.55f
+                local < 0.78f -> 1f
+                else -> 1f - (local - 0.78f) / 0.22f
+            }.coerceIn(0f, 1f)
+            if (growth <= 0.02f) return@forEachIndexed
+
+            GLES30.glUniform1f(uGrowth, growth)
+            GLES30.glUniform1f(uSway, t * 1.4f + spec.phase * 6f)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbos[i])
+            val stride = 7 * 4
+            GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
+            GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
+            GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 1, GLES30.GL_FLOAT, false, stride, 6 * 4)
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibos[i])
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES, counts[i], GLES30.GL_UNSIGNED_SHORT, 0)
+        }
+        GLES30.glDisableVertexAttribArray(0)
+        GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2)
+    }
+}
+
+/** Drop-in 3D vine layer for a button. Transparent, non-interactive, and cheap
+ *  enough to sit behind two or three buttons at once. */
+@Composable
+fun VineLayer(accent: Color, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    val renderer = remember { VineRenderer() }
+    LaunchedEffect(accent) {
+        renderer.accent = Triple(accent.red, accent.green, accent.blue)
+    }
+    val glView = remember {
+        GLSurfaceView(ctx).apply {
+            setEGLContextClientVersion(3)
+            // Transparent surface so the vines composite over the button art.
+            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+            holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+            setZOrderOnTop(true)
+            preserveEGLContextOnPause = true
+            setRenderer(renderer)
+            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        }
+    }
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val obs = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_RESUME -> glView.onResume()
+                Lifecycle.Event.ON_PAUSE -> glView.onPause()
+                else -> {}
+            }
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs); glView.onPause() }
+    }
+    AndroidView(factory = { glView }, modifier = modifier)
+}
+
+
+// ============================================================================
+// Character preview. A dedicated scene: the character stands on the same floor
+// texture the game uses, against the same wall texture, with no ceiling — so
+// the model is read against the surfaces it will actually be seen among, lit
+// the same way, rather than floating on a flat swatch.
+// ============================================================================
+
+private const val OMNI_PREVIEW_VERT = """#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+uniform mat4 uMVP;
+uniform mat4 uModel;
+uniform float uTime;
+uniform float uWalk;
+out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
+void main(){
+    vec3 p = aPos;
+    // Same height-weighted motion model as in-game, so the preview is honest
+    // about how the character will actually move.
+    float h = clamp(p.y, 0.0, 1.0);
+    float upper = smoothstep(0.25, 1.0, h);
+    float stride = uTime * 7.0;
+    p.y += sin(uTime * 1.5) * 0.006 * upper + sin(stride * 2.0) * 0.030 * uWalk;
+    p.x += sin(uTime * 0.7 + 1.2) * 0.008 * upper + sin(stride) * 0.050 * uWalk * upper;
+    float legMask = 1.0 - smoothstep(0.0, 0.45, h);
+    float side = sign(aPos.x + 0.0001);
+    p.z += sin(stride + (side > 0.0 ? 0.0 : 3.14159)) * 0.085 * uWalk * legMask;
+
+    vec4 world = uModel * vec4(p, 1.0);
+    vWorldPos = world.xyz;
+    vNormal = mat3(uModel) * aNormal;
+    vUV = aUV;
+    gl_Position = uMVP * vec4(p, 1.0);
+}
+"""
+
+private const val OMNI_PREVIEW_FRAG = """#version 300 es
+precision mediump float;
+in vec3 vNormal; in vec2 vUV; in vec3 vWorldPos;
+uniform sampler2D uTex;
+uniform float uIsCharacter;
+out vec4 fragColor;
+void main(){
+    vec4 tex = texture(uTex, vUV);
+    if (uIsCharacter > 0.5 && tex.a < 0.35) discard;
+    vec3 n = normalize(vNormal);
+    vec3 key = normalize(vec3(-0.4, 0.9, 0.6));
+    float ndl = dot(n, key);
+    // Cel bands for the character; smooth shading for the room surfaces, which
+    // should recede rather than compete with the model.
+    float lit = uIsCharacter > 0.5
+        ? (ndl > 0.25 ? 1.0 : (ndl > -0.1 ? 0.74 : 0.55))
+        : (0.45 + max(ndl, 0.0) * 0.55);
+    vec3 view = normalize(vec3(0.0, 0.15, 1.0));
+    float rim = pow(1.0 - max(dot(n, view), 0.0), 3.0) * (uIsCharacter > 0.5 ? 0.5 : 0.12);
+    vec3 col = tex.rgb * lit + vec3(rim) * vec3(1.0, 0.92, 0.75);
+    // Gentle vertical falloff so the backdrop sinks away behind the character.
+    if (uIsCharacter < 0.5) col *= 0.55 + 0.45 * clamp(vWorldPos.y * 0.35, 0.0, 1.0);
+    fragColor = vec4(col, 1.0);
+}
+"""
+
+/** Renders the character on a floor, against a wall, with no ceiling. */
+class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
+
+    @Volatile var yawDegrees: Float = 0f
+    @Volatile var walkAmount: Float = 0f
+
+    private var program = 0
+    private var uMVP = 0; private var uModel = 0; private var uTime = 0
+    private var uWalk = 0; private var uTex = 0; private var uIsChar = 0
+
+    private var charVbo = 0; private var charIbo = 0; private var charCount = 0
+    private var roomVbo = 0; private var roomIbo = 0
+    private var wallCount = 0; private var floorCount = 0
+    private var wallVbo = 0; private var wallIbo = 0
+    private var charTex = 0; private var wallTex = 0; private var floorTex = 0
+
+    private val proj = FloatArray(16)
+    private val view = FloatArray(16)
+    private val vp = FloatArray(16)
+    private val model = FloatArray(16)
+    private val mvp = FloatArray(16)
+    private val start = System.nanoTime()
+
+    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        GLES30.glClearColor(0.04f, 0.038f, 0.03f, 1f)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        runCatching {
+            program = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG)
+            uMVP = GLES30.glGetUniformLocation(program, "uMVP")
+            uModel = GLES30.glGetUniformLocation(program, "uModel")
+            uTime = GLES30.glGetUniformLocation(program, "uTime")
+            uWalk = GLES30.glGetUniformLocation(program, "uWalk")
+            uTex = GLES30.glGetUniformLocation(program, "uTex")
+            uIsChar = GLES30.glGetUniformLocation(program, "uIsCharacter")
+
+            CharacterMesh.load(appContext, "character.omesh")?.let { mesh ->
+                charVbo = genBuf(); charIbo = genBuf()
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
+                GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, mesh.vertexBuffer.size * 4,
+                    glFloatBuffer(mesh.vertexBuffer), GLES30.GL_STATIC_DRAW)
+                val ib = ByteBuffer.allocateDirect(mesh.indices.size * 2)
+                    .order(ByteOrder.nativeOrder()).asShortBuffer()
+                ib.put(mesh.indices); ib.position(0)
+                GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
+                GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 2, ib, GLES30.GL_STATIC_DRAW)
+                charCount = mesh.indices.size
+            }
+
+            // Floor plane at y=0 and a back wall at z=-1.6. No ceiling by design.
+            val floorQuad = quadMesh(
+                floatArrayOf(-2.2f, 0f, 1.6f), floatArrayOf(2.2f, 0f, 1.6f),
+                floatArrayOf(2.2f, 0f, -1.6f), floatArrayOf(-2.2f, 0f, -1.6f),
+                floatArrayOf(0f, 1f, 0f), 3.0f
+            )
+            roomVbo = genBuf(); roomIbo = genBuf()
+            uploadQuad(roomVbo, roomIbo, floorQuad)
+            floorCount = 6
+
+            val wallQuad = quadMesh(
+                floatArrayOf(-2.2f, 0f, -1.6f), floatArrayOf(2.2f, 0f, -1.6f),
+                floatArrayOf(2.2f, 2.8f, -1.6f), floatArrayOf(-2.2f, 2.8f, -1.6f),
+                floatArrayOf(0f, 0f, 1f), 2.4f
+            )
+            wallVbo = genBuf(); wallIbo = genBuf()
+            uploadQuad(wallVbo, wallIbo, wallQuad)
+            wallCount = 6
+
+            charTex = loadTex("character_texture.png", 0xFFE8D5C8.toInt())
+            wallTex = loadTex("Level_0/Wall.png", 0xFF4A4030.toInt())
+            floorTex = loadTex("Level_0/Floor.png", 0xFF3A3020.toInt())
+        }.onFailure { OmniLog.e("Preview", "setup failed", it) }
+    }
+
+    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        GLES30.glViewport(0, 0, width, height)
+        Matrix.perspectiveM(proj, 0, 38f, width.toFloat() / height.coerceAtLeast(1), 0.1f, 20f)
+        // Slightly raised three-quarter view, aimed at chest height.
+        Matrix.setLookAtM(view, 0, 0f, 1.15f, 3.15f, 0f, 0.92f, 0f, 0f, 1f, 0f)
+        Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
+    }
+
+    override fun onDrawFrame(gl: GL10?) {
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+        if (program == 0) return
+        val t = (System.nanoTime() - start) / 1_000_000_000f
+        GLES30.glUseProgram(program)
+        GLES30.glUniform1f(uTime, t)
+
+        // Backdrop first.
+        Matrix.setIdentityM(model, 0)
+        GLES30.glUniformMatrix4fv(uMVP, 1, false, vp, 0)
+        GLES30.glUniformMatrix4fv(uModel, 1, false, model, 0)
+        GLES30.glUniform1f(uWalk, 0f)
+        GLES30.glUniform1f(uIsChar, 0f)
+        drawIndexed(roomVbo, roomIbo, floorCount, floorTex)
+        drawIndexed(wallVbo, wallIbo, wallCount, wallTex)
+
+        // Character, scaled to a believable 1.7 m against the 2.8 m wall.
+        if (charCount > 0) {
+            Matrix.setIdentityM(model, 0)
+            Matrix.rotateM(model, 0, yawDegrees, 0f, 1f, 0f)
+            Matrix.scaleM(model, 0, 1.7f, 1.7f, 1.7f)
+            Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+            GLES30.glUniformMatrix4fv(uMVP, 1, false, mvp, 0)
+            GLES30.glUniformMatrix4fv(uModel, 1, false, model, 0)
+            GLES30.glUniform1f(uWalk, walkAmount)
+            GLES30.glUniform1f(uIsChar, 1f)
+            drawIndexed(charVbo, charIbo, charCount, charTex)
+        }
+    }
+
+    private fun drawIndexed(vbo: Int, ibo: Int, count: Int, tex: Int) {
+        if (count <= 0) return
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex)
+        GLES30.glUniform1i(uTex, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
+        val stride = 8 * 4
+        GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
+        GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
+        GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibo)
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, count, GLES30.GL_UNSIGNED_SHORT, 0)
+        GLES30.glDisableVertexAttribArray(0)
+        GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2)
+    }
+
+    private fun quadMesh(
+        p0: FloatArray, p1: FloatArray, p2: FloatArray, p3: FloatArray,
+        n: FloatArray, uvScale: Float
+    ): FloatArray {
+        val pts = arrayOf(p0, p1, p2, p3)
+        val uvs = arrayOf(
+            floatArrayOf(0f, 0f), floatArrayOf(uvScale, 0f),
+            floatArrayOf(uvScale, uvScale), floatArrayOf(0f, uvScale)
+        )
+        val out = FloatArray(4 * 8)
+        for (i in 0 until 4) {
+            val b = i * 8
+            out[b] = pts[i][0]; out[b + 1] = pts[i][1]; out[b + 2] = pts[i][2]
+            out[b + 3] = n[0]; out[b + 4] = n[1]; out[b + 5] = n[2]
+            out[b + 6] = uvs[i][0]; out[b + 7] = uvs[i][1]
+        }
+        return out
+    }
+
+    private fun uploadQuad(vbo: Int, ibo: Int, verts: FloatArray) {
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, verts.size * 4, glFloatBuffer(verts), GLES30.GL_STATIC_DRAW)
+        val idx = shortArrayOf(0, 1, 2, 0, 2, 3)
+        val ib = ByteBuffer.allocateDirect(idx.size * 2).order(ByteOrder.nativeOrder()).asShortBuffer()
+        ib.put(idx); ib.position(0)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibo)
+        GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, idx.size * 2, ib, GLES30.GL_STATIC_DRAW)
+    }
+
+    private fun genBuf(): Int { val h = IntArray(1); GLES30.glGenBuffers(1, h, 0); return h[0] }
+
+    private fun loadTex(path: String, fallback: Int): Int {
+        val bmp = runCatching {
+            appContext.assets.open(path).use { BitmapFactory.decodeStream(it) }
+        }.getOrNull() ?: Bitmap.createBitmap(
+            IntArray(64 * 64) { fallback }, 64, 64, Bitmap.Config.ARGB_8888
+        )
+        val h = IntArray(1); GLES30.glGenTextures(1, h, 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, h[0])
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR_MIPMAP_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_REPEAT)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_REPEAT)
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bmp, 0)
+        GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
+        if (!bmp.isRecycled) bmp.recycle()
+        return h[0]
+    }
+}
+
+/** Full-screen character inspection sheet, opened by tapping the market art. */
+@Composable
+fun CharacterPreviewSheet(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val renderer = remember { CharacterPreviewRenderer(ctx.applicationContext) }
+    var yaw by remember { mutableStateOf(18f) }
+    var walking by remember { mutableStateOf(false) }
+    val walkAnim by animateFloatAsState(
+        if (walking) 1f else 0f, tween(420, easing = EaseInOutCubic), label = "previewWalk"
+    )
+    LaunchedEffect(yaw) { renderer.yawDegrees = yaw }
+    LaunchedEffect(walkAnim) { renderer.walkAmount = walkAnim }
+
+    val glView = remember {
+        GLSurfaceView(ctx).apply {
+            setEGLContextClientVersion(3)
+            preserveEGLContextOnPause = true
+            setRenderer(renderer)
+            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        }
+    }
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val obs = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_RESUME -> glView.onResume()
+                Lifecycle.Event.ON_PAUSE -> glView.onPause()
+                else -> {}
+            }
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs); glView.onPause() }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(
+            factory = { glView },
+            modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    yaw -= drag.x * 0.4f
+                }
+            }
+        )
+        // Vignette to seat the scene into the UI.
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.radialGradient(
+                    listOf(Color.Transparent, Color.Black.copy(0.55f)), radius = 1200f
+                )
+            )
+        )
+
+        Row(
+            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconGlyphButton(36.dp, Yellow, onClick = onClose) { drawCloseGlyph(it) }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.char_preview_title),
+                color = Yellow, fontSize = 13.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 2.sp
+            )
+        }
+
+        Column(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                stringResource(R.string.char_preview_rotate),
+                color = TextDim, fontSize = 10.sp, letterSpacing = 1.sp
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AnimToggle(stringResource(R.string.char_anim_idle), !walking) { walking = false }
+                AnimToggle(stringResource(R.string.char_anim_walk), walking) { walking = true }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnimToggle(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) Yellow.copy(0.18f) else Color.Black.copy(0.55f))
+            .border(1.dp, if (selected) Yellow else BorderCol, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 9.dp)
+    ) {
+        Text(
+            label, color = if (selected) Yellow else TextSec,
+            fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+private fun DrawScope.drawCloseGlyph(c: Color) {
+    val w = size.width; val h = size.height; val sw = size.minDimension * 0.11f
+    drawLine(c, Offset(w * 0.28f, h * 0.28f), Offset(w * 0.72f, h * 0.72f), strokeWidth = sw, cap = StrokeCap.Round)
+    drawLine(c, Offset(w * 0.72f, h * 0.28f), Offset(w * 0.28f, h * 0.72f), strokeWidth = sw, cap = StrokeCap.Round)
 }

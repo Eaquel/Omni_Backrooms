@@ -211,4 +211,13 @@
     <string name="story_codex_exit">LA SALIDA</string>
     <string name="story_codex_exit_body">Cada partida coloca la salida en el punto más lejano de donde caíste. Aparece un aviso al acercarte; el botón de acción te saca.</string>
     <string name="story_chapters_header">CAPÍTULOS</string>
+    <string name="settings_tab_language">Idioma</string>
+    <string name="room_server_unavailable">No se puede contactar con el servidor. El modo en línea aún no está activo; puedes jugar sin conexión.</string>
+    <string name="market_tab_characters_new">Personajes</string>
+    <string name="char_preview_title">Vista del personaje</string>
+    <string name="char_preview_rotate">Arrastra para girar</string>
+    <string name="char_preview_equip">Equipar</string>
+    <string name="char_preview_equipped">Equipado</string>
+    <string name="char_anim_idle">Reposo</string>
+    <string name="char_anim_walk">Caminar</string>
 </resources>
