@@ -28,6 +28,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -222,7 +226,8 @@ data class SettingsUiState(
 class SettingsVM @Inject constructor(
     private val repo             : SettingsRepository,
     private val api              : ApiService,
-    private val googleAuthManager: GoogleAuthManager
+    private val googleAuthManager: GoogleAuthManager,
+    private val identity         : GuestIdentityManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -253,6 +258,13 @@ class SettingsVM @Inject constructor(
                         pushNotifications = g.pushNotifications
                     )
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            // Keep the field in step with the shared identity name.
+            identity.observeDisplayName().collect { shared ->
+                if (shared.isNotBlank()) _state.update { it.copy(playerName = shared) }
             }
         }
 
@@ -315,7 +327,14 @@ class SettingsVM @Inject constructor(
         _state.update { it.copy(googleState = GoogleAuthState()) }
     }
 
-    fun onName(v: String)          { _state.update { it.copy(playerName        = v) }; save { repo.saveName(v) } }
+    /** Writes both the settings copy and the shared identity record, which the
+     *  lobby and profile observe — previously the name only lived here, so those
+     *  screens kept showing the old one. */
+    fun onName(v: String) {
+        _state.update { it.copy(playerName = v) }
+        save { repo.saveName(v) }
+        viewModelScope.launch { identity.setDisplayName(v) }
+    }
     fun onQuality(v: String)       { _state.update { it.copy(graphicsQuality   = v) }; save { repo.saveQuality(v) } }
     fun onVhs(v: Boolean)          { _state.update { it.copy(vhsEnabled        = v) }; save { repo.saveVhs(v) } }
     fun onResolution(v: Float)     { _state.update { it.copy(resolutionScale   = v) }; save { repo.saveResolution(v) } }
@@ -832,13 +851,16 @@ class UiEditorVM @Inject constructor(private val repo: SettingsRepository) : Vie
 
 @Composable
 fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
+    // Mirrors the real HUD exactly: same controls, same relative cluster
+    // positions. There is no sprint button in game, so the editor no longer
+    // offers one — it used to let players arrange a control that didn't exist.
     val buttons = remember {
         mutableStateListOf(
-            DragBtn("joystick",   R.string.editor_btn_move,       80f,  400f),
-            DragBtn("sprint",     R.string.editor_btn_sprint,     300f, 460f),
-            DragBtn("interact",   R.string.editor_btn_interact,   900f, 400f),
-            DragBtn("crouch",     R.string.editor_btn_crouch,     1000f,460f),
-            DragBtn("flashlight", R.string.editor_btn_flashlight, 1100f,400f)
+            DragBtn("joystick",   R.string.editor_btn_move,       70f,  430f),
+            DragBtn("interact",   R.string.editor_btn_interact,   1010f, 440f),
+            DragBtn("flashlight", R.string.editor_btn_flashlight, 900f,  455f),
+            DragBtn("jump",       R.string.editor_btn_jump,       1000f, 340f),
+            DragBtn("crouch",     R.string.editor_btn_crouch,     890f,  340f)
         )
     }
 
@@ -880,14 +902,16 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                         }
                     }
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Icon(Icons.Default.DragIndicator, null, tint = YellowDim, modifier = Modifier.size(14.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    androidx.compose.foundation.Canvas(Modifier.size(30.dp)) {
+                        editorGlyph(btn.id, Yellow)
+                    }
                     Text(
                         stringResource(btn.labelRes),
                         color        = Yellow,
-                        fontSize     = 9.sp,
+                        fontSize     = 8.sp,
                         fontWeight   = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        letterSpacing = 0.5.sp
                     )
                 }
             }
@@ -905,5 +929,57 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
             },
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
         )
+    }
+}
+
+
+/** Draws the same control glyphs the in-game HUD uses, so the layout editor is a
+ *  true preview rather than a set of generic drag handles. Kept local to this
+ *  file to avoid widening the HUD drawing API. */
+private fun DrawScope.editorGlyph(id: String, c: Color) {
+    val w = size.width; val h = size.height
+    val sw = size.minDimension * 0.10f
+    when (id) {
+        "joystick" -> {
+            drawCircle(c.copy(0.55f), radius = w * 0.42f, center = center, style = Stroke(sw * 0.8f))
+            drawCircle(c, radius = w * 0.16f, center = center)
+        }
+        "interact" -> {
+            drawRoundRect(
+                c, topLeft = Offset(w * 0.34f, h * 0.42f), size = Size(w * 0.32f, h * 0.40f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.10f), style = Stroke(sw * 0.85f)
+            )
+            for (i in 0 until 3) {
+                val x = w * (0.40f + i * 0.10f)
+                drawLine(c, Offset(x, h * 0.42f), Offset(x, h * 0.20f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
+            }
+        }
+        "flashlight" -> {
+            val beam = Path().apply {
+                moveTo(w * 0.42f, h * 0.46f); lineTo(w * 0.58f, h * 0.46f)
+                lineTo(w * 0.80f, h * 0.90f); lineTo(w * 0.20f, h * 0.90f); close()
+            }
+            drawPath(beam, c.copy(0.28f))
+            drawPath(beam, c.copy(0.85f), style = Stroke(sw * 0.65f))
+            drawRoundRect(
+                c, topLeft = Offset(w * 0.38f, h * 0.16f), size = Size(w * 0.24f, h * 0.26f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.04f), style = Stroke(sw * 0.8f)
+            )
+        }
+        "jump" -> {
+            drawLine(c, Offset(w * 0.5f, h * 0.76f), Offset(w * 0.5f, h * 0.28f), strokeWidth = sw, cap = StrokeCap.Round)
+            val head = Path().apply {
+                moveTo(w * 0.5f, h * 0.16f); lineTo(w * 0.70f, h * 0.40f); lineTo(w * 0.30f, h * 0.40f); close()
+            }
+            drawPath(head, c)
+        }
+        "crouch" -> {
+            drawLine(c, Offset(w * 0.5f, h * 0.24f), Offset(w * 0.5f, h * 0.72f), strokeWidth = sw, cap = StrokeCap.Round)
+            val head = Path().apply {
+                moveTo(w * 0.5f, h * 0.84f); lineTo(w * 0.70f, h * 0.60f); lineTo(w * 0.30f, h * 0.60f); close()
+            }
+            drawPath(head, c)
+        }
+        else -> drawCircle(c.copy(0.5f), radius = w * 0.30f, center = center, style = Stroke(sw))
     }
 }

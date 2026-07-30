@@ -96,6 +96,7 @@ import androidx.media3.ui.PlayerView
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.analytics.FirebaseAnalytics
@@ -390,7 +391,7 @@ fun OmniBackroomsApp() {
                 exitTransition  = { fadeOut(tween(400)) }
             ) {
                 MainMenu(
-                    onPlay        = { nav.navigate(Route.GAME) },
+                    onPlay        = { resume -> nav.navigate("${Route.GAME}?resume=$resume") },
                     onOnline      = { nav.navigate(Route.ROOM) },
                     onSettings    = { nav.navigate(Route.SETTINGS) },
                     onStory       = { nav.navigate(Route.STORY) },
@@ -400,10 +401,16 @@ fun OmniBackroomsApp() {
                 )
             }
             composable(
-                Route.GAME,
+                "${Route.GAME}?resume={resume}",
+                arguments = listOf(navArgument("resume") { defaultValue = "false" }),
                 enterTransition = { fadeIn(tween(800)) },
                 exitTransition  = { fadeOut(tween(500)) }
-            ) { GameScreen(onExit = { nav.popBackStack() }) }
+            ) { entry ->
+                GameScreen(
+                    onExit = { nav.popBackStack() },
+                    resume = entry.arguments?.getString("resume") == "true"
+                )
+            }
             composable(
                 Route.SETTINGS,
                 enterTransition = { slideInHorizontally(tween(400)) { it } + fadeIn(tween(400)) },
@@ -419,7 +426,7 @@ fun OmniBackroomsApp() {
                 enterTransition = { slideInVertically(tween(400)) { it } + fadeIn(tween(400)) },
                 exitTransition  = { slideOutVertically(tween(300)) { it } + fadeOut(tween(300)) }
             ) { MarketScreen(onBack = { nav.popBackStack() }) }
-            composable(Route.ROOM)        { Room(onJoined = { nav.navigate(Route.GAME) }, onBack = { nav.popBackStack() }, onCreate = { nav.navigate(Route.CREATE_ROOM) }) }
+            composable(Route.ROOM)        { Room(onJoined = { nav.navigate("${Route.GAME}?resume=false") }, onBack = { nav.popBackStack() }, onCreate = { nav.navigate(Route.CREATE_ROOM) }) }
             composable(Route.CREATE_ROOM) { CreateRoom(onCreated = { nav.popBackStack() }, onBack = { nav.popBackStack() }) }
             composable(Route.LEADERBOARD) { LeaderboardScreen(onBack = { nav.popBackStack() }) }
             composable(Route.PROFILE)     { ProfileScreen(onBack = { nav.popBackStack() }) }
@@ -1067,12 +1074,20 @@ class GameVM @Inject constructor(
      *  entity spawner can reuse it without depending on StateFlow emission timing. */
     private var grid: GridLevelData = GridLevelData.EMPTY
 
-    fun startGame(difficulty: String = "normal", seed: Long = System.currentTimeMillis()) {
+    /** [resume] = true continues the autosaved run. The level is regenerated from
+     *  the saved seed, which reproduces it exactly, and the saved stats/timer are
+     *  restored — previously "Continue" silently started a brand new run because
+     *  the snapshot was written but never read back. */
+    fun startGame(difficulty: String = "normal", seed: Long = System.currentTimeMillis(), resume: Boolean = false) {
         if (started) return
         started = true
         viewModelScope.launch {
+            val saved = if (resume) saveStore.load() else null
+            val useSeed = saved?.seed ?: seed
+            val useDiff = saved?.difficulty ?: difficulty
+            if (resume && saved == null) OmniLog.w("Game", "resume requested but no save found; starting fresh")
             val sensitivity = settings.observe().first().cameraSensitivity
-            bridge.initCore(seed)
+            bridge.initCore(useSeed)
             bridge.initSound()
             bridge.initEntities()
             bridge.setAmbienceLevel(0.4f)
@@ -1080,19 +1095,33 @@ class GameVM @Inject constructor(
             bridge.setSpatialRolloff(1f, 40f)
 
             // Level 0 always — there is deliberately no map selection.
-            val roomBudget = if (difficulty == "hard") 180 else 130
+            val roomBudget = if (useDiff == "hard") 180 else 130
             grid = GridLevelData.parse(bridge.generateLevel(roomBudget, depth = 0))
             OmniLog.i("Game", "level dim=${grid.dim} cell=${grid.cellSize} exit=(${grid.exitX},${grid.exitZ})")
 
-            val cfg = assetManager.getSpawnConfig(difficulty)
+            val cfg = assetManager.getSpawnConfig(useDiff)
             spawnInitialEntities(bridge, grid, cfg)
-            _state.value = GameState(
-                seed = seed, difficulty = difficulty, mapId = "level_0",
+
+            // Restore counters before the loops start reading them.
+            elapsedMs = saved?.elapsedMs ?: 0L
+            score     = saved?.score ?: 0L
+            kills     = saved?.kills ?: 0
+
+            val base = GameState(
+                seed = useSeed, difficulty = useDiff, mapId = "level_0",
                 grid = grid, exitX = grid.exitX, exitZ = grid.exitZ,
                 spawnPhase = SpawnPhase.FALLING
             )
+            _state.value = if (saved != null) base.copy(
+                sanity = saved.sanity,
+                flashlightBattery = saved.battery,
+                playerHp = saved.playerHp,
+                score = saved.score,
+                kills = saved.kills,
+                sessionElapsed = saved.elapsedMs
+            ) else base
             startPhysicsLoop(sensitivity)
-            startEntitySpawner(difficulty, cfg)
+            startEntitySpawner(useDiff, cfg)
             startScoreAccumulator()
             startAutosave()
             playSpawnDrop()
@@ -1365,7 +1394,7 @@ fun LobbyVideoBackground(modifier: Modifier = Modifier) {
 
 @Composable
 fun MainMenu(
-    onPlay       : () -> Unit,
+    onPlay       : (Boolean) -> Unit,
     onOnline     : () -> Unit,
     onSettings   : () -> Unit,
     onStory      : () -> Unit,
@@ -1377,7 +1406,9 @@ fun MainMenu(
 ) {
     val profile by profileVm.profile.collectAsState()
     val hasSave by lobbyVm.hasSave.collectAsState()
-    val guestName by lobbyVm.guestName.collectAsState()
+    val displayName by lobbyVm.displayName.collectAsState()
+    val avatarUri by lobbyVm.avatarUri.collectAsState()
+    val frame by lobbyVm.frame.collectAsState()
     var toast by remember { mutableStateOf<String?>(null) }
     var showOfflineChoice by remember { mutableStateOf(false) }
     val comingSoon = stringResource(R.string.menu_coming_soon)
@@ -1404,11 +1435,11 @@ fun MainMenu(
             Modifier.align(Alignment.TopStart).padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AvatarBadge(level = profile.level, onClick = onProfile)
+            LobbyAvatar(level = profile.level, frame = frame, localUri = avatarUri, onClick = onProfile)
             Spacer(Modifier.width(10.dp))
             Column {
                 Text(
-                    profile.name.takeIf { it.isNotBlank() && it != "Wanderer" } ?: guestName,
+                    displayName.takeIf { it.isNotBlank() } ?: profile.name,
                     color = Yellow, fontSize = 15.sp,
                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp
                 )
@@ -1431,9 +1462,14 @@ fun MainMenu(
         }
 
         // ---- Left edge: navigation rail ---------------------------------------
+        // Anchored below the identity header rather than vertically centred: on
+        // shorter screens centring pushed the rail up into the profile block.
         Column(
-            Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 12.dp, bottom = 18.dp, top = 92.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             RailItem(stringResource(R.string.menu_market),    CrtAmber,     onMarket)  { drawMarketGlyph(it) }
             RailItem(stringResource(R.string.menu_story),      Yellow,       onStory)   { drawBookGlyph(it) }
@@ -1443,8 +1479,8 @@ fun MainMenu(
 
         // ---- Right edge: play modes -------------------------------------------
         Column(
-            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
-            verticalArrangement   = Arrangement.spacedBy(14.dp),
+            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 18.dp),
+            verticalArrangement   = Arrangement.spacedBy(12.dp),
             horizontalAlignment   = Alignment.End
         ) {
             PlayModeButton(stringResource(R.string.menu_play_offline), SuccessGreen, { showOfflineChoice = true }) { drawOfflineGlyph(it) }
@@ -1454,8 +1490,8 @@ fun MainMenu(
         if (showOfflineChoice) {
             OfflineChoiceDialog(
                 hasSave     = hasSave,
-                onNewGame   = { showOfflineChoice = false; lobbyVm.clearSave(); onPlay() },
-                onContinue  = { showOfflineChoice = false; onPlay() },
+                onNewGame   = { showOfflineChoice = false; lobbyVm.clearSave(); onPlay(false) },
+                onContinue  = { showOfflineChoice = false; onPlay(true) },
                 onNoSave    = { toast = noSaveMsg },
                 onDismiss   = { showOfflineChoice = false }
             )
@@ -2193,11 +2229,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             return base + 4
         }
 
-        // Per-cell UV jitter breaks up visible tiling without extra textures.
-        fun uvOffset(cx: Int, cz: Int): Pair<Float, Float> {
-            val h = (cx * 73856093) xor (cz * 19349663)
-            return ((h shr 3 and 3) * 0.25f) to ((h shr 7 and 3) * 0.25f)
-        }
+        // World-space UV scale. Deriving UVs from world position (rather than
+        // restarting them per cell) is what makes the surface continuous: the
+        // texture flows across cell boundaries instead of resetting at each one.
+        val uvPerMetre = 0.5f
 
         // Lighting zone -> baked vertex brightness. Zone 0 is genuinely dark,
         // so those stretches are only visible by flashlight.
@@ -2210,7 +2245,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
         val cs = g.cellSize
         val hgt = g.height
-        val tile = 1.0f   // one texture repeat per cell keeps texel density even
 
         for (cz in 0 until g.dim) {
             for (cx in 0 until g.dim) {
@@ -2218,8 +2252,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 val x0 = g.worldX(cx); val x1 = x0 + cs
                 val z0 = g.worldZ(cz); val z1 = z0 + cs
                 val lit = zoneLight(g.zoneAt(cx, cz))
-                val (uo, vo) = uvOffset(cx, cz)
                 val feature = g.featureAt(cx, cz)
+                // Continuous, world-anchored texture coordinates.
+                val u0 = x0 * uvPerMetre; val u1 = x1 * uvPerMetre
+                val v0 = z0 * uvPerMetre; val v1 = z1 * uvPerMetre
+                val wallV0 = 0f;          val wallV1 = hgt * uvPerMetre
 
                 // Floor (skipped for a hole feature, which becomes a pit)
                 if (feature != 4) {
@@ -2228,7 +2265,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                         floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
                         floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
                         floatArrayOf(0f, 1f, 0f), lit,
-                        uo, vo, uo + tile, vo + tile
+                        u0, v0, u1, v1
                     )
                 }
 
@@ -2240,7 +2277,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                         floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
                         floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
                         floatArrayOf(0f, -1f, 0f), lit * 1.25f,
-                        uo, vo, uo + tile, vo + tile
+                        u0, v0, u1, v1
                     )
                 }
 
@@ -2252,7 +2289,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                         wallV, wallI, wallB,
                         floatArrayOf(x0, 0f, z1), floatArrayOf(x0, 0f, z0),
                         floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
-                        floatArrayOf(1f, 0f, 0f), wallLit, uo, vo, uo + tile, vo + tile
+                        floatArrayOf(1f, 0f, 0f), wallLit, v1, wallV0, v0, wallV1
                     )
                 }
                 if (g.isSolid(cx + 1, cz)) {
@@ -2260,7 +2297,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                         wallV, wallI, wallB,
                         floatArrayOf(x1, 0f, z0), floatArrayOf(x1, 0f, z1),
                         floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
-                        floatArrayOf(-1f, 0f, 0f), wallLit, uo, vo, uo + tile, vo + tile
+                        floatArrayOf(-1f, 0f, 0f), wallLit, v0, wallV0, v1, wallV1
                     )
                 }
                 if (g.isSolid(cx, cz - 1)) {
@@ -2268,7 +2305,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                         wallV, wallI, wallB,
                         floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
                         floatArrayOf(x1, hgt, z0), floatArrayOf(x0, hgt, z0),
-                        floatArrayOf(0f, 0f, 1f), wallLit, uo, vo, uo + tile, vo + tile
+                        floatArrayOf(0f, 0f, 1f), wallLit, u0, wallV0, u1, wallV1
                     )
                 }
                 if (g.isSolid(cx, cz + 1)) {
@@ -2276,7 +2313,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                         wallV, wallI, wallB,
                         floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
                         floatArrayOf(x0, hgt, z1), floatArrayOf(x1, hgt, z1),
-                        floatArrayOf(0f, 0f, -1f), wallLit, uo, vo, uo + tile, vo + tile
+                        floatArrayOf(0f, 0f, -1f), wallLit, u1, wallV0, u0, wallV1
                     )
                 }
             }
@@ -2381,11 +2418,11 @@ private fun BoxScope.NoiseScanlineBottom() {
 }
 
 @Composable
-fun GameScreen(onExit: () -> Unit, vm: GameVM = hiltViewModel(), settingsVm: SettingsVM = hiltViewModel()) {
+fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltViewModel(), settingsVm: SettingsVM = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val settingsState by settingsVm.state.collectAsState()
     val ctx = LocalContext.current
-    LaunchedEffect(Unit) { vm.startGame() }
+    LaunchedEffect(Unit) { vm.startGame(resume = resume) }
 
     val renderer = remember { OmniGLRenderer(ctx.applicationContext) }
     LaunchedEffect(state) { renderer.latestState = state }
@@ -2469,8 +2506,8 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                 verticalAlignment     = Alignment.CenterVertically
             ) {
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CurrencyBadge(s.omniumBal,  OmniumCol,  Icons.Default.Bolt)
-                    CurrencyBadge(s.souliumBal, SouliumCol, Icons.Default.AutoAwesome)
+                    CurrencyBadge(s.omniumBal,  OmniumCol,  isOmnium = true)
+                    CurrencyBadge(s.souliumBal, SouliumCol, isOmnium = false)
                 }
                 if (s.isVip) VipBadge()
             }
@@ -3719,14 +3756,33 @@ private fun PurchaseConfirmDialog(item: MarketItemDto, onConfirm: () -> Unit, on
 }
 
 @Composable
-private fun CurrencyBadge(amount: Long, color: Color, icon: ImageVector) {
+private fun CurrencyBadge(amount: Long, color: Color, isOmnium: Boolean) {
+    val inf = rememberInfiniteTransition(label = "curShimmer")
+    val shimmer by inf.animateFloat(
+        0.55f, 1f,
+        infiniteRepeatable(tween(2400, easing = EaseInOut), RepeatMode.Reverse),
+        "curShimmerV"
+    )
     Row(
-        Modifier.clip(RoundedCornerShape(2.dp)).background(MetalBg).padding(horizontal = 8.dp, vertical = 4.dp),
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                Brush.horizontalGradient(listOf(MetalBg, color.copy(0.10f)))
+            )
+            .border(1.dp, color.copy(0.30f * shimmer + 0.15f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(12.dp))
-        Text(amount.toString(), color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        // Identical glyph to the lobby wallet, so the same currency never
+        // appears with two different symbols.
+        androidx.compose.foundation.Canvas(Modifier.size(13.dp)) {
+            if (isOmnium) drawOmniumGlyph(color.copy(shimmer)) else drawSouliumGlyph(color.copy(shimmer))
+        }
+        Text(
+            formatCompactAmount(amount),
+            color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -4003,15 +4059,27 @@ private fun RailItem(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clickable(interaction, indication = null, onClick = onClick)
     ) {
+        val inf = rememberInfiniteTransition(label = "railGlow")
+        val ring by inf.animateFloat(
+            0.30f, 0.62f,
+            infiniteRepeatable(tween(2800, easing = EaseInOut), RepeatMode.Reverse),
+            "railRing"
+        )
+        val lift by animateFloatAsState(if (pressed) 2.5f else 0f, spring(), label = "railLift")
         Box(
             Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(0.42f))
-                .border(1.dp, accent.copy(0.42f), RoundedCornerShape(12.dp)),
+                .size(54.dp)
+                .graphicsLayer { translationY = lift }
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(accent.copy(0.14f), Color.Black.copy(0.55f))
+                    )
+                )
+                .border(1.dp, accent.copy(if (pressed) 0.9f else ring), RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(12.dp)) { glyph(accent) }
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(13.dp)) { glyph(accent) }
         }
         Spacer(Modifier.height(3.dp))
         Text(label, color = accent.copy(0.85f), fontSize = 9.sp, letterSpacing = 1.sp)
@@ -4030,54 +4098,55 @@ private fun PlayModeButton(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.93f else 1f, spring(), label = "playScale")
     val inf = rememberInfiniteTransition(label = "playGlow")
-    val glow by inf.animateFloat(0.35f, 0.75f, infiniteRepeatable(tween(2200, easing = EaseInOut), RepeatMode.Reverse), "glow")
+    val glow by inf.animateFloat(0.35f, 0.85f, infiniteRepeatable(tween(2200, easing = EaseInOut), RepeatMode.Reverse), "glow")
+    // Highlight sweep: a thin band that travels across the face on a loop. It's
+    // what makes a button read as "live" rather than a static outline.
+    val sweep by inf.animateFloat(
+        -0.4f, 1.4f,
+        infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
+        "playSweep"
+    )
+    val shape = RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp, topEnd = 4.dp, bottomEnd = 4.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(0.55f))
-            .border(1.5.dp, accent.copy(glow), RoundedCornerShape(12.dp))
+            .graphicsLayer {
+                scaleX = scale; scaleY = scale
+                // Pressing sinks the button slightly toward the screen edge.
+                translationX = (1f - scale) * 22f
+            }
+            .clip(shape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Black.copy(0.30f), Color.Black.copy(0.72f), accent.copy(0.16f))
+                )
+            )
+            .drawWithContent {
+                drawContent()
+                val bandW = size.width * 0.28f
+                val x = size.width * sweep
+                drawRect(
+                    Brush.horizontalGradient(
+                        listOf(Color.Transparent, accent.copy(0.16f), Color.Transparent),
+                        startX = x - bandW / 2f, endX = x + bandW / 2f
+                    )
+                )
+            }
+            .border(1.5.dp, accent.copy(glow), shape)
             .clickable(interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp)
+            .padding(start = 16.dp, end = 12.dp, top = 11.dp, bottom = 11.dp)
     ) {
         Text(label, color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-        Spacer(Modifier.width(9.dp))
-        androidx.compose.foundation.Canvas(Modifier.size(26.dp)) { glyph(accent) }
-    }
-}
-
-/** Circular avatar with the player's level on a badge, drawn in code. */
-@Composable
-private fun AvatarBadge(level: Int, onClick: () -> Unit) {
-    Box(Modifier.size(48.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            val r = size.minDimension * 0.42f
-            drawCircle(Color.Black.copy(0.6f), radius = r, center = center)
-            drawCircle(Yellow.copy(0.75f), radius = r, center = center, style = Stroke(size.minDimension * 0.045f))
-            // Simple head-and-shoulders silhouette
-            drawCircle(Yellow.copy(0.85f), radius = r * 0.30f, center = Offset(center.x, center.y - r * 0.22f))
-            val body = Path().apply {
-                moveTo(center.x - r * 0.48f, center.y + r * 0.60f)
-                cubicTo(
-                    center.x - r * 0.44f, center.y + r * 0.10f,
-                    center.x + r * 0.44f, center.y + r * 0.10f,
-                    center.x + r * 0.48f, center.y + r * 0.60f
-                )
-                close()
-            }
-            drawPath(body, Yellow.copy(0.85f))
-        }
-        Box(
-            Modifier
-                .align(Alignment.BottomEnd)
-                .clip(RoundedCornerShape(5.dp))
-                .background(Color.Black)
-                .border(1.dp, CrtAmber, RoundedCornerShape(5.dp))
-                .padding(horizontal = 4.dp, vertical = 1.dp)
-        ) {
-            Text("$level", color = CrtAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        }
+        Spacer(Modifier.width(10.dp))
+        // Glyph gets its own subtle breathing scale so the icon isn't frozen.
+        val iconPulse by inf.animateFloat(
+            0.94f, 1.06f,
+            infiniteRepeatable(tween(1800, easing = EaseInOut), RepeatMode.Reverse),
+            "playIcon"
+        )
+        androidx.compose.foundation.Canvas(
+            Modifier.size(28.dp).graphicsLayer { scaleX = iconPulse; scaleY = iconPulse }
+        ) { glyph(accent) }
     }
 }
 
@@ -4152,19 +4221,26 @@ fun SpawnSequenceOverlay(phase: SpawnPhase, modifier: Modifier = Modifier) {
 @HiltViewModel
 class LobbyVM @Inject constructor(
     private val saveStore: SaveGameStore,
-    private val identity : GuestIdentityManager
+    private val identity : GuestIdentityManager,
+    private val cosmetics: CosmeticsStore
 ) : ViewModel() {
 
     val hasSave: StateFlow<Boolean> = saveStore.observeHasSave()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    private val _guestName = MutableStateFlow("")
-    val guestName: StateFlow<String> = _guestName.asStateFlow()
+    // Same sources the profile screen reads, so the lobby can never disagree
+    // with it about the player's avatar, frame or display name.
+    val avatarUri: StateFlow<String?> = cosmetics.observeAvatarUri()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val frame: StateFlow<String> = cosmetics.observeFrame()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "default")
+    val displayName: StateFlow<String> = identity.observeDisplayName()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            // Also performs the one-week guest expiry check.
-            _guestName.value = identity.currentName()
+            // Performs the one-week guest expiry check and mints a name if needed.
+            identity.currentName()
         }
     }
 
@@ -4278,5 +4354,59 @@ fun NotificationPermissionGate() {
             },
             containerColor = PanelBg
         )
+    }
+}
+
+
+/** Lobby avatar. Shares the frame renderer and photo source with the profile
+ *  screen so the two can't drift apart. */
+@Composable
+private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: () -> Unit) {
+    Box(Modifier.size(50.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val r = size.minDimension * 0.36f
+            drawCircle(Color.Black.copy(0.65f), radius = r, center = center)
+            drawCircle(Yellow.copy(0.8f), radius = r * 0.30f, center = Offset(center.x, center.y - r * 0.22f))
+            val body = Path().apply {
+                moveTo(center.x - r * 0.48f, center.y + r * 0.60f)
+                cubicTo(
+                    center.x - r * 0.44f, center.y + r * 0.10f,
+                    center.x + r * 0.44f, center.y + r * 0.10f,
+                    center.x + r * 0.48f, center.y + r * 0.60f
+                )
+                close()
+            }
+            drawPath(body, Yellow.copy(0.8f))
+            drawFrameRing(frame, r)
+        }
+        val ctx = LocalContext.current
+        val bmp by produceState<ImageBitmap?>(null, localUri) {
+            value = localUri?.let { uriStr ->
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        ctx.contentResolver.openInputStream(Uri.parse(uriStr))?.use { st ->
+                            BitmapFactory.decodeStream(st)?.asImageBitmap()
+                        }
+                    }.getOrNull()
+                }
+            }
+        }
+        bmp?.let {
+            Image(
+                bitmap = it, contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(0.62f).clip(CircleShape)
+            )
+        }
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color.Black)
+                .border(1.dp, CrtAmber, RoundedCornerShape(5.dp))
+                .padding(horizontal = 4.dp, vertical = 1.dp)
+        ) {
+            Text("$level", color = CrtAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }

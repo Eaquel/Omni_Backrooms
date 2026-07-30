@@ -221,4 +221,6 @@
     <string name="market_tab_trails">Trails</string>
     <string name="market_cosmetic_note">Nothing here grants a gameplay advantage — it is all cosmetic.</string>
     <string name="market_owned">Owned</string>
+    <string name="room_password_required">Enter a password for a locked room</string>
+    <string name="editor_btn_jump">Jump</string>
 </resources>

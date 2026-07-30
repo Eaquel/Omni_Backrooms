@@ -874,6 +874,7 @@ data class CreateRoomUiState(
     val difficulty      : String  = "normal",
     val passwordEnabled : Boolean = false,
     val password        : String  = "",
+    val passwordError   : Int?    = null,
     val mapId           : String  = "level_0",
     val language        : String  = "TR",
     val isCreating      : Boolean = false,
@@ -931,16 +932,21 @@ class CreateRoomVM @Inject constructor(private val repo: RoomRepository) : ViewM
     fun onName(n: String)            { _state.update { it.copy(name = n, nameError = validate(n)) } }
     fun onSize(v: Int)               { _state.update { it.copy(size = v.coerceIn(2, 4)) } }
     fun onDifficulty(d: String)      { _state.update { it.copy(difficulty = d) } }
-    fun onPasswordToggle(e: Boolean) { _state.update { it.copy(passwordEnabled = e, password = if (!e) "" else it.password) } }
-    fun onPassword(p: String)        { _state.update { it.copy(password = p) } }
-    fun onMapId(m: String)           { _state.update { it.copy(mapId = m) } }
+    fun onPasswordToggle(e: Boolean) { _state.update { it.copy(passwordEnabled = e, password = if (!e) "" else it.password, passwordError = null) } }
+    fun onPassword(p: String)        { _state.update { it.copy(password = p, passwordError = null) } }
     fun onLanguage(l: String)        { _state.update { it.copy(language = l) } }
 
     fun onCreate() {
         val s   = _state.value
         val err = validate(s.name)
         if (err != null) { _state.update { it.copy(nameError = err) }; return }
-        if (s.passwordEnabled && s.password.isBlank()) return
+        // Previously this returned silently, so tapping Create with the lock on
+        // and no password simply did nothing with no explanation.
+        if (s.passwordEnabled && s.password.isBlank()) {
+            _state.update { it.copy(passwordError = R.string.room_password_required) }
+            return
+        }
+        _state.update { it.copy(passwordError = null) }
         viewModelScope.launch {
             _state.update { it.copy(isCreating = true) }
             runCatching { repo.createRoom(s.name, s.size, s.difficulty, if (s.passwordEnabled) s.password else null) }
@@ -1083,7 +1089,6 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
                 }
 
                 DifficultySelector(s.difficulty, vm::onDifficulty)
-                MapSelector(s.mapId, vm::onMapId)
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("TR","EN","DE","RU").forEach { l ->
@@ -1115,7 +1120,12 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
                 }
 
                 androidx.compose.animation.AnimatedVisibility(visible = s.passwordEnabled, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                    OmniTextField(s.password, vm::onPassword, stringResource(R.string.room_create_password_hint), isPassword = true)
+                    OmniTextField(
+                        s.password, vm::onPassword,
+                        stringResource(R.string.room_create_password_hint),
+                        error = s.passwordError?.let { stringResource(it) },
+                        isPassword = true
+                    )
                 }
 
                 s.error?.let { Text(it, color = DangerRed, fontSize = 11.sp) }
@@ -1233,34 +1243,6 @@ private fun DifficultySelector(selected: String, onSelect: (String) -> Unit) {
                     .clickable { onSelect(key) }
             ) {
                 Text(stringResource(res), color = if (sel) col else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
-            }
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun MapSelector(selected: String, onSelect: (String) -> Unit) {
-    val maps = listOf("level_0" to "Level 0", "level_1" to "Level 1", "level_2" to "Level 2", "level_3" to "Level 3", "level_4" to "Level 4")
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        SectionLabel("Harita")
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.horizontalScroll(rememberScrollState())
-        ) {
-            maps.forEach { (id, name) ->
-                val sel   = selected == id
-                val scale by animateFloatAsState(if (sel) 1.05f else 1f, spring(), label = "map_$id")
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.scale(scale)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
-                        .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-                        .clickable { onSelect(id) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(name, color = if (sel) Yellow else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
-                }
             }
         }
     }
@@ -1403,6 +1385,16 @@ class GuestIdentityManager @Inject constructor(@ApplicationContext private val c
 
     suspend fun touch() {
         ctx.identityStore.edit { it[Keys.LAST_SEEN] = System.currentTimeMillis() }
+    }
+
+    /** The single source of truth for the player's shown name. Lobby, profile and
+     *  settings all observe this, so a rename in one place appears in all of them. */
+    fun observeDisplayName(): Flow<String> = ctx.identityStore.data.map { it[Keys.NAME] ?: "" }
+
+    suspend fun setDisplayName(name: String) {
+        val clean = name.trim().take(24)
+        if (clean.isEmpty()) return
+        runCatching { ctx.identityStore.edit { it[Keys.NAME] = clean } }
     }
 }
 

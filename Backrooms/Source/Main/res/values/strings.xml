@@ -224,4 +224,6 @@
     <string name="market_tab_trails">İzler</string>
     <string name="market_cosmetic_note">Buradaki hiçbir ürün oyun içi avantaj sağlamaz — tamamı görsel.</string>
     <string name="market_owned">Sahipsin</string>
+    <string name="room_password_required">Şifreli oda için şifre girmelisin</string>
+    <string name="editor_btn_jump">Zıpla</string>
 </resources>
