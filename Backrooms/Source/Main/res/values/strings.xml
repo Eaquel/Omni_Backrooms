@@ -107,7 +107,7 @@
     <string name="market_tab_boosts">Boostlar</string>
     <string name="market_tab_characters">Karakterler</string>
     <string name="market_tab_soulium">Soulium</string>
-    <string name="market_tab_vip">VIP</string>
+    <string name="market_tab_vip">Ayrıcalıklar</string>
     <string name="market_tab_daily">Günlük</string>
     <string name="market_buy">Satın Al</string>
     <string name="market_equipped">Kullanılıyor</string>
@@ -226,4 +226,19 @@
     <string name="market_owned">Sahipsin</string>
     <string name="room_password_required">Şifreli oda için şifre girmelisin</string>
     <string name="editor_btn_jump">Zıpla</string>
+    <string name="notif_permission_denied">Sistem izni verilmedi</string>
+    <string name="notif_open_settings">Sistem Ayarlarını Aç</string>
+    <string name="notif_permission_granted">Sistem izni verildi</string>
+    <string name="settings_language">Dil</string>
+    <string name="settings_language_system">Cihaz Dili</string>
+    <string name="story_codex_title">Kayıt Arşivi</string>
+    <string name="story_codex_level">SEVİYE 0 — BEKLEME ODASI</string>
+    <string name="story_codex_level_body">Sonu olmayan mono-sarı ofis koridorları. Nemli halı, uğuldayan floresanlar, boş kalan odalar. Belirli bölgelerde lambalar tamamen sönmüştür — orada yalnızca fenerinizle görürsünüz.</string>
+    <string name="story_codex_survival">HAYATTA KALMA</string>
+    <string name="story_codex_survival_body">Akıl sağlığınız yaratıkların yakınlığı ve ışık titremesiyle azalır; sakin ve aydınlık yerlerde yavaşça toparlanır. Fener pili sadece açıkken tükenir. Koşmak stamina harcar.</string>
+    <string name="story_codex_entities">VARLIKLAR</string>
+    <string name="story_codex_entities_body">Sekiz tür dolaşır. Her biri ayrı bir davranış ağacıyla hareket eder: bazıları sesi takip eder, bazıları görüş alanına girmenizi bekler, bazıları doğrudan avlanır. Saldırı durumuna geçen bir varlık menzile girerse can kaybedersiniz.</string>
+    <string name="story_codex_exit">ÇIKIŞ</string>
+    <string name="story_codex_exit_body">Her koşuda çıkış, doğduğunuz noktadan en uzak konuma yerleştirilir. Yakınına vardığınızda ekranda uyarı çıkar; etkileşim tuşuyla kaçabilirsiniz.</string>
+    <string name="story_chapters_header">BÖLÜMLER</string>
 </resources>

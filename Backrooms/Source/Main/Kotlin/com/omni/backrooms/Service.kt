@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.util.Log
 import android.graphics.Bitmap
 import android.os.Binder
@@ -317,7 +318,13 @@ data class GameState(
     val exitX             : Float   = 0f,
     val exitZ             : Float   = 0f,
     val distanceToExit    : Float   = Float.MAX_VALUE,
-    val spawnPhase        : SpawnPhase = SpawnPhase.READY
+    val spawnPhase        : SpawnPhase = SpawnPhase.READY,
+    /** Live telemetry, measured rather than faked. */
+    val fps               : Int     = 0,
+    val pingMs            : Int     = 0,
+    /** Vertical camera offset in metres, used by the arrival sequence to drop
+     *  the view to the floor on impact and raise it back to standing. */
+    val eyeOffset         : Float   = 0f
 )
 
 data class LeaderboardEntry(
@@ -444,6 +451,12 @@ data class StoryChapterDto(val id: Int, val titleTr: String, val titleEn: String
 
 /** Picks the chapter text matching the device locale, falling back to Turkish
  *  (this app's default locale — see values/strings.xml) for anything else. */
+// NOTE ON NAMING: the "Tr" slots hold the *localised* text for whatever language
+// the story was loaded in (Turkish, Spanish, Russian or German) and the "En"
+// slots hold the English original. The names predate multi-language support; the
+// behaviour below is what matters — English locales read the English slot, every
+// other locale reads the localised one, which AssetManager already filled from
+// the right file with per-chapter English fallback.
 val StoryChapterDto.displayTitle: String
     get() = if (java.util.Locale.getDefault().language == "en") titleEn else titleTr
 val StoryChapterDto.displayContent: String
@@ -1418,8 +1431,23 @@ class SaveGameStore @Inject constructor(@ApplicationContext private val ctx: Con
     private val json = Json { ignoreUnknownKeys = true }
     private val key  = stringPreferencesKey("saved_run")
 
+    /** Application-lifetime scope. The final save happens exactly when the game
+     *  screen is being torn down, so a ViewModel-scoped coroutine gets cancelled
+     *  before it can write — which is why "Continue" always started over. This
+     *  scope outlives the ViewModel, so the write actually lands. */
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     suspend fun save(run: SavedRun) {
         runCatching { ctx.identityStore.edit { it[key] = json.encodeToString(run) } }
+    }
+
+    /** Fire-and-forget save that survives the caller being destroyed. */
+    fun saveDetached(run: SavedRun) {
+        ioScope.launch {
+            runCatching { ctx.identityStore.edit { it[key] = json.encodeToString(run) } }
+                .onSuccess { OmniLog.i("Save", "run saved elapsed=${run.elapsedMs}") }
+                .onFailure { OmniLog.e("Save", "save failed", it) }
+        }
     }
 
     suspend fun load(): SavedRun? = runCatching {
@@ -1615,4 +1643,69 @@ class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Co
             }
         }
     }
+}
+
+
+// ============================================================================
+// Language selection. Implemented directly rather than via AppCompat's
+// per-app-locale API, because this is a Compose-only app (ComponentActivity)
+// and pulling in the whole AppCompat theming stack just for locale switching
+// isn't a good trade. Works uniformly from API 28 up.
+// ============================================================================
+
+/** Languages the UI is actually localised for. Anything else falls back to
+ *  English, which is also the default. */
+enum class AppLanguage(val tag: String, val endonym: String) {
+    ENGLISH("en", "English"),
+    TURKISH("tr", "Türkçe"),
+    SPANISH("es", "Español"),
+    RUSSIAN("ru", "Русский"),
+    GERMAN ("de", "Deutsch");
+
+    companion object {
+        const val SYSTEM = "system"
+
+        fun fromTag(tag: String?): AppLanguage? = entries.firstOrNull { it.tag == tag }
+
+        /** Resolves the device's own language to a supported one, or English. */
+        fun matchDevice(): AppLanguage {
+            val deviceTag = Locale.getDefault().language.lowercase(Locale.ROOT)
+            return fromTag(deviceTag) ?: ENGLISH
+        }
+    }
+}
+
+@Singleton
+class LocaleStore @Inject constructor(@ApplicationContext private val ctx: Context) {
+    private val key = stringPreferencesKey("app_language")
+
+    /** "system" until the player picks explicitly. */
+    fun observeSelection(): Flow<String> = ctx.identityStore.data.map { it[key] ?: AppLanguage.SYSTEM }
+
+    suspend fun setSelection(value: String) {
+        runCatching { ctx.identityStore.edit { it[key] = value } }
+        OmniLog.i("Locale", "selection set to $value")
+    }
+
+    /** Blocking read, needed from attachBaseContext where suspending isn't an
+     *  option. Falls back to the device language on any failure. */
+    fun currentLanguageBlocking(): AppLanguage = runCatching {
+        runBlocking { observeSelection().first() }
+    }.getOrNull().let { sel ->
+        if (sel == null || sel == AppLanguage.SYSTEM) AppLanguage.matchDevice()
+        else AppLanguage.fromTag(sel) ?: AppLanguage.matchDevice()
+    }
+}
+
+/** Wraps a Context so resources resolve in [language]. Applied in
+ *  MainActivity.attachBaseContext, which is the only hook that runs early
+ *  enough to affect the whole activity's resource lookups. */
+fun applyAppLanguage(base: Context, language: AppLanguage): Context {
+    val locale = Locale.forLanguageTag(language.tag)
+    Locale.setDefault(locale)
+    val config = Configuration(base.resources.configuration).apply {
+        setLocale(locale)
+        setLayoutDirection(locale)
+    }
+    return base.createConfigurationContext(config)
 }

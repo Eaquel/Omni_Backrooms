@@ -334,6 +334,16 @@ object AppModule {
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        // Runs before Hilt injection is available, and before any resource is
+        // resolved — which is exactly why the locale has to be applied here
+        // rather than in onCreate.
+        val language = runCatching { LocaleStore(newBase).currentLanguageBlocking() }
+            .getOrDefault(AppLanguage.ENGLISH)
+        super.attachBaseContext(applyAppLanguage(newBase, language))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -564,17 +574,22 @@ data class SpawnConfig(val count: Int, val speedMult: Float, val sightMult: Floa
 data class PreloadEvent(val progress: Float, val stage: String)
 data class LevelTheme(val id: String, val primaryColor: Color = Yellow, val bgColor: Color = DarkBg)
 
-@Serializable
+/** Internal intermediate between the bundled per-language story files and the
+ *  UI. "Localised" is whichever language was loaded; "source" is the English
+ *  original used as a per-chapter fallback. Not a wire type — the server-facing
+ *  [StoryChapterDto] keeps its own field names for that reason. */
 data class StoryChapterRaw(
-    val id                            : Int,
-    @SerialName("title_tr")      val titleTr     : String,
-    @SerialName("title_en")      val titleEn     : String,
-    val unlocked                      : Boolean,
-    @SerialName("paragraphs_tr") val paragraphsTr: List<String>,
-    @SerialName("paragraphs_en") val paragraphsEn: List<String>
+    val id                  : Int,
+    val titleLocalised      : String,
+    val titleSource         : String,
+    val unlocked            : Boolean,
+    val paragraphsLocalised : List<String>,
+    val paragraphsSource    : List<String>
 )
 
-@Serializable
+/** In-memory result of loading the story. Never serialised — the annotation was
+ *  removed along with StoryChapterRaw's, since kotlinx.serialization requires
+ *  every nested type to be serialisable and this one is now a plain holder. */
 data class StoryJson(val version: Int, val chapters: List<StoryChapterRaw>)
 
 /** Matches the schema actually used by the shipped en.json/tr.json assets — each
@@ -604,7 +619,7 @@ enum class CharClass { WANDERER, SCOUT, SURVIVOR, ENGINEER, GHOST }
 @Singleton
 class AssetManager @Inject constructor(@ApplicationContext private val ctx: Context) {
     private val json       = Json { ignoreUnknownKeys = true; coerceInputValues = true }
-    private var storyCache : StoryJson? = null
+    private val storyCacheByLang = mutableMapOf<String, StoryJson>()
 
     private val levelThemes = mapOf(
         0 to LevelTheme("level_0", Yellow,              DarkBg),
@@ -633,39 +648,54 @@ class AssetManager @Inject constructor(@ApplicationContext private val ctx: Cont
         else   -> SpawnConfig(count=5,  speedMult=1.0f, sightMult=1.0f, spawnIntervalMs=22_000)
     }
 
-    fun loadStory(): StoryJson {
-        storyCache?.let { return it }
+    /** Loads the story in the given language, falling back to English per-chapter
+     *  where a translation isn't present yet. Cached per language, since the
+     *  player can switch language and come back. */
+    fun loadStory(languageTag: String = Locale.getDefault().language): StoryJson {
+        storyCacheByLang[languageTag]?.let { return it }
+
         fun readMono(name: String): StoryFileMono? =
             runCatching { ctx.assets.open(name).bufferedReader().readText() }
                 .mapCatching { json.decodeFromString<StoryFileMono>(it) }
                 .getOrNull()
 
-        val en = readMono("Story/en.json")
-        val tr = readMono("Story/tr.json")
-        val byIdEn = en?.chapters?.associateBy { it.id } ?: emptyMap()
-        val byIdTr = tr?.chapters?.associateBy { it.id } ?: emptyMap()
-        val ids = (byIdEn.keys + byIdTr.keys).sorted()
+        val fallback = readMono("Story/en.json")
+        // "en" would just re-read the fallback; anything else gets its own file.
+        val localised = if (languageTag == "en") null else readMono("Story/$languageTag.json")
+
+        val byIdFallback = fallback?.chapters?.associateBy { it.id } ?: emptyMap()
+        val byIdLocal    = localised?.chapters?.associateBy { it.id } ?: emptyMap()
+        val ids = (byIdFallback.keys + byIdLocal.keys).sorted()
 
         val merged = ids.map { id ->
-            val e = byIdEn[id]; val t = byIdTr[id]
+            val f = byIdFallback[id]; val l = byIdLocal[id]
+            // titleTr/paragraphsTr carry the *localised* text and titleEn/
+            // paragraphsEn the English original; the display extensions in
+            // Service.kt pick between them by locale.
             StoryChapterRaw(
-                id           = id,
-                titleTr      = t?.title.takeUnless { it.isNullOrBlank() } ?: e?.title.orEmpty(),
-                titleEn      = e?.title.takeUnless { it.isNullOrBlank() } ?: t?.title.orEmpty(),
-                unlocked     = t?.unlocked ?: e?.unlocked ?: false,
-                paragraphsTr = t?.paragraphs?.takeIf { it.isNotEmpty() } ?: e?.paragraphs.orEmpty(),
-                paragraphsEn = e?.paragraphs?.takeIf { it.isNotEmpty() } ?: t?.paragraphs.orEmpty()
+                id                  = id,
+                titleLocalised      = l?.title.takeUnless { it.isNullOrBlank() } ?: f?.title.orEmpty(),
+                titleSource         = f?.title.takeUnless { it.isNullOrBlank() } ?: l?.title.orEmpty(),
+                unlocked            = l?.unlocked ?: f?.unlocked ?: false,
+                paragraphsLocalised = l?.paragraphs?.takeIf { it.isNotEmpty() } ?: f?.paragraphs.orEmpty(),
+                paragraphsSource    = f?.paragraphs?.takeIf { it.isNotEmpty() } ?: l?.paragraphs.orEmpty()
             )
         }
-        return StoryJson(version = 1, chapters = merged).also { storyCache = it }
+        if (localised == null && languageTag != "en") {
+            OmniLog.i("Story", "no localised story for '$languageTag'; using English")
+        }
+        return StoryJson(version = 1, chapters = merged).also { storyCacheByLang[languageTag] = it }
     }
 
+    /** Maps to the wire type. The Dto's `Tr`/`En` field names are fixed by the
+     *  server's JSON contract (see ApiService.getStoryChapters), so the mapping
+     *  is: localised text -> the `Tr` slot, English source -> the `En` slot. */
     fun storyChapterToDto(raw: StoryChapterRaw): StoryChapterDto = StoryChapterDto(
         id        = raw.id,
-        titleTr   = raw.titleTr,
-        titleEn   = raw.titleEn,
-        contentTr = raw.paragraphsTr.joinToString("\n\n"),
-        contentEn = raw.paragraphsEn.joinToString("\n\n"),
+        titleTr   = raw.titleLocalised,
+        titleEn   = raw.titleSource,
+        contentTr = raw.paragraphsLocalised.joinToString("\n\n"),
+        contentEn = raw.paragraphsSource.joinToString("\n\n"),
         isUnlocked= raw.unlocked
     )
 
@@ -743,11 +773,13 @@ class GuardManager @Inject constructor(
         // devices whenever a debugger could attach (developer options enabled,
         // some vendor ROMs), and it used to escalate to CRITICAL — which killed
         // the process outright. It stays in the log as an observation only.
+        // Emulators are a supported platform here, so running in one is logged
+        // but never treated as a threat. Same reasoning as `debugged` above:
+        // punishing an ordinary environment just breaks legitimate players.
         val level = when {
             frida || hook                       -> ThreatLevel.CRITICAL
             rooted || (sigCheckOn && !sigValid) -> ThreatLevel.HIGH
             memTamper                           -> ThreatLevel.HIGH
-            emulator                            -> ThreatLevel.SUSPICIOUS
             flags != 0                          -> ThreatLevel.SUSPICIOUS
             else                                -> ThreatLevel.CLEAN
         }
@@ -758,7 +790,7 @@ class GuardManager @Inject constructor(
                 if (rooted) add("root")
                 if (sigCheckOn && !sigValid) add("signature")
                 if (memTamper) add("memory")
-                if (emulator) add("emulator")
+                if (emulator) add("emulator(allowed)")
                 if (flags != 0) add("nativeFlags=0x${Integer.toHexString(flags)}")
             }
             OmniLog.w("Guard", "threat level=$level reasons=${reasons.joinToString(",")}")
@@ -968,23 +1000,26 @@ class MarketVM @Inject constructor(
     /** Offline catalogue. Every entry is purely visual by design — no stat
      *  changes, no consumables, nothing that alters difficulty. */
     private fun fallbackItems(tab: MarketTab): List<MarketItemDto> = when (tab) {
+        // Everything is free during this phase: prices are zero and nothing is
+        // gated. The currency plumbing stays in place for later.
         MarketTab.Frames -> listOf(
-            MarketItemDto("frame_gold","Altın Çerçeve","Gold Frame","Profil fotoğrafını saran altın halka","A gold ring around your avatar","frames",450,"soulium",null,false,false,false,null),
-            MarketItemDto("frame_soulium","Soulium Çerçeve","Soulium Frame","Mor kristal düğümlü çerçeve","Frame studded with violet crystal","frames",900,"soulium",null,false,false,false,null),
-            MarketItemDto("frame_omnium","Omnium Çerçeve","Omnium Frame","Dönen camgöbeği yay","Rotating cyan arc","frames",1_400,"omnium",null,false,false,false,null)
+            MarketItemDto("frame_gold","Altın Çerçeve","Gold Frame","Profil fotoğrafını saran altın halka","A gold ring around your avatar","frames",0,"soulium",null,false,false,false,null),
+            MarketItemDto("frame_soulium","Soulium Çerçeve","Soulium Frame","Mor kristal düğümlü çerçeve","Frame studded with violet crystal","frames",0,"soulium",null,false,false,false,null),
+            MarketItemDto("frame_omnium","Omnium Çerçeve","Omnium Frame","Dönen camgöbeği yay","Rotating cyan arc","frames",0,"omnium",null,false,false,false,null),
+            MarketItemDto("frame_event","Etkinlik Çerçevesi","Event Frame","Kırmızı dikenli etkinlik halkası","Red-spiked event ring","frames",0,"soulium",null,false,false,true,null)
         )
         MarketTab.Trails -> listOf(
-            MarketItemDto("trail_dust","Toz İzi","Dust Trail","Arkanda asılı kalan ince toz","Fine dust hanging behind you","trails",600,"soulium",null,false,false,false,null),
-            MarketItemDto("trail_static","Statik İz","Static Trail","VHS parazit izi","VHS static wake","trails",750,"soulium",null,false,false,false,null)
+            MarketItemDto("trail_dust","Toz İzi","Dust Trail","Arkanda asılı kalan ince toz","Fine dust hanging behind you","trails",0,"soulium",null,false,false,false,null),
+            MarketItemDto("trail_static","Statik İz","Static Trail","VHS parazit izi","VHS static wake","trails",0,"soulium",null,false,false,false,null)
         )
         MarketTab.Vip -> listOf(
-            MarketItemDto("vip_month","VIP Ay","VIP Month","Özel çerçeveler, isim rengi ve rozet — oyun içi avantaj yok","Exclusive frames, name color and a badge — no gameplay advantage","vip",29_900,"tl",null,false,false,true,null)
+            MarketItemDto("priv_all","Tüm Ayrıcalıklar","All Privileges","Şu an ücretsiz — tüm görsel ayrıcalıklar açık","Free right now — every cosmetic privilege unlocked","vip",0,"soulium",null,false,false,true,null)
         )
         else -> emptyList()
     }
 
     private fun fallbackDaily(): List<MarketItemDto> = listOf(
-        MarketItemDto("daily_frame","Günlük Çerçeve","Daily Frame","Bugüne özel görsel çerçeve","Today only cosmetic frame","daily",250,"soulium",null,false,false,true,null)
+        MarketItemDto("daily_frame","Günlük Çerçeve","Daily Frame","Bugüne özel görsel çerçeve","Today only cosmetic frame","daily",0,"soulium",null,false,false,true,null)
     )
 }
 
@@ -1060,6 +1095,9 @@ class GameVM @Inject constructor(
     /** Read once at start instead of per look-event: the old code opened a
      *  DataStore flow on every touch move, which is far too slow for input. */
     @Volatile private var cachedSensitivity = 1f
+    /** Master volume from Settings. The engine was previously fed hardcoded
+     *  0.4/0.3 levels, so the volume slider did nothing. */
+    @Volatile private var cachedVolume = 0.7f
     /** Guards against startGame running twice (re-entering the screen quickly),
      *  which would spawn a second physics loop advancing the same native sim. */
     private var started = false
@@ -1090,8 +1128,7 @@ class GameVM @Inject constructor(
             bridge.initCore(useSeed)
             bridge.initSound()
             bridge.initEntities()
-            bridge.setAmbienceLevel(0.4f)
-            bridge.setHumVolume(0.3f)
+            applyAudioLevels()
             bridge.setSpatialRolloff(1f, 40f)
 
             // Level 0 always — there is deliberately no map selection.
@@ -1128,11 +1165,26 @@ class GameVM @Inject constructor(
         }
     }
 
+    /** Scales the engine's ambience and hum by the player's master volume. */
+    private fun applyAudioLevels() {
+        val v = cachedVolume.coerceIn(0f, 1f)
+        runCatching {
+            bridge.setAmbienceLevel(0.55f * v)
+            bridge.setHumVolume(0.42f * v)
+        }
+    }
+
     private fun startPhysicsLoop(sensitivity: Float) {
         cachedSensitivity = sensitivity
-        // Keep following the setting so changes apply without restarting a run.
+        // Keep following the settings so changes apply without restarting a run.
         viewModelScope.launch {
-            settings.observe().collect { cachedSensitivity = it.cameraSensitivity.coerceAtLeast(0.05f) }
+            settings.observe().collect { g ->
+                cachedSensitivity = g.cameraSensitivity.coerceAtLeast(0.05f)
+                if (g.musicVolume != cachedVolume) {
+                    cachedVolume = g.musicVolume
+                    if (!_state.value.isPaused) applyAudioLevels()
+                }
+            }
         }
         lastTickMs = bridge.nowMs()
         physicsJob = viewModelScope.launch {
@@ -1156,6 +1208,15 @@ class GameVM @Inject constructor(
                         footstepTimer = 0.45f
                         bridge.triggerFootstep(120f, 0.3f)
                     }
+                }
+
+                // Real RTT from the netcode; 0 offline, where there is nothing
+                // to measure and the badge is hidden.
+                pingSampleTimer -= dt
+                if (pingSampleTimer <= 0f) {
+                    pingSampleTimer = 1f
+                    val rtt = runCatching { bridge.getLocalPing() }.getOrDefault(0)
+                    if (rtt != _state.value.pingMs) _state.update { it.copy(pingMs = rtt) }
                 }
 
                 val wasOver = _state.value.isGameOver
@@ -1196,6 +1257,7 @@ class GameVM @Inject constructor(
     @Volatile private var moveX = 0f
     @Volatile private var moveZ = 0f
     private var footstepTimer = 0f
+    private var pingSampleTimer = 0f
 
     fun onMove(dx: Float, dy: Float, dz: Float) {
         if (_state.value.spawnPhase != SpawnPhase.READY) return
@@ -1226,8 +1288,16 @@ class GameVM @Inject constructor(
         saveNow()
     }
 
+    /** Pushes the renderer's measured frame rate into game state so the HUD can
+     *  show a real number. Called from the composition, which already has the
+     *  renderer instance. */
+    fun reportFps(fps: Float) {
+        val rounded = fps.roundToInt()
+        if (rounded != _state.value.fps) _state.update { it.copy(fps = rounded) }
+    }
+
     fun onScreenResumed() {
-        runCatching { bridge.setAmbienceLevel(0.4f); bridge.setHumVolume(0.3f) }
+        applyAudioLevels()
         _state.update { it.copy(isPaused = false) }
     }
 
@@ -1237,16 +1307,17 @@ class GameVM @Inject constructor(
     private fun saveNow() {
         val s = _state.value
         if (s.isGameOver || s.isEscaped) return
-        viewModelScope.launch(Dispatchers.IO) {
-            saveStore.save(
-                SavedRun(
-                    seed = s.seed, difficulty = s.difficulty, elapsedMs = elapsedMs,
-                    score = score, kills = kills, sanity = s.sanity,
-                    battery = s.flashlightBattery, playerHp = s.playerHp,
-                    savedAtMs = System.currentTimeMillis()
-                )
+        if (s.grid.isEmpty) return   // nothing meaningful to resume yet
+        // Detached on purpose: this is called while the screen is being torn
+        // down, and a viewModelScope coroutine would be cancelled mid-write.
+        saveStore.saveDetached(
+            SavedRun(
+                seed = s.seed, difficulty = s.difficulty, elapsedMs = elapsedMs,
+                score = score, kills = kills, sanity = s.sanity,
+                battery = s.flashlightBattery, playerHp = s.playerHp,
+                savedAtMs = System.currentTimeMillis()
             )
-        }
+        )
     }
 
     private fun startAutosave() {
@@ -1262,14 +1333,30 @@ class GameVM @Inject constructor(
      *  appearing on the floor. Input stays locked until they're upright. */
     private fun playSpawnDrop() {
         viewModelScope.launch {
-            _state.update { it.copy(spawnPhase = SpawnPhase.FALLING) }
-            // The engine's gravity does the actual falling; we just hold input
-            // and let the camera ride the body down from its elevated start.
-            delay(1500)
-            _state.update { it.copy(spawnPhase = SpawnPhase.LANDED) }
+            _state.update { it.copy(spawnPhase = SpawnPhase.FALLING, eyeOffset = 0f) }
+            // The engine's gravity does the actual falling; input stays locked
+            // and the camera rides the body down from its elevated start.
+            var waited = 0L
+            while (waited < 4000 && _state.value.camera?.let { it.posY > 2.2f } != false) {
+                delay(50); waited += 50
+            }
+
+            // Impact: the view drops to floor height, as if the body collapsed.
+            _state.update { it.copy(spawnPhase = SpawnPhase.LANDED, eyeOffset = -1.45f) }
             runCatching { bridge.triggerFootstep(60f, 1.0f) }
-            delay(1200)
-            _state.update { it.copy(spawnPhase = SpawnPhase.READY) }
+            delay(650)
+
+            // Then push back up to standing over roughly a second. Stepped
+            // rather than a single jump so the rise is visibly gradual.
+            val steps = 26
+            for (i in 1..steps) {
+                val t = i / steps.toFloat()
+                // Ease-out: fast at first, settling near the top.
+                val eased = 1f - (1f - t) * (1f - t)
+                _state.update { it.copy(eyeOffset = -1.45f * (1f - eased)) }
+                delay(38)
+            }
+            _state.update { it.copy(spawnPhase = SpawnPhase.READY, eyeOffset = 0f) }
         }
     }
 
@@ -1464,12 +1551,13 @@ fun MainMenu(
         // ---- Left edge: navigation rail ---------------------------------------
         // Anchored below the identity header rather than vertically centred: on
         // shorter screens centring pushed the rail up into the profile block.
+        // Sized to fit without scrolling: four compact tiles plus spacing stays
+        // inside the space below the identity header on a short screen.
         Column(
             Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 12.dp, bottom = 18.dp, top = 92.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .align(Alignment.CenterStart)
+                .padding(start = 10.dp, top = 76.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             RailItem(stringResource(R.string.menu_market),    CrtAmber,     onMarket)  { drawMarketGlyph(it) }
             RailItem(stringResource(R.string.menu_story),      Yellow,       onStory)   { drawBookGlyph(it) }
@@ -1483,8 +1571,20 @@ fun MainMenu(
             verticalArrangement   = Arrangement.spacedBy(12.dp),
             horizontalAlignment   = Alignment.End
         ) {
-            PlayModeButton(stringResource(R.string.menu_play_offline), SuccessGreen, { showOfflineChoice = true }) { drawOfflineGlyph(it) }
-            PlayModeButton(stringResource(R.string.menu_play_online),  OmniumCol,    onOnline) { drawOnlineGlyph(it) }
+            PremiumEventButton(
+                label   = stringResource(R.string.menu_play_offline),
+                accent  = SuccessGreen,
+                onClick = { showOfflineChoice = true },
+                modifier = Modifier.width(226.dp),
+                glyph   = { drawOfflineGlyph(it) }
+            )
+            PremiumEventButton(
+                label   = stringResource(R.string.menu_play_online),
+                accent  = OmniumCol,
+                onClick = onOnline,
+                modifier = Modifier.width(226.dp),
+                glyph   = { drawOnlineGlyph(it) }
+            )
         }
 
         if (showOfflineChoice) {
@@ -1874,6 +1974,12 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     @Volatile var latestState: GameState = GameState()
     @Volatile var renderSettings: RenderSettings = RenderSettings()
 
+    /** Measured on the GL thread and read by the HUD. Exponentially smoothed so
+     *  the number is readable instead of flickering every frame. */
+    @Volatile var measuredFps: Float = 0f
+        private set
+    private var fpsAccum = 0f
+
     private var sceneProgram = 0; private var billboardProgram = 0; private var postProgram = 0; private var shadowProgram = 0
     private var uMVP = 0; private var uTex = 0; private var uCamPos = 0
     private var uFlashDir = 0; private var uFlashOn = 0; private var uFogDensity = 0
@@ -1995,6 +2101,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         val timeSec = (nowNanos - startNanos) / 1_000_000_000f
         val dt = if (lastFrameNanos == 0L) 1f / 60f else ((nowNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
         lastFrameNanos = nowNanos
+        // Real frame-rate measurement (the HUD used to print a hardcoded 60).
+        val instantFps = 1f / dt
+        fpsAccum = if (fpsAccum == 0f) instantFps else fpsAccum + (instantFps - fpsAccum) * 0.08f
+        measuredFps = fpsAccum
 
         // Quality tier -> concrete render parameters. Every RenderSettings field
         // actually changes what gets drawn; none of it is decorative.
@@ -2047,12 +2157,14 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             val fx = (sin(yawRad) * cos(pitchRad)).toFloat()
             val fy = sin(pitchRad).toFloat()
             val fz = (cos(yawRad) * cos(pitchRad)).toFloat()
-            Matrix.setLookAtM(viewM, 0, smoothX, smoothY, smoothZ, smoothX + fx, smoothY + fy, smoothZ + fz, 0f, 1f, 0f)
+            // Arrival sequence offsets the eye height (collapse then stand up).
+            val eyeY = smoothY + state.eyeOffset
+            Matrix.setLookAtM(viewM, 0, smoothX, eyeY, smoothZ, smoothX + fx, eyeY + fy, smoothZ + fz, 0f, 1f, 0f)
             Matrix.multiplyMM(vpM, 0, projM, 0, viewM, 0)
 
             val fogDensity = (if (rs.fogEnabled) 1.0f else 0.15f) * fogMult
             val flicker = state.flickerIntensity.coerceIn(0.35f, 1f)
-            drawLevel(vpM, smoothX, smoothY, smoothZ, fx, fy, fz, state.flashlightOn, fogDensity, flicker)
+            drawLevel(vpM, smoothX, eyeY, smoothZ, fx, fy, fz, state.flashlightOn, fogDensity, flicker)
 
             val activeIds = HashSet<Int>()
             for (e in state.entities) {
@@ -2426,6 +2538,14 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
 
     val renderer = remember { OmniGLRenderer(ctx.applicationContext) }
     LaunchedEffect(state) { renderer.latestState = state }
+    // Sampled twice a second: often enough to feel live, rare enough not to
+    // trigger a recomposition storm.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500)
+            vm.reportFps(renderer.measuredFps)
+        }
+    }
     LaunchedEffect(settingsState) {
         renderer.renderSettings = RenderSettings(
             quality         = settingsState.graphicsQuality,
@@ -3266,8 +3386,22 @@ fun GameHud(
             if (gameState.entitiesNearby > 0) {
                 HudBadge("◉ ${gameState.entitiesNearby}", DangerRed)
             }
-            if (gameState.showPing) HudBadge("${gameState.entitiesNearby * 3 + 12} ms", SuccessGreen)
-            if (gameState.showFps)  HudBadge("60", Yellow)
+            if (gameState.showPing && gameState.pingMs > 0) {
+                val pingColor = when {
+                    gameState.pingMs < 80  -> SuccessGreen
+                    gameState.pingMs < 180 -> CrtAmber
+                    else                   -> DangerRed
+                }
+                HudBadge("${gameState.pingMs} ms", pingColor)
+            }
+            if (gameState.showFps) {
+                val fpsColor = when {
+                    gameState.fps >= 50 -> SuccessGreen
+                    gameState.fps >= 30 -> CrtAmber
+                    else                -> DangerRed
+                }
+                HudBadge("${gameState.fps} FPS", fpsColor)
+            }
             IconGlyphButton(34.dp, Yellow.copy(0.8f), onClick = onPause) { drawPauseGlyph(it) }
         }
 
@@ -3484,21 +3618,100 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
 }
 
 @Composable
-fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.75f)), Alignment.Center) {
-        Column(
-            Modifier.width(260.dp).clip(RoundedCornerShape(4.dp))
-                .background(MetalBg)
-                .border(1.dp, BorderCol, RoundedCornerShape(4.dp))
-                .padding(28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(stringResource(R.string.game_paused), color = Yellow, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
-            DividerLine()
-            AtmosphericButton(stringResource(R.string.game_resume),    Icons.Default.PlayArrow, Yellow,    200.dp, 50.dp, onResume)
-            AtmosphericButton(stringResource(R.string.game_exit_menu), Icons.Default.ExitToApp, DangerRed, 200.dp, 50.dp, onExit)
+fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit, settingsVm: SettingsVM = hiltViewModel()) {
+    var showSettings by remember { mutableStateOf(false) }
+    val s by settingsVm.state.collectAsState()
+
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.78f)), Alignment.Center) {
+        androidx.compose.animation.AnimatedContent(
+            targetState = showSettings,
+            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+            label = "pausePanel"
+        ) { inSettings ->
+            if (!inSettings) {
+                Column(
+                    Modifier.width(268.dp).clip(RoundedCornerShape(10.dp))
+                        .background(MetalBg)
+                        .border(1.dp, BorderCol, RoundedCornerShape(10.dp))
+                        .padding(26.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        stringResource(R.string.game_paused), color = Yellow, fontSize = 20.sp,
+                        fontWeight = FontWeight.Black, letterSpacing = 4.sp
+                    )
+                    DividerLine()
+                    AtmosphericButton(stringResource(R.string.game_resume),    Icons.Default.PlayArrow, Yellow,    200.dp, 48.dp, onResume)
+                    AtmosphericButton(stringResource(R.string.menu_settings),  Icons.Default.Settings,  CrtAmber,  200.dp, 48.dp, { showSettings = true })
+                    AtmosphericButton(stringResource(R.string.game_exit_menu), Icons.Default.ExitToApp, DangerRed, 200.dp, 48.dp, onExit)
+                }
+            } else {
+                // Only the settings that make sense to change without leaving a
+                // run: look/feel and audio. Anything needing a restart stays in
+                // the main settings screen.
+                Column(
+                    Modifier.width(300.dp).clip(RoundedCornerShape(10.dp))
+                        .background(MetalBg)
+                        .border(1.dp, CrtAmber.copy(0.5f), RoundedCornerShape(10.dp))
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        stringResource(R.string.menu_settings), color = CrtAmber, fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold, letterSpacing = 3.sp
+                    )
+                    DividerLine()
+                    InGameSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, 0.1f, 4f, settingsVm::onSensitivity)
+                    InGameSlider(stringResource(R.string.audio_master_volume),  s.musicVolume,       0f,   1f, settingsVm::onMusic)
+                    InGameSlider(stringResource(R.string.graphics_resolution_scale),  s.resolutionScale,   0.5f, 1f, settingsVm::onResolution)
+                    InGameToggle(stringResource(R.string.graphics_fog),      s.fogEnabled,     settingsVm::onFog)
+                    InGameToggle(stringResource(R.string.graphics_shadows),  s.shadowsEnabled, settingsVm::onShadows)
+                    InGameToggle(stringResource(R.string.graphics_vhs_effect),      s.vhsEnabled,     settingsVm::onVhs)
+                    InGameToggle(stringResource(R.string.graphics_show_fps),      s.showFps,        settingsVm::onShowFps)
+                    InGameToggle(stringResource(R.string.graphics_show_ping),     s.showPing,       settingsVm::onShowPing)
+                    DividerLine()
+                    AtmosphericButton(stringResource(R.string.common_ok), Icons.Default.Check, Yellow, 240.dp, 44.dp, { showSettings = false })
+                }
+            }
         }
+    }
+}
+
+/** Compact slider for the in-run settings panel. */
+@Composable
+private fun InGameSlider(label: String, value: Float, from: Float, to: Float, onChange: (Float) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            Text(label, color = TextSec, fontSize = 11.sp)
+            Text(String.format(Locale.US, "%.2f", value), color = Yellow, fontSize = 11.sp)
+        }
+        Slider(
+            value = value.coerceIn(from, to),
+            onValueChange = onChange,
+            valueRange = from..to,
+            colors = SliderDefaults.colors(
+                thumbColor = Yellow, activeTrackColor = Yellow.copy(0.75f), inactiveTrackColor = MetalBg
+            )
+        )
+    }
+}
+
+@Composable
+private fun InGameToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = TextSec, fontSize = 11.sp, modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked, onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Yellow, checkedTrackColor = Yellow.copy(0.35f),
+                uncheckedThumbColor = TextDim, uncheckedTrackColor = MetalBg
+            )
+        )
     }
 }
 
@@ -3562,7 +3775,32 @@ private fun ChapterListView(state: StoryUiState, onBack: () -> Unit, onSelect: (
             if (state.isLoading) Box(Modifier.fillMaxSize(), Alignment.Center) {
                 CircularProgressIndicator(color = Yellow, strokeWidth = 2.dp)
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Codex first: the story screen now explains how the game
+                    // actually works, not only its fiction.
+                    item {
+                        Text(
+                            stringResource(R.string.story_codex_title),
+                            color = CrtAmber, fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold, letterSpacing = 3.sp
+                        )
+                    }
+                    item { CodexEntry(R.string.story_codex_level,    R.string.story_codex_level_body,    Yellow)      { drawBookGlyph(it) } }
+                    item { CodexEntry(R.string.story_codex_survival, R.string.story_codex_survival_body, SouliumCol)  { drawStopwatchGlyph(it) } }
+                    item { CodexEntry(R.string.story_codex_entities, R.string.story_codex_entities_body, DangerRed)   { drawAbilityGlyph(it) } }
+                    item { CodexEntry(R.string.story_codex_exit,     R.string.story_codex_exit_body,     SuccessGreen){ drawOnlineGlyph(it) } }
+                    item { Spacer(Modifier.height(6.dp)) }
+                    item {
+                        Text(
+                            stringResource(R.string.story_chapters_header),
+                            color = CrtAmber, fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold, letterSpacing = 3.sp
+                        )
+                    }
                     items(state.chapters, key = { it.id }) { ch -> ChapterCard(chapter = ch, onClick = { onSelect(ch) }) }
                 }
             }
@@ -3694,9 +3932,28 @@ private fun MarketCard(item: MarketItemDto, isPurchasing: Boolean, onBuy: () -> 
                 Modifier.clip(RoundedCornerShape(2.dp)).background(CrtAmber.copy(0.2f)).padding(horizontal = 6.dp, vertical = 2.dp)
             ) { Text(stringResource(R.string.market_limited), color = CrtAmber, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp) }
         }
+        // Item artwork, drawn from the item's own id so every entry has a
+        // distinct picture rather than one shared placeholder icon.
+        val artPulse by inf.animateFloat(
+            0.95f, 1.05f,
+            infiniteRepeatable(tween(2100, easing = EaseInOut), RepeatMode.Reverse),
+            "cardArt"
+        )
         Box(
-            Modifier.size(48.dp).clip(RoundedCornerShape(4.dp)).background(currencyColor.copy(0.12f)), Alignment.Center
-        ) { Icon(Icons.Default.Category, null, tint = currencyColor.copy(0.9f), modifier = Modifier.size(28.dp)) }
+            Modifier
+                .size(62.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(
+                    Brush.radialGradient(listOf(currencyColor.copy(0.22f), Color.Black.copy(0.45f)))
+                )
+                .border(1.dp, currencyColor.copy(0.30f), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Canvas(
+                Modifier.fillMaxSize().padding(9.dp)
+                    .graphicsLayer { scaleX = artPulse; scaleY = artPulse }
+            ) { marketItemArt(item.id, item.category, currencyColor) }
+        }
         Spacer(Modifier.height(8.dp))
         Text(item.nameTr, color = Yellow, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
             textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -4068,7 +4325,7 @@ private fun RailItem(
         val lift by animateFloatAsState(if (pressed) 2.5f else 0f, spring(), label = "railLift")
         Box(
             Modifier
-                .size(54.dp)
+                .size(44.dp)
                 .graphicsLayer { translationY = lift }
                 .clip(RoundedCornerShape(14.dp))
                 .background(
@@ -4079,74 +4336,10 @@ private fun RailItem(
                 .border(1.dp, accent.copy(if (pressed) 0.9f else ring), RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(13.dp)) { glyph(accent) }
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(10.dp)) { glyph(accent) }
         }
-        Spacer(Modifier.height(3.dp))
-        Text(label, color = accent.copy(0.85f), fontSize = 9.sp, letterSpacing = 1.sp)
-    }
-}
-
-/** Right-edge play button: glyph plus label, sized for a confident tap target. */
-@Composable
-private fun PlayModeButton(
-    label: String,
-    accent: Color,
-    onClick: () -> Unit,
-    glyph: DrawScope.(Color) -> Unit
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.93f else 1f, spring(), label = "playScale")
-    val inf = rememberInfiniteTransition(label = "playGlow")
-    val glow by inf.animateFloat(0.35f, 0.85f, infiniteRepeatable(tween(2200, easing = EaseInOut), RepeatMode.Reverse), "glow")
-    // Highlight sweep: a thin band that travels across the face on a loop. It's
-    // what makes a button read as "live" rather than a static outline.
-    val sweep by inf.animateFloat(
-        -0.4f, 1.4f,
-        infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
-        "playSweep"
-    )
-    val shape = RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp, topEnd = 4.dp, bottomEnd = 4.dp)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .graphicsLayer {
-                scaleX = scale; scaleY = scale
-                // Pressing sinks the button slightly toward the screen edge.
-                translationX = (1f - scale) * 22f
-            }
-            .clip(shape)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color.Black.copy(0.30f), Color.Black.copy(0.72f), accent.copy(0.16f))
-                )
-            )
-            .drawWithContent {
-                drawContent()
-                val bandW = size.width * 0.28f
-                val x = size.width * sweep
-                drawRect(
-                    Brush.horizontalGradient(
-                        listOf(Color.Transparent, accent.copy(0.16f), Color.Transparent),
-                        startX = x - bandW / 2f, endX = x + bandW / 2f
-                    )
-                )
-            }
-            .border(1.5.dp, accent.copy(glow), shape)
-            .clickable(interaction, indication = null, onClick = onClick)
-            .padding(start = 16.dp, end = 12.dp, top = 11.dp, bottom = 11.dp)
-    ) {
-        Text(label, color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-        Spacer(Modifier.width(10.dp))
-        // Glyph gets its own subtle breathing scale so the icon isn't frozen.
-        val iconPulse by inf.animateFloat(
-            0.94f, 1.06f,
-            infiniteRepeatable(tween(1800, easing = EaseInOut), RepeatMode.Reverse),
-            "playIcon"
-        )
-        androidx.compose.foundation.Canvas(
-            Modifier.size(28.dp).graphicsLayer { scaleX = iconPulse; scaleY = iconPulse }
-        ) { glyph(accent) }
+        Spacer(Modifier.height(2.dp))
+        Text(label, color = accent.copy(0.85f), fontSize = 8.sp, letterSpacing = 0.5.sp, maxLines = 1)
     }
 }
 
@@ -4407,6 +4600,501 @@ private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: (
                 .padding(horizontal = 4.dp, vertical = 1.dp)
         ) {
             Text("$level", color = CrtAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+
+/** Per-item artwork for the store, drawn from vector paths. Keyed on the item id
+ *  first (so a specific item can have bespoke art) and its category second, so
+ *  new server-provided items still get something meaningful rather than a blank. */
+private fun DrawScope.marketItemArt(id: String, category: String, accent: Color) {
+    when {
+        id.startsWith("frame_") -> {
+            // Show the actual frame the player would equip.
+            val key = id.removePrefix("frame_")
+            drawCircle(accent.copy(0.18f), radius = size.minDimension * 0.24f, center = center)
+            drawFrameRing(key, size.minDimension * 0.26f)
+        }
+        id.startsWith("trail_") -> {
+            // A comet-like wake, denser toward the head.
+            val n = 9
+            for (i in 0 until n) {
+                val t = i / (n - 1f)
+                val x = size.width * (0.16f + t * 0.68f)
+                val y = size.height * (0.62f - t * 0.22f)
+                val r = size.minDimension * (0.035f + t * 0.075f)
+                drawCircle(accent.copy(0.18f + t * 0.7f), radius = r, center = Offset(x, y))
+            }
+        }
+        id.startsWith("priv_") || category == "vip" -> {
+            // Laurel-style crest for privileges.
+            val sw = size.minDimension * 0.075f
+            drawArc(
+                accent, 120f, 200f, false,
+                topLeft = Offset(size.width * 0.14f, size.height * 0.16f),
+                size = Size(size.width * 0.36f, size.height * 0.68f), style = Stroke(sw)
+            )
+            drawArc(
+                accent, 200f, -200f, false,
+                topLeft = Offset(size.width * 0.50f, size.height * 0.16f),
+                size = Size(size.width * 0.36f, size.height * 0.68f), style = Stroke(sw)
+            )
+            val star = Path()
+            val cx = size.width * 0.5f; val cy = size.height * 0.48f
+            val outer = size.minDimension * 0.20f; val inner = outer * 0.42f
+            for (i in 0 until 10) {
+                val a = (-Math.PI / 2 + i * Math.PI / 5).toFloat()
+                val r = if (i % 2 == 0) outer else inner
+                val px = cx + cos(a) * r; val py = cy + sin(a) * r
+                if (i == 0) star.moveTo(px, py) else star.lineTo(px, py)
+            }
+            star.close()
+            drawPath(star, accent)
+        }
+        category == "daily" -> {
+            // Wrapped gift.
+            val sw = size.minDimension * 0.07f
+            drawRoundRect(
+                accent, topLeft = Offset(size.width * 0.18f, size.height * 0.38f),
+                size = Size(size.width * 0.64f, size.height * 0.44f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.05f),
+                style = Stroke(sw)
+            )
+            drawLine(accent, Offset(size.width * 0.5f, size.height * 0.38f), Offset(size.width * 0.5f, size.height * 0.82f), strokeWidth = sw)
+            drawLine(accent, Offset(size.width * 0.18f, size.height * 0.52f), Offset(size.width * 0.82f, size.height * 0.52f), strokeWidth = sw * 0.8f)
+            drawArc(accent, 180f, 180f, false,
+                topLeft = Offset(size.width * 0.30f, size.height * 0.20f),
+                size = Size(size.width * 0.18f, size.height * 0.22f), style = Stroke(sw * 0.8f))
+            drawArc(accent, 180f, 180f, false,
+                topLeft = Offset(size.width * 0.52f, size.height * 0.20f),
+                size = Size(size.width * 0.18f, size.height * 0.22f), style = Stroke(sw * 0.8f))
+        }
+        else -> {
+            // Generic mask/silhouette for character-style items.
+            val sw = size.minDimension * 0.075f
+            val head = Path().apply {
+                moveTo(size.width * 0.5f, size.height * 0.18f)
+                cubicTo(size.width * 0.82f, size.height * 0.22f, size.width * 0.82f, size.height * 0.62f, size.width * 0.5f, size.height * 0.86f)
+                cubicTo(size.width * 0.18f, size.height * 0.62f, size.width * 0.18f, size.height * 0.22f, size.width * 0.5f, size.height * 0.18f)
+                close()
+            }
+            drawPath(head, accent.copy(0.20f))
+            drawPath(head, accent, style = Stroke(sw))
+            drawCircle(accent, radius = size.minDimension * 0.055f, center = Offset(size.width * 0.40f, size.height * 0.46f))
+            drawCircle(accent, radius = size.minDimension * 0.055f, center = Offset(size.width * 0.60f, size.height * 0.46f))
+        }
+    }
+}
+
+
+// ============================================================================
+// Premium event button. Built as a parametric Canvas composition rather than a
+// Lottie asset on purpose: it has to scale to any size and take any accent
+// colour, and vector-drawn geometry stays crisp where a fixed-resolution asset
+// would not. On Android 13+ it additionally routes through an AGSL RuntimeShader
+// for a GPU energy-shimmer; below that the Canvas layers alone carry the look,
+// so nothing is missing on older devices — just slightly less bloom.
+// ============================================================================
+
+/** A single growing tendril. Precomputed control points keep per-frame work to
+ *  path construction only. */
+private class Vine(
+    val originX: Float,   // 0..1 along the button edge
+    val originY: Float,
+    val dirX: Float,
+    val dirY: Float,
+    val length: Float,    // relative to the button's smaller dimension
+    val curl: Float,      // lateral bow of the tendril
+    val leafCount: Int,
+    val phase: Float      // growth offset so they don't move in lockstep
+)
+
+private val EVENT_VINES = listOf(
+    Vine(0.02f, 0.50f, 0f, -1f, 0.92f,  0.34f, 3, 0.00f),
+    Vine(0.02f, 0.52f, 0f,  1f, 0.78f, -0.28f, 2, 0.18f),
+    Vine(0.98f, 0.48f, 0f, -1f, 0.86f, -0.31f, 3, 0.36f),
+    Vine(0.98f, 0.50f, 0f,  1f, 0.72f,  0.26f, 2, 0.54f),
+    Vine(0.24f, 0.02f, 1f,  0f, 0.55f,  0.22f, 2, 0.12f),
+    Vine(0.76f, 0.98f, -1f, 0f, 0.55f, -0.22f, 2, 0.44f)
+)
+
+/**
+ * Cardiac-style pulse: two quick beats then a rest, rather than a sine wave.
+ * A real heartbeat rhythm is what makes the button feel alive instead of
+ * mechanically throbbing.
+ */
+private fun heartbeat(t: Float): Float {
+    val x = t % 1f
+    fun beat(center: Float, width: Float) =
+        kotlin.math.exp((-((x - center) * (x - center)) / (2f * width * width)).toDouble()).toFloat()
+    return (beat(0.10f, 0.045f) * 1.0f + beat(0.26f, 0.055f) * 0.62f).coerceIn(0f, 1f)
+}
+
+/** AGSL energy shimmer. Only compiled on API 33+, where RuntimeShader exists. */
+private const val EVENT_SHIMMER_AGSL = """
+uniform shader content;
+uniform float2 size;
+uniform float time;
+uniform float intensity;
+uniform float3 accent;
+
+half4 main(float2 coord) {
+    half4 src = content.eval(coord);
+    float2 uv = coord / size;
+    // Diagonal energy bands drifting across the face.
+    float band = sin((uv.x * 3.2 + uv.y * 1.4 - time * 0.55) * 6.2831);
+    band = pow(max(band, 0.0), 6.0);
+    // Edge emphasis so the glow hugs the border like light through a gap.
+    float edge = 1.0 - smoothstep(0.0, 0.34, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
+    float glow = (band * 0.55 + edge * 0.45) * intensity;
+    half3 lit = src.rgb + half3(accent) * glow * src.a;
+    return half4(lit, src.a);
+}
+"""
+
+/**
+ * The event button. [progress] optionally drives a fill meter (0..1) for
+ * event-style "collect" buttons; pass null for a plain action button.
+ */
+@Composable
+fun PremiumEventButton(
+    label: String,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subLabel: String? = null,
+    progress: Float? = null,
+    enabled: Boolean = true,
+    glyph: (DrawScope.(Color) -> Unit)? = null
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+
+    val inf = rememberInfiniteTransition(label = "eventBtn")
+    // Master clock. One shared driver keeps every layer phase-locked, which is
+    // what stops the composition looking like several unrelated animations.
+    val clock by inf.animateFloat(
+        0f, 1f,
+        infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
+        "eventClock"
+    )
+    val growth by inf.animateFloat(
+        0f, 1f,
+        infiniteRepeatable(tween(5200, easing = LinearEasing), RepeatMode.Restart),
+        "vineGrowth"
+    )
+    val sweep by inf.animateFloat(
+        -0.35f, 1.35f,
+        infiniteRepeatable(tween(3100, easing = LinearEasing), RepeatMode.Restart),
+        "eventSweep"
+    )
+
+    val pulse = heartbeat(clock)
+    val pressDepth by animateFloatAsState(
+        if (pressed) 1f else 0f,
+        spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow),
+        label = "eventPress"
+    )
+    val tint = if (enabled) accent else TextDim
+
+    // GPU shimmer where available. Guarded so API < 33 simply skips it.
+    val shaderModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val shader = remember { android.graphics.RuntimeShader(EVENT_SHIMMER_AGSL) }
+        Modifier.graphicsLayer {
+            shader.setFloatUniform("size", size.width, size.height)
+            shader.setFloatUniform("time", clock * 2600f / 1000f)
+            shader.setFloatUniform("intensity", (0.18f + pulse * 0.42f) * (if (enabled) 1f else 0.25f))
+            shader.setFloatUniform("accent", tint.red, tint.green, tint.blue)
+            renderEffect = android.graphics.RenderEffect
+                .createRuntimeShaderEffect(shader, "content")
+                .asComposeRenderEffect()
+        }
+    } else Modifier
+
+    Box(
+        modifier
+            .heightIn(min = 62.dp)
+            .graphicsLayer {
+                // Depth: the face sinks and shrinks very slightly under the
+                // finger, and lifts with a soft shadow at rest.
+                val s = 1f - pressDepth * 0.045f
+                scaleX = s; scaleY = s
+                translationY = pressDepth * 4f
+                shadowElevation = (10f - pressDepth * 7f) * density
+                spotShadowColor = tint.copy(0.55f)
+                ambientShadowColor = tint.copy(0.35f)
+                shape = RoundedCornerShape(18.dp)
+                clip = false
+            }
+            .then(shaderModifier)
+            .clickable(interaction, indication = null, enabled = enabled, onClick = onClick)
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+            drawEventButtonPlate(tint, pulse, sweep, pressDepth, progress)
+            drawEventVines(tint, growth, pulse)
+        }
+
+        Row(
+            Modifier.align(Alignment.Center).padding(horizontal = 24.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (glyph != null) {
+                androidx.compose.foundation.Canvas(
+                    Modifier.size(26.dp).graphicsLayer {
+                        val g = 1f + pulse * 0.10f
+                        scaleX = g; scaleY = g
+                    }
+                ) { glyph(tint) }
+                Spacer(Modifier.width(12.dp))
+            }
+            Column {
+                Text(
+                    label.uppercase(),
+                    color = if (enabled) Color.White else TextDim,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.5.sp
+                )
+                if (subLabel != null) {
+                    Text(
+                        subLabel,
+                        color = tint.copy(0.85f),
+                        fontSize = 9.sp,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The layered metal/energy plate: bevel, inner glow, sweep, optional meter. */
+private fun DrawScope.drawEventButtonPlate(
+    accent: Color,
+    pulse: Float,
+    sweep: Float,
+    pressDepth: Float,
+    progress: Float?
+) {
+    val r = size.minDimension * 0.28f
+    val corner = androidx.compose.ui.geometry.CornerRadius(r)
+
+    // Outer bloom, strongest on the beat.
+    drawRoundRect(
+        Brush.radialGradient(
+            listOf(accent.copy(0.30f * pulse + 0.06f), Color.Transparent),
+            center = center, radius = size.maxDimension * 0.75f
+        ),
+        cornerRadius = corner
+    )
+
+    // Body: dark metal with an accent-lit lower edge for a sense of volume.
+    drawRoundRect(
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF1A1A16).copy(0.96f),
+                Color(0xFF0C0C0A).copy(0.98f),
+                accent.copy(0.16f)
+            )
+        ),
+        cornerRadius = corner
+    )
+
+    // Top bevel highlight — reads as a lit chamfer, the main 3D cue.
+    drawRoundRect(
+        Brush.verticalGradient(
+            listOf(Color.White.copy(0.14f - pressDepth * 0.10f), Color.Transparent),
+            endY = size.height * 0.42f
+        ),
+        cornerRadius = corner
+    )
+
+    // Optional progress meter, drawn under the border.
+    if (progress != null) {
+        val w = size.width * progress.coerceIn(0f, 1f)
+        if (w > 1f) {
+            clipRect(right = w) {
+                drawRoundRect(
+                    Brush.horizontalGradient(listOf(accent.copy(0.30f), accent.copy(0.55f))),
+                    cornerRadius = corner
+                )
+            }
+        }
+    }
+
+    // Travelling highlight band.
+    val bandW = size.width * 0.22f
+    val bx = size.width * sweep
+    drawRoundRect(
+        Brush.horizontalGradient(
+            listOf(Color.Transparent, Color.White.copy(0.13f), Color.Transparent),
+            startX = bx - bandW / 2f, endX = bx + bandW / 2f
+        ),
+        cornerRadius = corner
+    )
+
+    // Double border: a solid inner line plus a wider soft halo that breathes.
+    drawRoundRect(accent.copy(0.85f), cornerRadius = corner, style = Stroke(1.6f))
+    drawRoundRect(
+        accent.copy(0.22f + pulse * 0.38f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 3f),
+        style = Stroke(3.2f)
+    )
+
+    // Corner ticks, the small mechanical detail that sells "console UI".
+    val tick = size.minDimension * 0.16f
+    val inset = size.minDimension * 0.13f
+    listOf(
+        Triple(inset, inset, 1f),
+        Triple(size.width - inset, inset, -1f)
+    ).forEach { (x, y, dir) ->
+        drawLine(accent.copy(0.75f), Offset(x, y), Offset(x + tick * dir, y), strokeWidth = 1.6f)
+        drawLine(accent.copy(0.75f), Offset(x, y), Offset(x, y + tick * 0.7f), strokeWidth = 1.6f)
+    }
+    listOf(
+        Triple(inset, size.height - inset, 1f),
+        Triple(size.width - inset, size.height - inset, -1f)
+    ).forEach { (x, y, dir) ->
+        drawLine(accent.copy(0.75f), Offset(x, y), Offset(x + tick * dir, y), strokeWidth = 1.6f)
+        drawLine(accent.copy(0.75f), Offset(x, y), Offset(x, y - tick * 0.7f), strokeWidth = 1.6f)
+    }
+}
+
+/** Growing tendrils with leaves and a bud, drawn as bezier paths. */
+private fun DrawScope.drawEventVines(accent: Color, growth: Float, pulse: Float) {
+    val unit = size.minDimension
+
+    EVENT_VINES.forEach { v ->
+        // Each vine grows, holds, then recedes — a slow breathing cycle rather
+        // than an abrupt loop restart.
+        val local = ((growth + v.phase) % 1f)
+        val extend = when {
+            local < 0.55f -> local / 0.55f
+            local < 0.75f -> 1f
+            else          -> 1f - (local - 0.75f) / 0.25f
+        }.coerceIn(0f, 1f)
+        if (extend <= 0.01f) return@forEach
+
+        val ox = size.width * v.originX
+        val oy = size.height * v.originY
+        val len = unit * v.length * extend
+        val ex = ox + v.dirX * len
+        val ey = oy + v.dirY * len
+        // Perpendicular bow gives the tendril its curl.
+        val px = -v.dirY * unit * v.curl * extend
+        val py = v.dirX * unit * v.curl * extend
+
+        val stem = Path().apply {
+            moveTo(ox, oy)
+            cubicTo(
+                ox + v.dirX * len * 0.30f + px * 0.55f,
+                oy + v.dirY * len * 0.30f + py * 0.55f,
+                ox + v.dirX * len * 0.70f + px * 0.85f,
+                oy + v.dirY * len * 0.70f + py * 0.85f,
+                ex + px * 0.30f, ey + py * 0.30f
+            )
+        }
+        val alpha = (0.30f + pulse * 0.45f) * extend
+        // Two passes: a soft wide glow under a crisp core line, which is what
+        // makes the vine look lit rather than merely drawn.
+        drawPath(stem, accent.copy(alpha * 0.35f), style = Stroke(3.6f, cap = StrokeCap.Round))
+        drawPath(stem, accent.copy(alpha), style = Stroke(1.5f, cap = StrokeCap.Round))
+
+        // Leaves along the stem.
+        for (i in 1..v.leafCount) {
+            val t = i / (v.leafCount + 1f)
+            if (t > extend) break
+            val lx = ox + v.dirX * len * t + px * t
+            val ly = oy + v.dirY * len * t + py * t
+            val side = if (i % 2 == 0) 1f else -1f
+            val leafLen = unit * 0.085f * extend
+            val nx = -v.dirY * side
+            val ny = v.dirX * side
+            val leaf = Path().apply {
+                moveTo(lx, ly)
+                quadraticTo(
+                    lx + nx * leafLen * 0.6f + v.dirX * leafLen * 0.5f,
+                    ly + ny * leafLen * 0.6f + v.dirY * leafLen * 0.5f,
+                    lx + nx * leafLen, ly + ny * leafLen
+                )
+                quadraticTo(
+                    lx + nx * leafLen * 0.35f - v.dirX * leafLen * 0.35f,
+                    ly + ny * leafLen * 0.35f - v.dirY * leafLen * 0.35f,
+                    lx, ly
+                )
+                close()
+            }
+            drawPath(leaf, accent.copy(alpha * 0.55f))
+            drawPath(leaf, accent.copy(alpha * 0.9f), style = Stroke(0.9f))
+        }
+
+        // Bud at the tip, brightening on the beat.
+        drawCircle(
+            accent.copy((0.45f + pulse * 0.55f) * extend),
+            radius = unit * (0.016f + pulse * 0.010f),
+            center = Offset(ex + px * 0.30f, ey + py * 0.30f)
+        )
+    }
+}
+
+
+/** Expandable codex entry. Collapsed by default so the list stays scannable,
+ *  and drawn with the same glyph language as the rest of the UI. */
+@Composable
+private fun CodexEntry(
+    titleRes: Int,
+    bodyRes: Int,
+    accent: Color,
+    glyph: DrawScope.(Color) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(if (expanded) 90f else 0f, tween(220), label = "codexArrow")
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                Brush.horizontalGradient(listOf(MetalBg, accent.copy(0.07f)))
+            )
+            .border(1.dp, accent.copy(0.30f), RoundedCornerShape(8.dp))
+            .clickable { expanded = !expanded }
+            .padding(horizontal = 13.dp, vertical = 11.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.foundation.Canvas(Modifier.size(20.dp)) { glyph(accent) }
+            Spacer(Modifier.width(11.dp))
+            Text(
+                stringResource(titleRes),
+                color = accent, fontSize = 11.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp,
+                modifier = Modifier.weight(1f)
+            )
+            androidx.compose.foundation.Canvas(
+                Modifier.size(12.dp).graphicsLayer { rotationZ = rotation }
+            ) {
+                val p = Path().apply {
+                    moveTo(size.width * 0.30f, size.height * 0.16f)
+                    lineTo(size.width * 0.74f, size.height * 0.50f)
+                    lineTo(size.width * 0.30f, size.height * 0.84f)
+                }
+                drawPath(p, accent.copy(0.75f), style = Stroke(1.8f, cap = StrokeCap.Round))
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(240)) + fadeIn(tween(240)),
+            exit  = shrinkVertically(tween(180)) + fadeOut(tween(140))
+        ) {
+            Column {
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(accent.copy(0.20f)))
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(bodyRes),
+                    color = TextSec, fontSize = 11.sp, lineHeight = 17.sp
+                )
+            }
         }
     }
 }

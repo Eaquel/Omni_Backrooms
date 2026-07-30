@@ -132,7 +132,7 @@
     <string name="market_tab_boosts">Boosts</string>
     <string name="market_tab_characters">Characters</string>
     <string name="market_tab_soulium">Soulium</string>
-    <string name="market_tab_vip">VIP</string>
+    <string name="market_tab_vip">Privileges</string>
     <string name="market_tab_daily">Daily</string>
     <string name="market_buy">Buy</string>
     <string name="market_equipped">Equipped</string>
@@ -223,4 +223,19 @@
     <string name="market_owned">Owned</string>
     <string name="room_password_required">Enter a password for a locked room</string>
     <string name="editor_btn_jump">Jump</string>
+    <string name="notif_permission_denied">System permission not granted</string>
+    <string name="notif_open_settings">Open System Settings</string>
+    <string name="notif_permission_granted">System permission granted</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_system">Device Language</string>
+    <string name="story_codex_title">Record Archive</string>
+    <string name="story_codex_level">LEVEL 0 — THE WAITING ROOM</string>
+    <string name="story_codex_level_body">Endless mono-yellow office corridors. Damp carpet, humming fluorescents, rooms that lead nowhere. In some regions the lights have failed entirely — there, only your flashlight shows the way.</string>
+    <string name="story_codex_survival">SURVIVAL</string>
+    <string name="story_codex_survival_body">Sanity drains with entity proximity and flickering light, and slowly recovers in calm, lit spaces. The flashlight only consumes battery while switched on. Moving costs stamina.</string>
+    <string name="story_codex_entities">ENTITIES</string>
+    <string name="story_codex_entities_body">Eight kinds wander here, each driven by its own behaviour tree: some follow sound, some wait until you enter their line of sight, some hunt outright. An entity that enters its attack state will hurt you at close range.</string>
+    <string name="story_codex_exit">THE EXIT</string>
+    <string name="story_codex_exit_body">Every run places the exit at the furthest point from where you landed. A prompt appears once you are close; the interact button gets you out.</string>
+    <string name="story_chapters_header">CHAPTERS</string>
 </resources>

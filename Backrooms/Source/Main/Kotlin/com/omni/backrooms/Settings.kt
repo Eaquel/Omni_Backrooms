@@ -35,6 +35,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import android.os.Build
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -227,8 +236,16 @@ class SettingsVM @Inject constructor(
     private val repo             : SettingsRepository,
     private val api              : ApiService,
     private val googleAuthManager: GoogleAuthManager,
-    private val identity         : GuestIdentityManager
+    private val identity         : GuestIdentityManager,
+    private val locales          : LocaleStore
 ) : ViewModel() {
+
+    val languageSelection: StateFlow<String> = locales.observeSelection()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppLanguage.SYSTEM)
+
+    /** Persists the choice; the caller recreates the activity so every screen
+     *  re-resolves its strings in the new language. */
+    fun onLanguage(value: String) { viewModelScope.launch { locales.setSelection(value) } }
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -482,7 +499,10 @@ fun SettingsScreen(
                         2 -> ControlsTab(s, vm::onSensitivity, onUiEditor)
                         3 -> AccountTab(s, vm::onName, { activity?.let { a -> vm.signInWithGoogle(a) } }, vm::signOutGoogle, vm::syncToServer, vm::resetDefaults)
                         4 -> GameplayTab(s, vm::onColorBlind, vm::onFpsLimit)
-                        5 -> NotifTab(s, vm::onPushNotif)
+                        5 -> {
+                            val lang by vm.languageSelection.collectAsState()
+                            NotifTab(s, vm::onPushNotif, lang, vm::onLanguage)
+                        }
                     }
                 }
             }
@@ -775,9 +795,67 @@ private fun GameplayTab(
 }
 
 @Composable
-private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
+private fun NotifTab(
+    s: SettingsUiState,
+    onPush: (Boolean) -> Unit,
+    languageSelection: String = AppLanguage.SYSTEM,
+    onLanguage: (String) -> Unit = {}
+) {
+    val ctx = LocalContext.current
+    // The in-app toggle used to be a purely local preference defaulting to on,
+    // so declining the system prompt still showed notifications as enabled.
+    // Recomputed on every resume, because the user can change it in system
+    // settings and come straight back.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var osGranted by remember { mutableStateOf(hasNotificationPermission(ctx)) }
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) osGranted = hasNotificationPermission(ctx)
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
     SettingsSection(stringResource(R.string.settings_tab_notif))
-    SettingsToggle(stringResource(R.string.notif_push_toggle), s.pushNotifications, onPush)
+    // Effective state = local preference AND the OS actually allowing it.
+    SettingsToggle(
+        stringResource(R.string.notif_push_toggle),
+        s.pushNotifications && osGranted,
+        { wanted -> if (osGranted) onPush(wanted) else openAppNotificationSettings(ctx) }
+    )
+    Spacer(Modifier.height(6.dp))
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+            .background(if (osGranted) MetalBg else DangerRed.copy(0.10f))
+            .border(1.dp, if (osGranted) BorderCol else DangerRed.copy(0.45f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(14.dp)) {
+            val c = if (osGranted) SuccessGreen else DangerRed
+            drawCircle(c, radius = size.minDimension * 0.42f, center = center, style = Stroke(1.6f))
+            if (osGranted) {
+                drawLine(c, Offset(size.width * 0.30f, size.height * 0.52f), Offset(size.width * 0.45f, size.height * 0.68f), strokeWidth = 1.8f, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.45f, size.height * 0.68f), Offset(size.width * 0.72f, size.height * 0.34f), strokeWidth = 1.8f, cap = StrokeCap.Round)
+            } else {
+                drawLine(c, Offset(size.width * 0.34f, size.height * 0.34f), Offset(size.width * 0.66f, size.height * 0.66f), strokeWidth = 1.8f, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.66f, size.height * 0.34f), Offset(size.width * 0.34f, size.height * 0.66f), strokeWidth = 1.8f, cap = StrokeCap.Round)
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            stringResource(if (osGranted) R.string.notif_permission_granted else R.string.notif_permission_denied),
+            color = if (osGranted) TextSec else DangerRed.copy(0.9f), fontSize = 11.sp,
+            modifier = Modifier.weight(1f)
+        )
+        if (!osGranted) {
+            Text(
+                stringResource(R.string.notif_open_settings),
+                color = Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { openAppNotificationSettings(ctx) }
+            )
+        }
+    }
     Spacer(Modifier.height(8.dp))
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp))
@@ -790,6 +868,8 @@ private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
         Icon(Icons.Default.Info, null, tint = TextDim, modifier = Modifier.size(14.dp))
         Text(stringResource(R.string.notif_info_text), color = TextDim, fontSize = 11.sp, lineHeight = 16.sp)
     }
+    Spacer(Modifier.height(16.dp))
+    LanguageSection(current = languageSelection, onSelect = onLanguage)
 }
 
 @Composable
@@ -981,5 +1061,78 @@ private fun DrawScope.editorGlyph(id: String, c: Color) {
             drawPath(head, c)
         }
         else -> drawCircle(c.copy(0.5f), radius = w * 0.30f, center = center, style = Stroke(sw))
+    }
+}
+
+
+/** True only when the OS actually permits notifications. Below Android 13 the
+ *  runtime permission doesn't exist, so channel-level enablement is the answer. */
+private fun hasNotificationPermission(ctx: Context): Boolean =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+    } else {
+        NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+    }
+
+/** Android won't re-prompt after a denial, so the only honest path is to send
+ *  the player to the system screen where they can change it. */
+private fun openAppNotificationSettings(ctx: Context) {
+    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+    } else {
+        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            .setData(android.net.Uri.fromParts("package", ctx.packageName, null))
+    }
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { ctx.startActivity(intent) }
+}
+
+
+/** Language picker. Changing the language recreates the activity, which is the
+ *  simplest correct way to make every already-composed screen re-read its
+ *  strings — Compose caches resolved resources per composition. */
+@Composable
+fun LanguageSection(current: String, onSelect: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val options = buildList {
+        add(AppLanguage.SYSTEM to stringResource(R.string.settings_language_system))
+        AppLanguage.entries.forEach { add(it.tag to it.endonym) }
+    }
+    SettingsSection(stringResource(R.string.settings_language))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { (tag, label) ->
+            val sel = current == tag
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (sel) Yellow.copy(0.12f) else MetalBg)
+                    .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(4.dp))
+                    .clickable {
+                        if (!sel) {
+                            onSelect(tag)
+                            // Recreate so the whole UI picks up the new locale.
+                            (ctx as? android.app.Activity)?.recreate()
+                        }
+                    }
+                    .padding(horizontal = 12.dp, vertical = 11.dp)
+            ) {
+                androidx.compose.foundation.Canvas(Modifier.size(16.dp)) {
+                    val r = size.minDimension / 2f
+                    drawCircle(if (sel) Yellow else TextDim, radius = r * 0.9f, center = center, style = Stroke(1.5f))
+                    if (sel) drawCircle(Yellow, radius = r * 0.45f, center = center)
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    label,
+                    color = if (sel) Yellow else TextSec,
+                    fontSize = 12.sp,
+                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+        }
     }
 }
