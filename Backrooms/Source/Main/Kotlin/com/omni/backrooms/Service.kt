@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.ContextWrapper
 import android.content.res.Configuration
+import android.content.res.Resources
 import android.util.Log
 import android.graphics.Bitmap
 import android.os.Binder
@@ -1745,9 +1747,32 @@ class LocaleStore @Inject constructor(@ApplicationContext private val ctx: Conte
 fun applyAppLanguage(base: Context, language: AppLanguage): Context {
     val locale = Locale.forLanguageTag(language.tag)
     Locale.setDefault(locale)
-    val config = Configuration(base.resources.configuration).apply {
-        setLocale(locale)
-        setLayoutDirection(locale)
+    return LocalisedContextWrapper(base, locale)
+}
+
+/**
+ * Localises resources while keeping the context chain intact.
+ *
+ * The obvious implementation — returning `createConfigurationContext(config)`
+ * directly — is wrong when the result is fed to Compose's LocalContext. That
+ * call hands back a bare ContextImpl, which is neither an Activity nor a
+ * ContextWrapper, so anything that walks `baseContext` upward looking for the
+ * hosting Activity hits a dead end immediately. `hiltViewModel()` does exactly
+ * that walk, and throws "Expected an activity context for creating a
+ * HiltViewModelFactory".
+ *
+ * Wrapping instead of replacing keeps the Activity reachable through
+ * `baseContext` while still serving localised resources, which is all the UI
+ * actually needs.
+ */
+private class LocalisedContextWrapper(base: Context, locale: Locale) : ContextWrapper(base) {
+    private val localisedResources: Resources by lazy {
+        val config = Configuration(base.resources.configuration).apply {
+            setLocale(locale)
+            setLayoutDirection(locale)
+        }
+        base.createConfigurationContext(config).resources
     }
-    return base.createConfigurationContext(config)
+
+    override fun getResources(): Resources = localisedResources
 }
