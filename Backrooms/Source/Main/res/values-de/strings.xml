@@ -227,4 +227,10 @@
     <string name="editor_reset">Zurücksetzen</string>
     <string name="editor_hint">Zum Verschieben ziehen; auswählen und mit dem Regler skalieren</string>
     <string name="editor_selected">Ausgewählt</string>
+    <string name="settings_camera_view">Kameraansicht</string>
+    <string name="camera_first_person">Ego-Perspektive</string>
+    <string name="camera_third_person">Verfolgerperspektive</string>
+    <string name="settings_hud_editor">HUD-Layout öffnen</string>
+    <string name="daily_resets_in">Erneuert sich in %1$s</string>
+    <string name="daily_free_trial">1 Stunde gratis</string>
 </resources>

@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.annotation.DrawableRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
@@ -56,6 +57,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -949,14 +951,21 @@ class MarketVM @Inject constructor(
 
     fun setTab(tab: MarketTab) {
         _state.update { it.copy(tab = tab) }
-        when (tab) { MarketTab.Looks -> loadCharacters(); MarketTab.Daily -> return; else -> loadTab(tab) }
+        // Looks is served from the item list like every other tab — routing it
+        // to the character API meant the local character entry never showed.
+        when (tab) { MarketTab.Daily -> return; else -> loadTab(tab) }
     }
 
     private fun loadTab(tab: MarketTab) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             runCatching { api.getMarketItems(tab.name.lowercase()) }
-                .onSuccess { page -> _state.update { it.copy(isLoading = false, items = page.items) } }
+                .onSuccess { page ->
+                    // An empty page would leave the tab blank; fall back so a
+                    // silent/partial server is indistinguishable from offline.
+                    val items = page.items.ifEmpty { fallbackItems(tab) }
+                    _state.update { it.copy(isLoading = false, items = items) }
+                }
                 .onFailure { e ->
                     // The offline catalogue already covers this case, so the raw
                     // network/converter message is noise — log it, don't show it.
@@ -982,7 +991,12 @@ class MarketVM @Inject constructor(
                     val selected = chars.firstOrNull { it.isEquipped } ?: chars.firstOrNull()
                     _state.update { it.copy(charsLoading = false, characters = chars, selectedChar = selected) }
                 }
-                .onFailure { _state.update { it.copy(charsLoading = false, characters = emptyList()) } }
+                .onFailure {
+                    // No server: fall back to the local roster so the character
+                    // is still browsable and inspectable offline.
+                    OmniLog.w("Market", "getCharacters failed; using local roster", it)
+                    _state.update { it.copy(charsLoading = false, characters = emptyList()) }
+                }
         }
     }
 
@@ -1046,9 +1060,11 @@ class MarketVM @Inject constructor(
                     cosmetics.setFrame(key)
                 }
                 item.id.startsWith("priv_") || item.category == "vip" -> {
-                    listOf("gold", "soulium", "omnium", "event").forEach { cosmetics.grantFrame(it) }
+                    // "event" is deliberately excluded: it is an event reward,
+                    // not something a store purchase can unlock.
+                    listOf("gold", "soulium", "omnium").forEach { cosmetics.grantFrame(it) }
                 }
-                item.id == "daily_frame" -> cosmetics.grantFrame("event")
+                item.id == "daily_frame" -> cosmetics.grantFrame("gold")
                 else -> Unit
             }
         }.onFailure { OmniLog.e("Market", "local grant failed for ${item.id}", it) }
@@ -1075,8 +1091,7 @@ class MarketVM @Inject constructor(
         MarketTab.Frames -> listOf(
             MarketItemDto("frame_gold","Altın Çerçeve","Gold Frame","Profil fotoğrafını saran altın halka","A gold ring around your avatar","frames",0,"soulium",null,false,false,false,null),
             MarketItemDto("frame_soulium","Soulium Çerçeve","Soulium Frame","Mor kristal düğümlü çerçeve","Frame studded with violet crystal","frames",0,"soulium",null,false,false,false,null),
-            MarketItemDto("frame_omnium","Omnium Çerçeve","Omnium Frame","Dönen camgöbeği yay","Rotating cyan arc","frames",0,"omnium",null,false,false,false,null),
-            MarketItemDto("frame_event","Etkinlik Çerçevesi","Event Frame","Kırmızı dikenli etkinlik halkası","Red-spiked event ring","frames",0,"soulium",null,false,false,true,null)
+            MarketItemDto("frame_omnium","Omnium Çerçeve","Omnium Frame","Dönen camgöbeği yay","Rotating cyan arc","frames",0,"omnium",null,false,false,false,null)
         )
         MarketTab.Looks -> listOf(
             MarketItemDto(
@@ -1096,9 +1111,40 @@ class MarketVM @Inject constructor(
         else -> emptyList()
     }
 
-    private fun fallbackDaily(): List<MarketItemDto> = listOf(
-        MarketItemDto("daily_frame","Günlük Çerçeve","Daily Frame","Bugüne özel görsel çerçeve","Today only cosmetic frame","daily",0,"soulium",null,false,false,true,null)
-    )
+    /**
+     * Deals rotate once per UTC day. Deriving the rotation from the day number
+     * rather than storing it means every device shows the same offer on the
+     * same day with no server involved, and it survives reinstalls.
+     */
+    private fun fallbackDaily(): List<MarketItemDto> {
+        val day = (System.currentTimeMillis() / 86_400_000L).toInt()
+        val pool = listOf(
+            MarketItemDto(
+                "daily_char_trial", "Anime Kız — 1 Saat", "Anime Girl — 1 Hour",
+                "Bugün bir saatliğine ücretsiz dene", "Try her free for one hour today",
+                "daily", 0, "soulium", null, false, false, true, null
+            ),
+            MarketItemDto(
+                "daily_frame", "Günlük Çerçeve", "Daily Frame",
+                "Bugüne özel görsel çerçeve", "Today only cosmetic frame",
+                "daily", 0, "soulium", null, false, false, true, null
+            ),
+            MarketItemDto(
+                "daily_trail", "Günlük İz", "Daily Trail",
+                "Bugüne özel iz efekti", "Today only trail effect",
+                "daily", 0, "soulium", null, false, false, true, null
+            )
+        )
+        // Two of the three each day, rotating, so the tab is never identical
+        // two days running.
+        return listOf(pool[day % pool.size], pool[(day + 1) % pool.size])
+    }
+
+    /** Milliseconds until the daily rotation flips, for the countdown. */
+    fun millisUntilDailyReset(): Long {
+        val dayMs = 86_400_000L
+        return dayMs - (System.currentTimeMillis() % dayMs)
+    }
 }
 
 data class StoryUiState(
@@ -1358,7 +1404,14 @@ class GameVM @Inject constructor(
     fun onJump()   { bridge.applyMovement(0f, 26_000f, 0f) }
     fun onCrouch() { bridge.applyMovement(0f, -8_000f, 0f) }
     fun toggleFlashlight() { _state.update { it.copy(flashlightOn = !it.flashlightOn) } }
-    fun togglePause()      { _state.update { it.copy(isPaused = !it.isPaused) } }
+    fun togglePause() {
+        val nowPaused = !_state.value.isPaused
+        _state.update { it.copy(isPaused = nowPaused) }
+        // Pausing has to silence the engine too; previously only leaving the
+        // screen did, so the ambience kept playing behind the pause menu.
+        if (nowPaused) runCatching { bridge.setAmbienceLevel(0f); bridge.setHumVolume(0f) }
+        else applyAudioLevels()
+    }
 
     /** True once the player is close enough to the exit for [onInteract] to work; the HUD
      *  uses this to show a prompt so the player knows the exit is reachable. */
@@ -1631,8 +1684,8 @@ fun MainMenu(
             Modifier.align(Alignment.TopEnd).padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            IconGlyphButton(40.dp, TextSec, onClick = { toast = comingSoon }) { drawLeaderboardGlyph(it) }
-            IconGlyphButton(40.dp, Yellow,  onClick = onSettings)            { drawGearGlyph(it) }
+            IconResButton(40.dp, R.drawable.ic_leaderboard, TextSec, onClick = { toast = comingSoon })
+            IconResButton(40.dp, R.drawable.ic_settings,    Yellow,  onClick = onSettings)
         }
 
         // ---- Left edge: navigation rail ---------------------------------------
@@ -1646,10 +1699,10 @@ fun MainMenu(
                 .padding(start = 10.dp, top = 76.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            RailItem(stringResource(R.string.menu_market),    CrtAmber,     onMarket)  { drawMarketGlyph(it) }
-            RailItem(stringResource(R.string.menu_story),      Yellow,       onStory)   { drawBookGlyph(it) }
-            RailItem(stringResource(R.string.menu_abilities),  TextSec,      { toast = comingSoon }) { drawAbilityGlyph(it) }
-            RailItem(stringResource(R.string.menu_season),     SouliumCol,   { toast = comingSoon }) { drawSeasonGlyph(it) }
+            RailItem(stringResource(R.string.menu_market),   R.drawable.ic_market,      CrtAmber,   onMarket)
+            RailItem(stringResource(R.string.menu_story),     R.drawable.ic_story,       Yellow,     onStory)
+            RailItem(stringResource(R.string.menu_abilities), R.drawable.ic_abilities,   TextSec)    { toast = comingSoon }
+            RailItem(stringResource(R.string.menu_season),    R.drawable.ic_season,      SouliumCol) { toast = comingSoon }
         }
 
         // ---- Right edge: play modes -------------------------------------------
@@ -2806,105 +2859,37 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
             DividerLine()
             Box(Modifier.weight(1f)) {
                 when (s.tab) {
+                    // Looks shows the same card grid as every other tab; the
+                    // character lives in the item list, and tapping its art
+                    // opens the full 3D inspection.
                     MarketTab.Looks -> {
-                        if (s.charsLoading) Box(Modifier.fillMaxSize(), Alignment.Center) {
-                            CircularProgressIndicator(color = Yellow, strokeWidth = 2.dp)
-                        } else {
-                            Row(Modifier.fillMaxSize()) {
-                                LazyColumn(
-                                    Modifier.width(130.dp).fillMaxHeight(),
-                                    contentPadding = PaddingValues(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    items(s.characters) { char ->
-                                        val sel = s.selectedChar?.id == char.id
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier.fillMaxWidth().height(44.dp)
-                                                .clip(RoundedCornerShape(2.dp))
-                                                .background(if (sel) Yellow.copy(0.15f) else MetalBg)
-                                                .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-                                                .clickable { vm.selectChar(char) }
-                                                .padding(horizontal = 8.dp)
-                                        ) {
-                                            Text(char.nameTr, color = if (sel) Yellow else TextSec, fontSize = 11.sp,
-                                                fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
-                                        }
-                                    }
-                                }
-                                DividerLine()
-                                s.selectedChar?.let { char ->
-                                    Column(
-                                        Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        val classColor  = when (char.clazz.uppercase()) {
-                                            "SCOUT" -> SuccessGreen; "SURVIVOR" -> DangerRed
-                                            "ENGINEER" -> CrtAmber; "GHOST" -> SouliumCol; else -> Yellow
-                                        }
-                                        val isEquipping = s.equipping == char.id
-                                        CharStatBar(stringResource(R.string.char_stats_hp),      char.maxHp / 200f,      "${char.maxHp.toInt()} HP",            DangerRed)
-                                        CharStatBar(stringResource(R.string.char_stats_speed),   char.baseSpeed / 6f,    "${char.baseSpeed} m/s",               SuccessGreen)
-                                        CharStatBar(stringResource(R.string.char_stats_stealth), char.stealthMult / 2f,  "${(char.stealthMult * 100).toInt()}%", SouliumCol)
-                                        CharStatBar(stringResource(R.string.char_stats_stamina), char.staminaMult / 2f,  "${(char.staminaMult * 100).toInt()}%", CrtAmber)
-                                        DividerLine()
-                                        char.abilities.forEach { ability ->
-                                            Row(
-                                                Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp))
-                                                    .background(MetalBg)
-                                                    .border(1.dp, classColor.copy(0.3f), RoundedCornerShape(2.dp))
-                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalAlignment     = Alignment.CenterVertically
-                                            ) {
-                                                Icon(Icons.Default.Star, null, tint = classColor, modifier = Modifier.size(12.dp))
-                                                Text(ability, color = TextSec, fontSize = 12.sp)
-                                            }
-                                        }
-                                        if (char.isUnlocked) {
-                                            if (char.isEquipped) {
-                                                Row(Modifier.fillMaxWidth(), Arrangement.Center, Alignment.CenterVertically) {
-                                                    Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(16.dp))
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(stringResource(R.string.market_equipped), color = SuccessGreen, fontSize = 12.sp)
-                                                }
-                                            } else {
-                                                AtmosphericButton(
-                                                    label   = if (isEquipping) "Takılıyor…" else stringResource(R.string.char_select_label),
-                                                    icon    = Icons.Default.CheckCircle,
-                                                    accent  = classColor,
-                                                    width   = 200.dp,
-                                                    height  = 44.dp,
-                                                    enabled = !isEquipping,
-                                                    onClick = { vm.equip(char) }
-                                                )
-                                            }
-                                        } else {
-                                            AtmosphericButton(
-                                                label  = "${stringResource(R.string.char_unlock_prefix)}${char.price} ${char.currency.uppercase()}",
-                                                icon   = Icons.Default.Lock,
-                                                accent = CrtAmber,
-                                                width  = 200.dp,
-                                                height = 44.dp,
-                                                onClick = {}
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    MarketTab.Daily -> {
                         LazyVerticalGrid(
                             GridCells.Fixed(2),
                             Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(s.dailyDeals) { item ->
+                            items(s.items) { item ->
                                 MarketCard(item, s.purchasing == item.id, item.id in s.ownedIds,
                                     onInspect = { inspecting = true }) { vm.confirmBuy(item) }
+                            }
+                        }
+                    }
+                    MarketTab.Daily -> {
+                        Column(Modifier.fillMaxSize()) {
+                            DailyResetCountdown(vm)
+                            LazyVerticalGrid(
+                                GridCells.Fixed(2),
+                                Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(s.dailyDeals) { item ->
+                                    MarketCard(item, s.purchasing == item.id, item.id in s.ownedIds,
+                                        onInspect = { inspecting = true }) { vm.confirmBuy(item) }
+                                }
                             }
                         }
                     }
@@ -3623,14 +3608,15 @@ fun GameHud(
 
         // --- Top-left: vitals only. HP is gone; these three are the ones the
         // player can actually act on. ---------------------------------------
-        Column(
-            placed("bars", 0.10f, 0.14f, 150f, 74f)
-                .width((150 * scaleOf("bars")).dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            StatusBar(stringResource(R.string.game_hud_sanity),  gameState.sanity / 100f,                  SouliumCol)
+        // Each bar is placed independently so the editor can separate them.
+        Box(placed("bar_sanity", 0.10f, 0.08f, 150f, 22f).width((150 * scaleOf("bar_sanity")).dp)) {
+            StatusBar(stringResource(R.string.game_hud_sanity), gameState.sanity / 100f, SouliumCol)
+        }
+        Box(placed("bar_stamina", 0.10f, 0.14f, 150f, 22f).width((150 * scaleOf("bar_stamina")).dp)) {
             StatusBar(stringResource(R.string.game_hud_stamina), gameState.stamina / gameState.staminaMax, SuccessGreen)
-            StatusBar(stringResource(R.string.game_hud_battery), gameState.flashlightBattery,              CrtAmber)
+        }
+        Box(placed("bar_battery", 0.10f, 0.20f, 150f, 22f).width((150 * scaleOf("bar_battery")).dp)) {
+            StatusBar(stringResource(R.string.game_hud_battery), gameState.flashlightBattery, CrtAmber)
         }
 
         // --- Top-right: session readouts and pause -------------------------
@@ -3878,7 +3864,14 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
 @Composable
 fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit, settingsVm: SettingsVM = hiltViewModel()) {
     var showSettings by remember { mutableStateOf(false) }
+    var showHudEditor by remember { mutableStateOf(false) }
     val s by settingsVm.state.collectAsState()
+
+    // The editor takes the whole screen; it needs the room to arrange things.
+    if (showHudEditor) {
+        UiEditor(onSave = { showHudEditor = false })
+        return
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black.copy(0.78f)), Alignment.Center) {
         androidx.compose.animation.AnimatedContent(
@@ -3929,6 +3922,40 @@ fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit, settingsVm: SettingsV
                     InGameToggle(stringResource(R.string.graphics_vhs_effect),      s.vhsEnabled,     settingsVm::onVhs)
                     InGameToggle(stringResource(R.string.graphics_show_fps),      s.showFps,        settingsVm::onShowFps)
                     InGameToggle(stringResource(R.string.graphics_show_ping),     s.showPing,       settingsVm::onShowPing)
+                    DividerLine()
+                    // Camera view, switchable mid-run.
+                    Text(stringResource(R.string.settings_camera_view), color = TextSec, fontSize = 11.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            "first" to R.string.camera_first_person,
+                            "third" to R.string.camera_third_person
+                        ).forEach { (key, labelRes) ->
+                            val sel = s.cameraView == key
+                            Box(
+                                Modifier.weight(1f).height(36.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (sel) Yellow.copy(0.15f) else MetalBg)
+                                    .border(1.dp, if (sel) Yellow else BorderCol, RoundedCornerShape(6.dp))
+                                    .clickable { settingsVm.onCameraView(key) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    stringResource(labelRes),
+                                    color = if (sel) Yellow else TextDim, fontSize = 11.sp,
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                    DividerLine()
+                    // Layout editing without leaving the run.
+                    AtmosphericButton(
+                        label   = stringResource(R.string.settings_hud_editor),
+                        icon    = Icons.Default.DragIndicator,
+                        accent  = CrtAmber,
+                        width   = 240.dp, height = 44.dp,
+                        onClick = { showHudEditor = true }
+                    )
                     DividerLine()
                     AtmosphericButton(stringResource(R.string.common_ok), Icons.Default.Check, Yellow, 240.dp, 44.dp, { showSettings = false })
                 }
@@ -4408,62 +4435,6 @@ private val GameState.showPing  : Boolean get() = true
 
 private fun DrawScope.strokeW(f: Float = 0.055f) = size.minDimension * f
 
-private fun DrawScope.drawGearGlyph(c: Color) {
-    val r = size.minDimension * 0.30f
-    val teeth = 8
-    val w = strokeW(0.07f)
-    for (i in 0 until teeth) {
-        val a = (Math.PI * 2 / teeth * i).toFloat()
-        val inner = r * 1.02f
-        val outer = r * 1.42f
-        drawLine(
-            c, Offset(center.x + cos(a) * inner, center.y + sin(a) * inner),
-            Offset(center.x + cos(a) * outer, center.y + sin(a) * outer),
-            strokeWidth = w, cap = StrokeCap.Round
-        )
-    }
-    drawCircle(c, radius = r, center = center, style = Stroke(w))
-    drawCircle(c, radius = r * 0.38f, center = center, style = Stroke(w * 0.8f))
-}
-
-private fun DrawScope.drawLeaderboardGlyph(c: Color) {
-    val w = size.width; val h = size.height
-    val barW = w * 0.19f
-    val baseY = h * 0.76f
-    val heights = listOf(0.30f, 0.46f, 0.22f)
-    val xs = listOf(w * 0.24f, w * 0.50f, w * 0.76f)
-    heights.forEachIndexed { i, hf ->
-        val top = baseY - h * hf
-        drawRoundRect(
-            c.copy(if (i == 1) 1f else 0.65f),
-            topLeft = Offset(xs[i] - barW / 2f, top),
-            size = Size(barW, baseY - top),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.18f)
-        )
-    }
-    drawLine(c, Offset(w * 0.12f, baseY), Offset(w * 0.88f, baseY), strokeWidth = strokeW(0.05f), cap = StrokeCap.Round)
-}
-
-private fun DrawScope.drawMarketGlyph(c: Color) {
-    val w = size.width; val h = size.height
-    val sw = strokeW(0.06f)
-    // Bag body
-    val left = w * 0.24f; val right = w * 0.76f
-    val top = h * 0.38f;  val bottom = h * 0.80f
-    drawRoundRect(
-        c, topLeft = Offset(left, top), size = Size(right - left, bottom - top),
-        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.06f),
-        style = Stroke(sw)
-    )
-    // Handle
-    val path = Path().apply {
-        moveTo(w * 0.37f, top)
-        cubicTo(w * 0.37f, h * 0.18f, w * 0.63f, h * 0.18f, w * 0.63f, top)
-    }
-    drawPath(path, c, style = Stroke(sw, cap = StrokeCap.Round))
-    drawCircle(c.copy(0.55f), radius = w * 0.035f, center = Offset(w * 0.5f, h * 0.58f))
-}
-
 private fun DrawScope.drawBookGlyph(c: Color) {
     val w = size.width; val h = size.height
     val sw = strokeW(0.055f)
@@ -4497,28 +4468,6 @@ private fun DrawScope.drawAbilityGlyph(c: Color) {
         drawCircle(c, radius = w * 0.085f, center = n, style = Stroke(sw * 0.8f))
     }
     drawCircle(c, radius = w * 0.10f, center = hub)
-}
-
-private fun DrawScope.drawSeasonGlyph(c: Color) {
-    val w = size.width; val h = size.height
-    val sw = strokeW(0.055f)
-    // Trophy cup
-    val path = Path().apply {
-        moveTo(w * 0.33f, h * 0.24f)
-        lineTo(w * 0.67f, h * 0.24f)
-        lineTo(w * 0.63f, h * 0.55f)
-        cubicTo(w * 0.60f, h * 0.64f, w * 0.40f, h * 0.64f, w * 0.37f, h * 0.55f)
-        close()
-    }
-    drawPath(path, c, style = Stroke(sw))
-    // Handles
-    drawArc(c, 90f, 180f, false,
-        topLeft = Offset(w * 0.18f, h * 0.26f), size = Size(w * 0.18f, h * 0.20f), style = Stroke(sw * 0.8f))
-    drawArc(c, 270f, 180f, false,
-        topLeft = Offset(w * 0.64f, h * 0.26f), size = Size(w * 0.18f, h * 0.20f), style = Stroke(sw * 0.8f))
-    // Stem + base
-    drawLine(c, Offset(w * 0.5f, h * 0.62f), Offset(w * 0.5f, h * 0.74f), strokeWidth = sw)
-    drawLine(c, Offset(w * 0.34f, h * 0.78f), Offset(w * 0.66f, h * 0.78f), strokeWidth = sw, cap = StrokeCap.Round)
 }
 
 private fun DrawScope.drawOfflineGlyph(c: Color) {
@@ -4592,9 +4541,9 @@ private fun IconGlyphButton(
 @Composable
 private fun RailItem(
     label: String,
+    @DrawableRes iconRes: Int,
     accent: Color,
-    onClick: () -> Unit,
-    glyph: DrawScope.(Color) -> Unit
+    onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -4625,7 +4574,12 @@ private fun RailItem(
                 .border(1.dp, accent.copy(if (pressed) 0.9f else ring), RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(10.dp)) { glyph(accent) }
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = label,
+                tint = accent,
+                modifier = Modifier.fillMaxSize().padding(10.dp)
+            )
         }
         Spacer(Modifier.height(2.dp))
         Text(label, color = accent.copy(0.85f), fontSize = 8.sp, letterSpacing = 0.5.sp, maxLines = 1)
@@ -5853,7 +5807,7 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
             uTex = GLES30.glGetUniformLocation(program, "uTex")
             uIsChar = GLES30.glGetUniformLocation(program, "uIsCharacter")
 
-            CharacterMesh.load(appContext, "character.omesh")?.let { mesh ->
+            CharacterMesh.load(appContext, "Models/Anime_Character.omesh")?.let { mesh ->
                 charVbo = genBuf(); charIbo = genBuf()
                 GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
                 GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, mesh.vertexBuffer.size * 4,
@@ -5885,7 +5839,7 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
             uploadQuad(wallVbo, wallIbo, wallQuad)
             wallCount = 6
 
-            charTex = loadTex("character_texture.png", 0xFFE8D5C8.toInt())
+            charTex = loadTex("Models/Anime_Texture.png", 0xFFE8D5C8.toInt())
             wallTex = loadTex("Level_0/Wall.png", 0xFF4A4030.toInt())
             floorTex = loadTex("Level_0/Floor.png", 0xFF3A3020.toInt())
         }.onFailure { OmniLog.e("Preview", "setup failed", it) }
@@ -6112,4 +6066,70 @@ class AppLocaleVM @Inject constructor(private val locales: LocaleStore) : ViewMo
             else AppLanguage.fromTag(sel) ?: AppLanguage.matchDevice()
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppLanguage.matchDevice())
+}
+
+
+/** Live countdown to the daily rotation. Ticks once a second — cheap, and the
+ *  number would look broken updating any slower. */
+@Composable
+private fun DailyResetCountdown(vm: MarketVM) {
+    var remaining by remember { mutableStateOf(vm.millisUntilDailyReset()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            remaining = vm.millisUntilDailyReset()
+            delay(1000)
+        }
+    }
+    val total = remaining / 1000
+    val text = String.format(
+        Locale.US, "%02d:%02d:%02d",
+        total / 3600, (total % 3600) / 60, total % 60
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(0.45f))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(14.dp)) { drawStopwatchGlyph(CrtAmber) }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            stringResource(R.string.daily_resets_in, text),
+            color = CrtAmber, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+        )
+    }
+}
+
+
+/** Square icon button backed by a vector drawable. The drawable-based twin of
+ *  [IconGlyphButton], used wherever the artwork is static — which is most
+ *  places. Code-drawn glyphs remain only where the icon animates. */
+@Composable
+private fun IconResButton(
+    size: Dp,
+    @DrawableRes iconRes: Int,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, spring(), label = "iconResScale")
+    Box(
+        Modifier
+            .size(size)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(9.dp))
+            .background(Color.Black.copy(0.45f))
+            .border(1.dp, accent.copy(0.45f), RoundedCornerShape(9.dp))
+            .clickable(interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.fillMaxSize().padding(9.dp)
+        )
+    }
 }

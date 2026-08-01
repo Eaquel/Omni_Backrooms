@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Reaching hand — HUD interact
+    Tinted at use site via Compose's ColorFilter, so a single asset serves every
+    accent colour. 24dp canvas on a 24-unit viewport keeps path coordinates
+    readable and matches the platform icon grid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineJoin="round"
+        android:pathData="M8.2,10.6 L15.8,10.6 C16.7,10.6 17.4,11.3 17.4,12.2 L17.4,18
+                          C17.4,19.8 15.9,21.2 14.1,21.2 L9.9,21.2 C8.1,21.2 6.6,19.8 6.6,18 L6.6,12.2
+                          C6.6,11.3 7.3,10.6 8.2,10.6 Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M9.6,10.6 L9.6,5.2 M12,10.6 L12,3.6 M14.4,10.6 L14.4,5.2" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M6.6,13.6 L4.2,11.4" />
+</vector>

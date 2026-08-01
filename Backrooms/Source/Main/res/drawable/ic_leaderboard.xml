@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Podium bars — leaderboard
+    Tinted at use site via Compose's ColorFilter, so a single asset serves every
+    accent colour. 24dp canvas on a 24-unit viewport keeps path coordinates
+    readable and matches the platform icon grid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.65"
+        android:pathData="M4.4,13.2 L8.2,13.2 L8.2,18.6 L4.4,18.6 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M10.1,9.2 L13.9,9.2 L13.9,18.6 L10.1,18.6 Z" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.65"
+        android:pathData="M15.8,14.8 L19.6,14.8 L19.6,18.6 L15.8,18.6 Z" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineCap="round"
+        android:pathData="M3.2,20.4 L20.8,20.4" />
+</vector>

@@ -227,4 +227,10 @@
     <string name="editor_reset">Сброс</string>
     <string name="editor_hint">Перетащите, чтобы переместить; выберите и меняйте размер ползунком</string>
     <string name="editor_selected">Выбрано</string>
+    <string name="settings_camera_view">Вид камеры</string>
+    <string name="camera_first_person">От первого лица</string>
+    <string name="camera_third_person">От третьего лица</string>
+    <string name="settings_hud_editor">Открыть настройку интерфейса</string>
+    <string name="daily_resets_in">Обновление через %1$s</string>
+    <string name="daily_free_trial">1 час бесплатно</string>
 </resources>

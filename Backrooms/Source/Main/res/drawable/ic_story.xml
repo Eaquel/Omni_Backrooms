@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Open book — story tab
+    Tinted at use site via Compose's ColorFilter, so a single asset serves every
+    accent colour. 24dp canvas on a 24-unit viewport keeps path coordinates
+    readable and matches the platform icon grid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M12,6.6 C10.1,5.1 7.9,4.6 4.8,5.2 L4.8,18.4 C7.9,17.8 10.1,18.3 12,19.8 C13.9,18.3 16.1,17.8 19.2,18.4 L19.2,5.2 C16.1,4.6 13.9,5.1 12,6.6 Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeAlpha="0.7"
+        android:pathData="M12,6.6 L12,19.8" />
+</vector>

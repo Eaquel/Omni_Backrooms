@@ -257,4 +257,10 @@
     <string name="editor_reset">Sıfırla</string>
     <string name="editor_hint">Sürükleyerek taşı, seçip kaydırıcıyla boyutlandır</string>
     <string name="editor_selected">Seçili</string>
+    <string name="settings_camera_view">Kamera Görüşü</string>
+    <string name="camera_first_person">1. Şahıs</string>
+    <string name="camera_third_person">3. Şahıs</string>
+    <string name="settings_hud_editor">HUD Düzenini Aç</string>
+    <string name="daily_resets_in">Yenilenmesine: %1$s</string>
+    <string name="daily_free_trial">1 Saat Ücretsiz</string>
 </resources>

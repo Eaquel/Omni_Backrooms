@@ -254,4 +254,10 @@
     <string name="editor_reset">Reset</string>
     <string name="editor_hint">Drag to move, select then use the slider to resize</string>
     <string name="editor_selected">Selected</string>
+    <string name="settings_camera_view">Camera View</string>
+    <string name="camera_first_person">First Person</string>
+    <string name="camera_third_person">Third Person</string>
+    <string name="settings_hud_editor">Open HUD Layout</string>
+    <string name="daily_resets_in">Resets in %1$s</string>
+    <string name="daily_free_trial">1 Hour Free</string>
 </resources>

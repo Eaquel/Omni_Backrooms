@@ -97,6 +97,8 @@ class SettingsRepository @Inject constructor(
         val KEY_SHOW_FPS     = booleanPreferencesKey("show_fps")
         val KEY_SHOW_PING    = booleanPreferencesKey("show_ping")
         val KEY_COLOR_BLIND  = stringPreferencesKey("color_blind_mode")
+
+        val KEY_CAMERA_VIEW  = stringPreferencesKey("camera_view")
     }
 
     fun observe(): Flow<GameSettings> = store.data.map { p ->
@@ -118,6 +120,7 @@ class SettingsRepository @Inject constructor(
             showFps           = p[KEY_SHOW_FPS]     ?: false,
             showPing          = p[KEY_SHOW_PING]    ?: true,
             colorBlindMode    = p[KEY_COLOR_BLIND]  ?: "none",
+            cameraView        = p[KEY_CAMERA_VIEW]  ?: "first",
             pushNotifications = p[KEY_PUSH_NOTIF]   ?: true
         )
     }
@@ -144,6 +147,7 @@ class SettingsRepository @Inject constructor(
     suspend fun saveShowFps(v: Boolean)      { store.edit { it[KEY_SHOW_FPS]     = v } }
     suspend fun saveShowPing(v: Boolean)     { store.edit { it[KEY_SHOW_PING]    = v } }
     suspend fun saveColorBlind(v: String)    { store.edit { it[KEY_COLOR_BLIND]  = v } }
+    suspend fun saveCameraView(v: String)    { store.edit { it[KEY_CAMERA_VIEW]  = v } }
     suspend fun savePushNotif(v: Boolean)    { store.edit { it[KEY_PUSH_NOTIF]   = v } }
 
     suspend fun saveUiLayout(layout: List<UiButtonLayout>) {
@@ -253,6 +257,9 @@ data class SettingsUiState(
     val showFps           : Boolean         = false,
     val showPing          : Boolean         = true,
     val colorBlindMode    : String          = "none",
+    /** "first" or "third". Third-person needs the character model, so it only
+     *  applies once one is equipped. */
+    val cameraView        : String          = "first",
     val pushNotifications : Boolean         = true,
     val isSyncing         : Boolean         = false,
     val syncSuccess       : Boolean         = false,
@@ -318,6 +325,7 @@ class SettingsVM @Inject constructor(
                         showFps           = pick("showFps", g.showFps, cur.showFps),
                         showPing          = pick("showPing", g.showPing, cur.showPing),
                         colorBlindMode    = pick("cb", g.colorBlindMode, cur.colorBlindMode),
+                        cameraView        = pick("camview", g.cameraView, cur.cameraView),
                         pushNotifications = pick("push", g.pushNotifications, cur.pushNotifications)
                     )
                 }
@@ -414,6 +422,7 @@ class SettingsVM @Inject constructor(
     fun onVibration(v: Boolean)    { pendingWrites.add("vibe"); _state.update { it.copy(vibrationOn       = v) }; save { repo.saveVibration(v) } }
     fun onShowFps(v: Boolean)      { pendingWrites.add("showFps"); _state.update { it.copy(showFps           = v) }; save { repo.saveShowFps(v) } }
     fun onShowPing(v: Boolean)     { pendingWrites.add("showPing"); _state.update { it.copy(showPing          = v) }; save { repo.saveShowPing(v) } }
+    fun onCameraView(v: String)    { pendingWrites.add("camview"); _state.update { it.copy(cameraView = v) }; save { repo.saveCameraView(v) } }
     fun onColorBlind(v: String)    { pendingWrites.add("cb"); _state.update { it.copy(colorBlindMode    = v) }; save { repo.saveColorBlind(v) } }
     fun onPushNotif(v: Boolean)    { pendingWrites.add("push"); _state.update { it.copy(pushNotifications = v) }; save { repo.savePushNotif(v) } }
 
@@ -543,7 +552,7 @@ fun SettingsScreen(
                 ) {
                     when (tabIndex) {
                         0 -> GraphicsTab(s, vm::onQuality, vm::onVhs, vm::onResolution, vm::onShadows, vm::onAntialiasing, vm::onFog, vm::onShowFps, vm::onShowPing)
-                        1 -> AudioTab(s, vm::onMusic, vm::onFootstep, vm::onMonster, vm::onVoice, vm::onVibration)
+                        1 -> AudioTab(s, vm::onMusic, vm::onVibration)
                         2 -> ControlsTab(s, vm::onSensitivity, onUiEditor)
                         3 -> AccountTab(s, vm::onName, { activity?.let { a -> vm.signInWithGoogle(a) } }, vm::signOutGoogle, vm::syncToServer, vm::resetDefaults)
                         4 -> GameplayTab(s, vm::onColorBlind, vm::onFpsLimit)
@@ -610,16 +619,10 @@ private fun GraphicsTab(
 private fun AudioTab(
     s         : SettingsUiState,
     onMusic   : (Float) -> Unit,
-    onFootstep: (Float) -> Unit,
-    onMonster : (Float) -> Unit,
-    onVoice   : (Float) -> Unit,
     onVib     : (Boolean) -> Unit
 ) {
     SettingsSection(stringResource(R.string.settings_tab_audio))
     SettingsSlider(stringResource(R.string.audio_master_volume),      s.musicVolume,    onMusic)
-    SettingsSlider(stringResource(R.string.audio_footstep_volume),    s.footstepVolume, onFootstep)
-    SettingsSlider(stringResource(R.string.audio_monster_sfx_volume), s.monsterVolume,  onMonster)
-    SettingsSlider(stringResource(R.string.audio_voice_volume),       s.voiceVolume,    onVoice)
     SettingsToggle(stringResource(R.string.settings_vibration),       s.vibrationOn,    onVib)
 }
 
@@ -983,7 +986,9 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
     // place with no way to move or resize them.
     val elements = remember {
         mutableStateListOf(
-            HudElement("bars",       R.string.editor_btn_bars,       0.10f, 0.14f, 150f, 74f),
+            HudElement("bar_sanity",  R.string.game_hud_sanity,      0.10f, 0.08f, 150f, 22f),
+            HudElement("bar_stamina", R.string.game_hud_stamina,     0.10f, 0.14f, 150f, 22f),
+            HudElement("bar_battery", R.string.game_hud_battery,     0.10f, 0.20f, 150f, 22f),
             HudElement("readouts",   R.string.editor_btn_readouts,   0.78f, 0.07f, 120f, 30f),
             HudElement("pause",      R.string.editor_btn_pause,      0.95f, 0.07f, 40f,  40f),
             HudElement("joystick",   R.string.editor_btn_move,       0.14f, 0.74f, 140f, 140f),
@@ -1122,7 +1127,9 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                         // Restore the built-in positions immediately rather than
                         // waiting for the store to round-trip.
                         val defaults = listOf(
-                            Triple("bars", 0.10f to 0.14f, 1f),
+                            Triple("bar_sanity", 0.10f to 0.08f, 1f),
+                            Triple("bar_stamina", 0.10f to 0.14f, 1f),
+                            Triple("bar_battery", 0.10f to 0.20f, 1f),
                             Triple("readouts", 0.78f to 0.07f, 1f),
                             Triple("pause", 0.95f to 0.07f, 1f),
                             Triple("joystick", 0.14f to 0.74f, 1f),
@@ -1176,6 +1183,36 @@ private fun DrawScope.editorGlyph(id: String, c: Color) {
     val w = size.width; val h = size.height
     val sw = size.minDimension * 0.10f
     when (id) {
+        "bar_sanity", "bar_stamina", "bar_battery" -> {
+            // A miniature of the real status bar, so the preview matches the game.
+            val r = h * 0.30f
+            drawRoundRect(
+                c.copy(0.25f), topLeft = Offset(w * 0.06f, h * 0.36f),
+                size = Size(w * 0.88f, h * 0.28f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r)
+            )
+            drawRoundRect(
+                c, topLeft = Offset(w * 0.06f, h * 0.36f),
+                size = Size(w * 0.60f, h * 0.28f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r)
+            )
+        }
+        "readouts" -> {
+            drawRoundRect(
+                c.copy(0.7f), topLeft = Offset(w * 0.08f, h * 0.34f),
+                size = Size(w * 0.36f, h * 0.32f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f),
+                style = Stroke(sw * 0.7f)
+            )
+            drawCircle(c, radius = w * 0.07f, center = Offset(w * 0.68f, h * 0.5f))
+        }
+        "pause" -> {
+            val barW = w * 0.16f
+            drawRoundRect(c, topLeft = Offset(w * 0.32f - barW / 2, h * 0.24f), size = Size(barW, h * 0.52f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.3f))
+            drawRoundRect(c, topLeft = Offset(w * 0.68f - barW / 2, h * 0.24f), size = Size(barW, h * 0.52f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.3f))
+        }
         "joystick" -> {
             drawCircle(c.copy(0.55f), radius = w * 0.42f, center = center, style = Stroke(sw * 0.8f))
             drawCircle(c, radius = w * 0.16f, center = center)

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Frame square with centre — profile frame
+    Tinted at use site via Compose's ColorFilter, so a single asset serves every
+    accent colour. 24dp canvas on a 24-unit viewport keeps path coordinates
+    readable and matches the platform icon grid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.7"
+        android:pathData="M5,5 L19,5 C19.6,5 20,5.4 20,6 L20,18 C20,18.6 19.6,19 19,19
+                          L5,19 C4.4,19 4,18.6 4,18 L4,6 C4,5.4 4.4,5 5,5 Z" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.7"
+        android:pathData="M12,12 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+</vector>

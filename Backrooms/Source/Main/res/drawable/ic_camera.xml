@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Camera — change photo
+    Tinted at use site via Compose's ColorFilter, so a single asset serves every
+    accent colour. 24dp canvas on a 24-unit viewport keeps path coordinates
+    readable and matches the platform icon grid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M3.6,8.4 L7.2,8.4 L8.8,5.8 L15.2,5.8 L16.8,8.4 L20.4,8.4
+                          C20.9,8.4 21.2,8.8 21.2,9.2 L21.2,18.4 C21.2,18.9 20.9,19.2 20.4,19.2
+                          L3.6,19.2 C3.1,19.2 2.8,18.9 2.8,18.4 L2.8,9.2 C2.8,8.8 3.1,8.4 3.6,8.4 Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:pathData="M12,13.6 m-3.4,0 a3.4,3.4 0 1,0 6.8,0 a3.4,3.4 0 1,0 -6.8,0" />
+</vector>
