@@ -986,9 +986,9 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
     // place with no way to move or resize them.
     val elements = remember {
         mutableStateListOf(
-            HudElement("bar_sanity",  R.string.game_hud_sanity,      0.10f, 0.08f, 150f, 22f),
-            HudElement("bar_stamina", R.string.game_hud_stamina,     0.10f, 0.14f, 150f, 22f),
-            HudElement("bar_battery", R.string.game_hud_battery,     0.10f, 0.20f, 150f, 22f),
+            HudElement("bar_sanity",  R.string.game_hud_sanity,      0.11f, 0.10f, 150f, 30f),
+            HudElement("bar_stamina", R.string.game_hud_stamina,     0.11f, 0.20f, 150f, 30f),
+            HudElement("bar_battery", R.string.game_hud_battery,     0.11f, 0.30f, 150f, 30f),
             HudElement("readouts",   R.string.editor_btn_readouts,   0.78f, 0.07f, 120f, 30f),
             HudElement("pause",      R.string.editor_btn_pause,      0.95f, 0.07f, 40f,  40f),
             HudElement("joystick",   R.string.editor_btn_move,       0.14f, 0.74f, 140f, 140f),
@@ -1127,9 +1127,9 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                         // Restore the built-in positions immediately rather than
                         // waiting for the store to round-trip.
                         val defaults = listOf(
-                            Triple("bar_sanity", 0.10f to 0.08f, 1f),
-                            Triple("bar_stamina", 0.10f to 0.14f, 1f),
-                            Triple("bar_battery", 0.10f to 0.20f, 1f),
+                            Triple("bar_sanity", 0.11f to 0.10f, 1f),
+                            Triple("bar_stamina", 0.11f to 0.20f, 1f),
+                            Triple("bar_battery", 0.11f to 0.30f, 1f),
                             Triple("readouts", 0.78f to 0.07f, 1f),
                             Triple("pause", 0.95f to 0.07f, 1f),
                             Triple("joystick", 0.14f to 0.74f, 1f),
@@ -1176,86 +1176,27 @@ private data class HudElement(
 )
 
 
-/** Draws the same control glyphs the in-game HUD uses, so the layout editor is a
- *  true preview rather than a set of generic drag handles. Kept local to this
- *  file to avoid widening the HUD drawing API. */
+/**
+ * Delegates straight to the game's own HUD glyphs — the exact same drawing code
+ * the player will see and touch. The editor previously kept its own simplified
+ * copies, which meant you were arranging icons that did not match the real
+ * ones. For a layout tool that is a correctness problem, not a cosmetic one.
+ */
 private fun DrawScope.editorGlyph(id: String, c: Color) {
-    val w = size.width; val h = size.height
-    val sw = size.minDimension * 0.10f
     when (id) {
-        "bar_sanity", "bar_stamina", "bar_battery" -> {
-            // A miniature of the real status bar, so the preview matches the game.
-            val r = h * 0.30f
-            drawRoundRect(
-                c.copy(0.25f), topLeft = Offset(w * 0.06f, h * 0.36f),
-                size = Size(w * 0.88f, h * 0.28f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r)
-            )
-            drawRoundRect(
-                c, topLeft = Offset(w * 0.06f, h * 0.36f),
-                size = Size(w * 0.60f, h * 0.28f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r)
-            )
-        }
-        "readouts" -> {
-            drawRoundRect(
-                c.copy(0.7f), topLeft = Offset(w * 0.08f, h * 0.34f),
-                size = Size(w * 0.36f, h * 0.32f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f),
-                style = Stroke(sw * 0.7f)
-            )
-            drawCircle(c, radius = w * 0.07f, center = Offset(w * 0.68f, h * 0.5f))
-        }
-        "pause" -> {
-            val barW = w * 0.16f
-            drawRoundRect(c, topLeft = Offset(w * 0.32f - barW / 2, h * 0.24f), size = Size(barW, h * 0.52f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.3f))
-            drawRoundRect(c, topLeft = Offset(w * 0.68f - barW / 2, h * 0.24f), size = Size(barW, h * 0.52f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.3f))
-        }
-        "joystick" -> {
-            drawCircle(c.copy(0.55f), radius = w * 0.42f, center = center, style = Stroke(sw * 0.8f))
-            drawCircle(c, radius = w * 0.16f, center = center)
-        }
-        "interact" -> {
-            drawRoundRect(
-                c, topLeft = Offset(w * 0.34f, h * 0.42f), size = Size(w * 0.32f, h * 0.40f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.10f), style = Stroke(sw * 0.85f)
-            )
-            for (i in 0 until 3) {
-                val x = w * (0.40f + i * 0.10f)
-                drawLine(c, Offset(x, h * 0.42f), Offset(x, h * 0.20f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
-            }
-        }
-        "flashlight" -> {
-            val beam = Path().apply {
-                moveTo(w * 0.42f, h * 0.46f); lineTo(w * 0.58f, h * 0.46f)
-                lineTo(w * 0.80f, h * 0.90f); lineTo(w * 0.20f, h * 0.90f); close()
-            }
-            drawPath(beam, c.copy(0.28f))
-            drawPath(beam, c.copy(0.85f), style = Stroke(sw * 0.65f))
-            drawRoundRect(
-                c, topLeft = Offset(w * 0.38f, h * 0.16f), size = Size(w * 0.24f, h * 0.26f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.04f), style = Stroke(sw * 0.8f)
-            )
-        }
-        "jump" -> {
-            drawLine(c, Offset(w * 0.5f, h * 0.76f), Offset(w * 0.5f, h * 0.28f), strokeWidth = sw, cap = StrokeCap.Round)
-            val head = Path().apply {
-                moveTo(w * 0.5f, h * 0.16f); lineTo(w * 0.70f, h * 0.40f); lineTo(w * 0.30f, h * 0.40f); close()
-            }
-            drawPath(head, c)
-        }
-        "crouch" -> {
-            drawLine(c, Offset(w * 0.5f, h * 0.24f), Offset(w * 0.5f, h * 0.72f), strokeWidth = sw, cap = StrokeCap.Round)
-            val head = Path().apply {
-                moveTo(w * 0.5f, h * 0.84f); lineTo(w * 0.70f, h * 0.60f); lineTo(w * 0.30f, h * 0.60f); close()
-            }
-            drawPath(head, c)
-        }
-        else -> drawCircle(c.copy(0.5f), radius = w * 0.30f, center = center, style = Stroke(sw))
+        "bar_sanity", "bar_stamina", "bar_battery" -> drawStatusBarGlyph(c)
+        "readouts"   -> drawReadoutsGlyph(c)
+        "pause"      -> drawPauseGlyph(c)
+        "joystick"   -> drawJoystickGlyph(c)
+        "interact"   -> drawInteractGlyph(c)
+        "flashlight" -> drawFlashlightGlyph(c)
+        "jump"       -> drawJumpGlyph(c)
+        "crouch"     -> drawCrouchGlyph(c)
+        else -> drawCircle(c.copy(0.5f), radius = size.minDimension * 0.30f,
+                           center = center, style = Stroke(size.minDimension * 0.10f))
     }
 }
+
 
 
 /** True only when the OS actually permits notifications. Below Android 13 the

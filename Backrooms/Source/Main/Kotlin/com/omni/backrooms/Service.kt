@@ -89,6 +89,7 @@ class NativeBridge @Inject constructor() {
     external fun initCore(seed: Long)
     external fun getFlicker(phase: Float, t: Float, broken: Boolean): Float
     external fun generateLevel(count: Int, depth: Int): FloatArray?
+    external fun generateChunk(chunkX: Int, chunkZ: Int): FloatArray?
     external fun getMoistureAt(x: Float, y: Float): Float
     external fun applyVhs(bitmap: Bitmap, t: Float, intensity: Float): Boolean
     external fun applyFlicker(bitmap: Bitmap, value: Float)
@@ -320,7 +321,7 @@ data class GameState(
     val isEscaped         : Boolean = false,
     val camera            : CameraSnapshot?      = null,
     val entities          : List<EntityState>    = emptyList(),
-    val grid              : GridLevelData = GridLevelData.EMPTY,
+    val world             : WorldInfo = WorldInfo.EMPTY,
     val exitX             : Float   = 0f,
     val exitZ             : Float   = 0f,
     val distanceToExit    : Float   = Float.MAX_VALUE,
@@ -490,27 +491,26 @@ class RoomRepository @Inject constructor(private val api: ApiService) {
 
 /** A random walkable cell, kept a minimum distance from the player's arrival
  *  point so nothing is standing on top of them the moment they land. */
-private fun pickOpenPoint(grid: GridLevelData, minDistFromSpawn: Float): Pair<Float, Float>? {
-    if (grid.isEmpty) return null
-    repeat(200) {
-        val cx = (Math.random() * grid.dim).toInt().coerceIn(0, grid.dim - 1)
-        val cz = (Math.random() * grid.dim).toInt().coerceIn(0, grid.dim - 1)
-        if (grid.isSolid(cx, cz)) return@repeat
-        val wx = grid.worldX(cx) + grid.cellSize * 0.5f
-        val wz = grid.worldZ(cz) + grid.cellSize * 0.5f
-        val dx = wx - grid.spawnX; val dz = wz - grid.spawnZ
-        if (dx * dx + dz * dz >= minDistFromSpawn * minDistFromSpawn) return wx to wz
-    }
-    return null
+/**
+ * A point in a ring around the player. The world is unbounded, so there is no
+ * grid to scan for open floor; instead entities are placed at a distance and
+ * the native collision resolver pushes any that land in a wall onto open floor
+ * on their first tick. Cheap, and correct for a field with no edges.
+ */
+private fun pickRingPoint(world: WorldInfo, aroundX: Float, aroundZ: Float, minDist: Float): Pair<Float, Float> {
+    val angle = Math.random() * Math.PI * 2
+    val dist = minDist + Math.random().toFloat() * 26f
+    return (aroundX + (kotlin.math.cos(angle) * dist).toFloat()) to
+           (aroundZ + (kotlin.math.sin(angle) * dist).toFloat())
 }
 
 /** Spawns cfg.count entities across the level's real walkable space, cycling
  *  through every lore creature with its correct native AI id. */
-fun spawnInitialEntities(bridge: NativeBridge, grid: GridLevelData, cfg: SpawnConfig) {
-    if (grid.isEmpty) return
+fun spawnInitialEntities(bridge: NativeBridge, world: WorldInfo, cfg: SpawnConfig) {
+    if (!world.isValid) return
     repeat(cfg.count) { i ->
         val entity = EntityType.entries[i % EntityType.entries.size]
-        val (sx, sz) = pickOpenPoint(grid, minDistFromSpawn = 22f) ?: return@repeat
+        val (sx, sz) = pickRingPoint(world, world.spawnX, world.spawnZ, minDist = 24f)
         bridge.spawnEntity(
             x = sx, y = 0f, z = sz,
             speed = entity.baseSpeed * cfg.speedMult,
@@ -522,8 +522,9 @@ fun spawnInitialEntities(bridge: NativeBridge, grid: GridLevelData, cfg: SpawnCo
 }
 
 /** One periodic re-spawn, used by both hosts' entity-spawner loop. */
-fun spawnOneRandomEntity(bridge: NativeBridge, grid: GridLevelData, cfg: SpawnConfig) {
-    val (sx, sz) = pickOpenPoint(grid, minDistFromSpawn = 14f) ?: return
+fun spawnOneRandomEntity(bridge: NativeBridge, world: WorldInfo, aroundX: Float, aroundZ: Float, cfg: SpawnConfig) {
+    if (!world.isValid) return
+    val (sx, sz) = pickRingPoint(world, aroundX, aroundZ, minDist = 16f)
     val entity = EntityType.entries[(Math.random() * EntityType.entries.size).toInt().coerceIn(0, EntityType.entries.lastIndex)]
     bridge.spawnEntity(
         x = sx, y = 0f, z = sz,
@@ -633,7 +634,7 @@ class SessionService : Service() {
     private var kills      = 0
     /** Segments for the currently loaded level, kept alongside gameState the same
      *  way GameVM keeps its own copy (see stepSimulation/spawnInitialEntities). */
-    private var grid: GridLevelData = GridLevelData.EMPTY
+    private var world: WorldInfo = WorldInfo.EMPTY
 
     companion object {
         private const val CHANNEL_ID    = "omni_session"
@@ -716,13 +717,13 @@ class SessionService : Service() {
 
             // Level 0 always — there is deliberately no map selection anywhere.
             val roomBudget = if (difficulty == "hard") 180 else 130
-            grid = GridLevelData.parse(bridge.generateLevel(roomBudget, depth = 0))
+            world = WorldInfo.parse(bridge.generateLevel(roomBudget, depth = 0))
 
             val cfg = assetManager.getSpawnConfig(difficulty)
-            spawnInitialEntities(bridge, grid, cfg)
+            spawnInitialEntities(bridge, world, cfg)
             _gameState.value = GameState(
                 seed = seed, difficulty = difficulty, isOnline = false, mapId = "level_0",
-                grid = grid, exitX = grid.exitX, exitZ = grid.exitZ
+                world = world, exitX = world.exitX, exitZ = world.exitZ
             )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
@@ -741,13 +742,13 @@ class SessionService : Service() {
             bridge.setLocalId((Math.random() * Int.MAX_VALUE).toInt())
 
             val roomBudget = if (difficulty == "hard") 180 else 130
-            grid = GridLevelData.parse(bridge.generateLevel(roomBudget, depth = 0))
+            world = WorldInfo.parse(bridge.generateLevel(roomBudget, depth = 0))
 
             val cfg = assetManager.getSpawnConfig(difficulty)
-            spawnInitialEntities(bridge, grid, cfg)
+            spawnInitialEntities(bridge, world, cfg)
             _gameState.value = GameState(
                 seed = seed, difficulty = difficulty, isOnline = true,
-                grid = grid, exitX = grid.exitX, exitZ = grid.exitZ
+                world = world, exitX = world.exitX, exitZ = world.exitZ
             )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
@@ -780,9 +781,10 @@ class SessionService : Service() {
             var timer = 0L
             while (isActive) {
                 delay(5_000); timer += 5_000
-                if (timer >= cfg.spawnIntervalMs && !grid.isEmpty) {
+                if (timer >= cfg.spawnIntervalMs && world.isValid) {
                     timer = 0
-                    spawnOneRandomEntity(bridge, grid, cfg)
+                    val cam = _gameState.value.camera
+                    spawnOneRandomEntity(bridge, world, cam?.posX ?: world.spawnX, cam?.posZ ?: world.spawnZ, cfg)
                 }
             }
         }
@@ -1579,66 +1581,6 @@ object OmniLog {
 }
 
 
-/** Parsed Level 0 occupancy grid. Replaces the old corridor-segment list: a
- *  grid can't have seams between pieces, so there is nowhere left for the
- *  player to fall out of the world. */
-class GridLevelData(
-    val dim      : Int,
-    val cellSize : Float,
-    val height   : Float,
-    val spawnX   : Float,
-    val spawnZ   : Float,
-    val exitX    : Float,
-    val exitZ    : Float,
-    private val solid  : ByteArray,
-    private val zone   : ByteArray,
-    private val feature: ByteArray
-) {
-    fun isSolid(x: Int, z: Int): Boolean =
-        if (x < 0 || z < 0 || x >= dim || z >= dim) true else solid[z * dim + x] != 0.toByte()
-
-    fun zoneAt(x: Int, z: Int): Int =
-        if (x < 0 || z < 0 || x >= dim || z >= dim) 0 else zone[z * dim + x].toInt()
-
-    fun featureAt(x: Int, z: Int): Int =
-        if (x < 0 || z < 0 || x >= dim || z >= dim) 0 else feature[z * dim + x].toInt()
-
-    fun worldX(cx: Int): Float = (cx - dim * 0.5f) * cellSize
-    fun worldZ(cz: Int): Float = (cz - dim * 0.5f) * cellSize
-
-    val isEmpty: Boolean get() = dim <= 0
-
-    companion object {
-        const val HEADER_FLOATS = 8
-        const val FLOATS_PER_CELL = 3
-
-        val EMPTY = GridLevelData(0, 3.2f, 3f, 0f, 0f, 0f, 0f, ByteArray(0), ByteArray(0), ByteArray(0))
-
-        fun parse(data: FloatArray?): GridLevelData {
-            if (data == null || data.size < HEADER_FLOATS) return EMPTY
-            val dim = data[0].toInt()
-            val cells = dim * dim
-            if (dim <= 0 || data.size < HEADER_FLOATS + cells * FLOATS_PER_CELL) return EMPTY
-            val solid = ByteArray(cells)
-            val zone = ByteArray(cells)
-            val feature = ByteArray(cells)
-            var p = HEADER_FLOATS
-            for (i in 0 until cells) {
-                solid[i]   = data[p].toInt().toByte()
-                zone[i]    = data[p + 1].toInt().toByte()
-                feature[i] = data[p + 2].toInt().toByte()
-                p += FLOATS_PER_CELL
-            }
-            return GridLevelData(
-                dim = dim, cellSize = data[1], height = data[2],
-                spawnX = data[3], spawnZ = data[4], exitX = data[5], exitZ = data[6],
-                solid = solid, zone = zone, feature = feature
-            )
-        }
-    }
-}
-
-
 /** Cosmetic + personal-best storage. Deliberately local-only: none of this
  *  affects gameplay, so it needs no server round-trip and keeps working offline.
  *  Lives in the same identity store as the guest account, so wiping the guest
@@ -1777,4 +1719,87 @@ private class LocalisedContextWrapper(base: Context, locale: Locale) : ContextWr
     }
 
     override fun getResources(): Resources = localisedResources
+}
+
+
+// ============================================================================
+// Infinite world streaming.
+//
+// The level has no bounds, so it cannot be uploaded as one mesh. Geometry is
+// built per chunk on demand and kept only while the player is near it.
+// ============================================================================
+
+/** Header returned by the native generator. The world itself is unbounded; this
+ *  carries only the run's fixed points and the streaming granularity. */
+data class WorldInfo(
+    val cellSize   : Float = 3.2f,
+    val height     : Float = 2.6f,
+    val spawnX     : Float = 0f,
+    val spawnZ     : Float = 0f,
+    val exitX      : Float = 0f,
+    val exitZ      : Float = 0f,
+    val chunkCells : Int   = 24
+) {
+    val isValid: Boolean get() = chunkCells > 0
+
+    companion object {
+        val EMPTY = WorldInfo(chunkCells = 0)
+
+        fun parse(data: FloatArray?): WorldInfo {
+            if (data == null || data.size < 8) return EMPTY
+            return WorldInfo(
+                cellSize = data[0], height = data[1],
+                spawnX = data[2], spawnZ = data[3],
+                exitX = data[4], exitZ = data[5],
+                chunkCells = data[6].toInt()
+            )
+        }
+    }
+}
+
+/** One streamed chunk of cells. */
+class WorldChunk(
+    val chunkX: Int,
+    val chunkZ: Int,
+    val cells: Int,
+    private val solid  : ByteArray,
+    private val zone   : ByteArray,
+    private val feature: ByteArray,
+    private val fixture: ByteArray
+) {
+    // Local (in-chunk) queries. Out-of-range reads report solid, which is the
+    // safe answer for meshing: a wall is emitted at the chunk edge only if the
+    // neighbour is genuinely solid, and the neighbour chunk emits its own.
+    fun solidAt(x: Int, z: Int): Boolean =
+        if (x < 0 || z < 0 || x >= cells || z >= cells) true else solid[z * cells + x] != 0.toByte()
+
+    fun zoneAt(x: Int, z: Int): Int =
+        if (x < 0 || z < 0 || x >= cells || z >= cells) 2 else zone[z * cells + x].toInt()
+
+    fun featureAt(x: Int, z: Int): Int =
+        if (x < 0 || z < 0 || x >= cells || z >= cells) 0 else feature[z * cells + x].toInt()
+
+    fun fixtureAt(x: Int, z: Int): Int =
+        if (x < 0 || z < 0 || x >= cells || z >= cells) 0 else fixture[z * cells + x].toInt()
+
+    companion object {
+        const val FLOATS_PER_CELL = 4
+
+        fun parse(chunkX: Int, chunkZ: Int, cells: Int, data: FloatArray?): WorldChunk? {
+            if (data == null || cells <= 0) return null
+            val n = cells * cells
+            if (data.size < n * FLOATS_PER_CELL) return null
+            val solid = ByteArray(n); val zone = ByteArray(n)
+            val feature = ByteArray(n); val fixture = ByteArray(n)
+            var p = 0
+            for (i in 0 until n) {
+                solid[i]   = data[p].toInt().toByte()
+                zone[i]    = data[p + 1].toInt().toByte()
+                feature[i] = data[p + 2].toInt().toByte()
+                fixture[i] = data[p + 3].toInt().toByte()
+                p += FLOATS_PER_CELL
+            }
+            return WorldChunk(chunkX, chunkZ, cells, solid, zone, feature, fixture)
+        }
+    }
 }

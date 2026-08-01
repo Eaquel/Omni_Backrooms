@@ -884,7 +884,6 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
  *  nothing purchasable may change HP, speed, stamina, sanity drain or spawn
  *  rates, so buying is never a shortcut past the game. */
 enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
-    Frames    (R.string.market_tab_frames,     Icons.Default.CropSquare),
     Looks     (R.string.market_tab_looks,      Icons.Default.Person),
     Trails    (R.string.market_tab_trails,     Icons.Default.AutoAwesome),
     Vip       (R.string.market_tab_vip,        Icons.Default.Star),
@@ -908,7 +907,7 @@ data class MarketUiState(
     val error       : String?             = null,
     val purchasing  : String?             = null,
     val successMsg  : String?             = null,
-    val tab         : MarketTab           = MarketTab.Frames,
+    val tab         : MarketTab           = MarketTab.Looks,
     val omniumBal   : Long                = 0L,
     val souliumBal  : Long                = 0L,
     val isVip       : Boolean             = false,
@@ -933,7 +932,7 @@ class MarketVM @Inject constructor(
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
 
     init {
-        loadTab(MarketTab.Frames); loadDaily(); loadProfile()
+        loadTab(MarketTab.Looks); loadDaily(); loadProfile()
         viewModelScope.launch {
             cosmetics.observeOwnedFrames().collect { frames ->
                 _state.update { it.copy(ownedIds = frames.map { f -> "frame_$f" }.toSet()) }
@@ -1060,11 +1059,9 @@ class MarketVM @Inject constructor(
                     cosmetics.setFrame(key)
                 }
                 item.id.startsWith("priv_") || item.category == "vip" -> {
-                    // "event" is deliberately excluded: it is an event reward,
-                    // not something a store purchase can unlock.
-                    listOf("gold", "soulium", "omnium").forEach { cosmetics.grantFrame(it) }
+                    listOf("halogen", "signal", "threshold").forEach { cosmetics.grantFrame(it) }
                 }
-                item.id == "daily_frame" -> cosmetics.grantFrame("gold")
+                item.id == "daily_frame" -> cosmetics.grantFrame("halogen")
                 else -> Unit
             }
         }.onFailure { OmniLog.e("Market", "local grant failed for ${item.id}", it) }
@@ -1088,11 +1085,6 @@ class MarketVM @Inject constructor(
     private fun fallbackItems(tab: MarketTab): List<MarketItemDto> = when (tab) {
         // Everything is free during this phase: prices are zero and nothing is
         // gated. The currency plumbing stays in place for later.
-        MarketTab.Frames -> listOf(
-            MarketItemDto("frame_gold","Altın Çerçeve","Gold Frame","Profil fotoğrafını saran altın halka","A gold ring around your avatar","frames",0,"soulium",null,false,false,false,null),
-            MarketItemDto("frame_soulium","Soulium Çerçeve","Soulium Frame","Mor kristal düğümlü çerçeve","Frame studded with violet crystal","frames",0,"soulium",null,false,false,false,null),
-            MarketItemDto("frame_omnium","Omnium Çerçeve","Omnium Frame","Dönen camgöbeği yay","Rotating cyan arc","frames",0,"omnium",null,false,false,false,null)
-        )
         MarketTab.Looks -> listOf(
             MarketItemDto(
                 "char_anime", "Anime Kız", "Anime Girl",
@@ -1234,7 +1226,7 @@ class GameVM @Inject constructor(
 
     /** Grid for the currently loaded level; kept here (not just in GameState) so the
      *  entity spawner can reuse it without depending on StateFlow emission timing. */
-    private var grid: GridLevelData = GridLevelData.EMPTY
+    private var world: WorldInfo = WorldInfo.EMPTY
 
     /** [resume] = true continues the autosaved run. The level is regenerated from
      *  the saved seed, which reproduces it exactly, and the saved stats/timer are
@@ -1257,11 +1249,11 @@ class GameVM @Inject constructor(
 
             // Level 0 always — there is deliberately no map selection.
             val roomBudget = if (useDiff == "hard") 180 else 130
-            grid = GridLevelData.parse(bridge.generateLevel(roomBudget, depth = 0))
-            OmniLog.i("Game", "level dim=${grid.dim} cell=${grid.cellSize} exit=(${grid.exitX},${grid.exitZ})")
+            world = WorldInfo.parse(bridge.generateLevel(roomBudget, depth = 0))
+            OmniLog.i("Game", "infinite world cell=${world.cellSize} spawn=(${world.spawnX},${world.spawnZ}) exit=(${world.exitX},${world.exitZ})")
 
             val cfg = assetManager.getSpawnConfig(useDiff)
-            spawnInitialEntities(bridge, grid, cfg)
+            spawnInitialEntities(bridge, world, cfg)
 
             // Restore counters before the loops start reading them.
             elapsedMs = saved?.elapsedMs ?: 0L
@@ -1276,7 +1268,7 @@ class GameVM @Inject constructor(
             }
             val base = GameState(
                 seed = useSeed, difficulty = useDiff, mapId = "level_0",
-                grid = grid, exitX = grid.exitX, exitZ = grid.exitZ,
+                world = world, exitX = world.exitX, exitZ = world.exitZ,
                 spawnPhase = if (saved != null) SpawnPhase.READY else SpawnPhase.FALLING
             )
             _state.value = if (saved != null) base.copy(
@@ -1363,9 +1355,10 @@ class GameVM @Inject constructor(
             var timer = 0L
             while (isActive) {
                 delay(5_000); timer += 5_000
-                if (timer >= cfg.spawnIntervalMs && !grid.isEmpty) {
+                if (timer >= cfg.spawnIntervalMs && world.isValid) {
                     timer = 0
-                    spawnOneRandomEntity(bridge, grid, cfg)
+                    val cam = _state.value.camera
+                    spawnOneRandomEntity(bridge, world, cam?.posX ?: world.spawnX, cam?.posZ ?: world.spawnZ, cfg)
                 }
             }
         }
@@ -1444,7 +1437,7 @@ class GameVM @Inject constructor(
     private fun saveNow() {
         val s = _state.value
         if (s.isGameOver || s.isEscaped) return
-        if (s.grid.isEmpty) return   // nothing meaningful to resume yet
+        if (!s.world.isValid) return   // nothing meaningful to resume yet
         // Detached on purpose: this is called while the screen is being torn
         // down, and a viewModelScope coroutine would be cancelled mid-write.
         val cam = s.camera
@@ -1510,6 +1503,14 @@ class GameVM @Inject constructor(
     fun onDamageEntity(id: Int) {
         bridge.damageEntity(id, 25f); kills++; score += 100L
         _state.update { it.copy(kills = kills, score = score) }
+    }
+
+    /** Fetches one chunk from the native field. Called from the GL thread, which
+     *  is safe: the field is stateless and the JNI call only reads. */
+    fun fetchChunk(chunkX: Int, chunkZ: Int): WorldChunk? {
+        val w = _state.value.world
+        if (!w.isValid) return null
+        return WorldChunk.parse(chunkX, chunkZ, w.chunkCells, bridge.generateChunk(chunkX, chunkZ))
     }
 
     /** Reports the finished run to the leaderboard API, Firestore, and
@@ -1986,7 +1987,17 @@ void main(){
         n = normalize(n + bump * uBumpStrength);
     }
 
-    float overhead = clamp(dot(n, vec3(0.0,1.0,0.0)), 0.0, 1.0) * vLight * uFlicker;
+    // The old term was dot(n, up) clamped to zero, which meant every
+    // downward-facing surface got NOTHING from the level lighting — including
+    // the ceiling itself and the light fixtures mounted in it. That is why the
+    // ceiling read as near-black in-game.
+    //
+    // In a room lit by a broad luminous ceiling the correct behaviour is:
+    // the floor catches most of it, the ceiling panel IS the emitter, and walls
+    // receive grazing light. abs(n.y) captures all three, with a floor term so
+    // walls are never unlit.
+    float facing = abs(n.y) * 0.80 + 0.20;
+    float overhead = facing * vLight * uFlicker;
     vec3 toCam = uCamPos - vWorldPos;
     float dist = length(toCam);
     vec3 toCamN = toCam / max(dist, 0.001);
@@ -2006,7 +2017,9 @@ void main(){
     float groundAO = mix(1.0, mix(0.76, 1.0, smoothstep(0.0, 1.4, vWorldPos.y)), wallFactor);
     // Subtle tileable micro-detail so flat texture repeats don't look sterile.
     float micro = 0.94 + 0.06 * hash(floor(vUV * 37.0));
-    float lit = (0.08 + overhead*0.95 + flash) * groundAO;
+    // 0.22 ambient stands in for bounced light. At 0.08 the level looked like
+    // a cave; interiors are never that dark when the ceiling is lit.
+    float lit = (0.22 + overhead*0.95 + flash) * groundAO;
     vec3 col = tex.rgb * lit * micro;
 
     // Tight specular from the flashlight, which is what reveals the bump relief.
@@ -2140,6 +2153,22 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
     @Volatile var latestState: GameState = GameState()
     @Volatile var renderSettings: RenderSettings = RenderSettings()
+    /** "first" or "third". Third pulls the camera back and draws the avatar. */
+    @Volatile var cameraView: String = "first"
+
+    // Avatar resources, loaded only when third person is actually available.
+    private var charProgram = 0
+    private var charVbo = 0; private var charIbo = 0; private var charIndexCount = 0
+    private var charTex = 0
+    private var shaftProgram = 0
+    private var sMVP = 0; private var sFlicker = 0; private var sTint = 0
+    private var cMVP = 0; private var cModel = 0; private var cTime = 0; private var cWalk = 0
+    private var cTexU = 0; private var cCamPos = 0; private var cFlashDir = 0
+    private var cFlashOn = 0; private var cFogD = 0; private var cFogCol = 0
+    private val avatarModelM = FloatArray(16)
+    private val avatarMvpM = FloatArray(16)
+    private var lastAvatarX = 0f
+    private var lastAvatarZ = 0f
 
     /** Measured on the GL thread and read by the HUD. Exponentially smoothed so
      *  the number is readable instead of flickering every frame. */
@@ -2159,10 +2188,13 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var sVP = 0; private var sCenter = 0; private var sSize = 0; private var sAlpha = 0
 
     private var floorTex = 0; private var wallTex = 0; private var roofTex = 0
-    private var floorVbo = 0; private var floorIbo = 0; private var floorCount = 0
-    private var wallVbo  = 0; private var wallIbo  = 0; private var wallCount  = 0
-    private var roofVbo  = 0; private var roofIbo  = 0; private var roofCount = 0
-    private var lastSegKey = Int.MIN_VALUE
+    // Streamed chunks, keyed by chunk coordinate. Built when the player comes
+    // near and released when they leave, because an unbounded world can never
+    // be one buffer.
+    private val chunkMeshes = HashMap<Long, ChunkMesh>()
+    /** Chunks this far (in chunks) from the player are kept resident. */
+    private val chunkRadius = 2
+    @Volatile var chunkProvider: ((Int, Int) -> WorldChunk?)? = null
 
     private var billboardVbo = 0
     private var postVbo = 0
@@ -2172,6 +2204,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var surfaceW = 1; private var surfaceH = 1
     private var renderW = 1; private var renderH = 1
     private var lastResScale = -1f
+
+    /** Avatar height in metres. The mesh is normalised to unit height. */
+    private val AVATAR_SCALE = 1.7f
 
     private val projM = FloatArray(16)
     private val viewM = FloatArray(16)
@@ -2192,8 +2227,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // object below is being (re)created from scratch here. Invalidate the
         // cached mesh key too, or the level geometry is never re-uploaded and
         // the screen comes back black with only the HUD drawn over it.
-        lastSegKey = Int.MIN_VALUE
-        floorCount = 0; wallCount = 0; roofCount = 0
+        // The GL context was destroyed, so every cached chunk's buffers are
+        // gone with it. Drop the cache rather than draw dangling handles. The
+        // avatar buffers are recreated below in the same pass.
+        chunkMeshes.clear()
+        charIndexCount = 0
         smoothInit = false
         smoothEntities.clear()
 
@@ -2234,11 +2272,43 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         pCbMix = GLES30.glGetUniformLocation(postProgram, "uColorBlindMix")
         pCbAxis = GLES30.glGetUniformLocation(postProgram, "uColorBlindAxis")
 
+        shaftProgram = linkGlProgram(OMNI_SHAFT_VERT, OMNI_SHAFT_FRAG)
+        sMVP = GLES30.glGetUniformLocation(shaftProgram, "uMVP")
+        sFlicker = GLES30.glGetUniformLocation(shaftProgram, "uFlicker")
+        sTint = GLES30.glGetUniformLocation(shaftProgram, "uTint")
+
         shadowProgram = linkGlProgram(OMNI_SHADOW_VERT, OMNI_SHADOW_FRAG)
         sVP = GLES30.glGetUniformLocation(shadowProgram, "uVP")
         sCenter = GLES30.glGetUniformLocation(shadowProgram, "uCenter")
         sSize = GLES30.glGetUniformLocation(shadowProgram, "uSize")
         sAlpha = GLES30.glGetUniformLocation(shadowProgram, "uAlpha")
+
+        // Avatar: shares the preview's shader, which already implements the
+        // joint rotation that breaks the source mesh's T-pose.
+        runCatching {
+            charProgram = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG)
+            cMVP = GLES30.glGetUniformLocation(charProgram, "uMVP")
+            cModel = GLES30.glGetUniformLocation(charProgram, "uModel")
+            cTime = GLES30.glGetUniformLocation(charProgram, "uTime")
+            cWalk = GLES30.glGetUniformLocation(charProgram, "uWalk")
+            cTexU = GLES30.glGetUniformLocation(charProgram, "uTex")
+
+            CharacterMesh.load(appContext, "Models/Anime_Character.omesh")?.let { mesh ->
+                charVbo = genGlBuffer(); charIbo = genGlBuffer()
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
+                GLES30.glBufferData(
+                    GLES30.GL_ARRAY_BUFFER, mesh.vertexBuffer.size * 4,
+                    glFloatBuffer(mesh.vertexBuffer), GLES30.GL_STATIC_DRAW
+                )
+                val ib = ByteBuffer.allocateDirect(mesh.indices.size * 2)
+                    .order(ByteOrder.nativeOrder()).asShortBuffer()
+                ib.put(mesh.indices); ib.position(0)
+                GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
+                GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 2, ib, GLES30.GL_STATIC_DRAW)
+                charIndexCount = mesh.indices.size
+            }
+            charTex = loadOmniTexture("Models/Anime_Texture.png", 0xFFE8D5C8.toInt())
+        }.onFailure { OmniLog.e("Render", "avatar setup failed; third person unavailable", it) }
 
         floorTex = loadOmniTexture("Level_0/Floor.png", 0xFF3A3020.toInt())
         wallTex  = loadOmniTexture("Level_0/Wall.png",  0xFF4A4030.toInt())
@@ -2253,9 +2323,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, postVbo)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, quadCorners.size*4, glFloatBuffer(quadCorners), GLES30.GL_STATIC_DRAW)
 
-        floorVbo = genGlBuffer(); floorIbo = genGlBuffer()
-        wallVbo  = genGlBuffer(); wallIbo  = genGlBuffer()
-        roofVbo  = genGlBuffer(); roofIbo  = genGlBuffer()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -2294,12 +2361,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             lastResScale = resScale
         }
 
-        val g = state.grid
-        val segKey = g.dim * 73856093 xor g.spawnX.hashCode() xor g.exitZ.hashCode()
-        if (!g.isEmpty && segKey != lastSegKey) {
-            uploadLevelMesh(g)
-            lastSegKey = segKey
-        }
+        val world = state.world
+        if (world.isValid && cam != null) streamChunks(world, cam.posX, cam.posZ)
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
         GLES30.glViewport(0, 0, renderW, renderH)
@@ -2330,13 +2393,41 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             val fz = (cos(yawRad) * cos(pitchRad)).toFloat()
             // Arrival sequence offsets the eye height (collapse then stand up).
             val eyeY = smoothY + state.eyeOffset
-            Matrix.setLookAtM(viewM, 0, smoothX, eyeY, smoothZ, smoothX + fx, eyeY + fy, smoothZ + fz, 0f, 1f, 0f)
+
+            // Third person pulls the camera back along the view axis and lifts
+            // it, so the avatar sits in the lower third of frame.
+            val thirdPerson = cameraView == "third" && charIndexCount > 0
+            val camDist = if (thirdPerson) 2.9f else 0f
+            val camLift = if (thirdPerson) 0.45f else 0f
+            val eyeX = smoothX - fx * camDist
+            val eyeZ = smoothZ - fz * camDist
+            val camY = eyeY - fy * camDist + camLift
+            Matrix.setLookAtM(
+                viewM, 0,
+                eyeX, camY, eyeZ,
+                smoothX + fx, eyeY + fy, smoothZ + fz,
+                0f, 1f, 0f
+            )
             Matrix.multiplyMM(vpM, 0, projM, 0, viewM, 0)
 
             val fogDensity = (if (rs.fogEnabled) 1.0f else 0.15f) * fogMult
             val flicker = state.flickerIntensity.coerceIn(0.35f, 1f)
             val bump = when (rs.quality) { "low" -> 0f; "high" -> 1.6f; else -> 0.9f }
-            drawLevel(vpM, smoothX, eyeY, smoothZ, fx, fy, fz, state.flashlightOn, fogDensity, flicker, bump)
+            drawLevel(vpM, eyeX, camY, eyeZ, fx, fy, fz, state.flashlightOn, fogDensity, flicker, bump)
+
+            // The avatar, only in third person — in first person the camera is
+            // inside its head and it would fill the screen.
+            if (thirdPerson) {
+                drawAvatar(
+                    vpM, smoothX, smoothY, smoothZ, smoothYaw,
+                    eyeX, camY, eyeZ, fx, fy, fz,
+                    state.flashlightOn, fogDensity, timeSec,
+                    walking = kotlin.math.hypot(state.camera?.posX?.minus(lastAvatarX) ?: 0f,
+                                                state.camera?.posZ?.minus(lastAvatarZ) ?: 0f) > 0.01f
+                )
+                lastAvatarX = state.camera?.posX ?: 0f
+                lastAvatarZ = state.camera?.posZ ?: 0f
+            }
 
             val activeIds = HashSet<Int>()
             for (e in state.entities) {
@@ -2376,9 +2467,38 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // on high. The texel step controls how coarse the derived relief is.
         GLES30.glUniform1f(uBumpStrength, bumpStrength)
         GLES30.glUniform1f(uBumpTexel, 1.0f / 512f)
-        drawMeshGroup(floorVbo, floorIbo, floorCount, floorTex)
-        drawMeshGroup(roofVbo,  roofIbo,  roofCount,  roofTex)
-        drawMeshGroup(wallVbo,  wallIbo,  wallCount,  wallTex)
+        // Grouped by texture across all resident chunks, so the whole world
+        // costs three texture binds rather than three per chunk.
+        for (m in chunkMeshes.values) drawMeshGroup(m.floorVbo, m.floorIbo, m.floorCount, floorTex)
+        for (m in chunkMeshes.values) drawMeshGroup(m.roofVbo,  m.roofIbo,  m.roofCount,  roofTex)
+        for (m in chunkMeshes.values) drawMeshGroup(m.wallVbo,  m.wallIbo,  m.wallCount,  wallTex)
+        // Fixtures last: their high baked light makes them read as emitters.
+        for (m in chunkMeshes.values) drawMeshGroup(m.fixVbo, m.fixIbo, m.fixCount, roofTex)
+
+        // Light shafts, additive and depth-tested but not depth-written, so
+        // several overlapping cones accumulate instead of culling each other.
+        GLES30.glUseProgram(shaftProgram)
+        GLES30.glUniformMatrix4fv(sMVP, 1, false, vp, 0)
+        GLES30.glUniform1f(sFlicker, flicker)
+        GLES30.glUniform3f(sTint, 1.0f, 0.94f, 0.72f)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE)
+        GLES30.glDepthMask(false)
+        for (m in chunkMeshes.values) {
+            if (m.shaftCount <= 0) continue
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, m.shaftVbo)
+            val stride = 9 * 4
+            GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
+            GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
+            GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+            GLES30.glEnableVertexAttribArray(3); GLES30.glVertexAttribPointer(3, 1, GLES30.GL_FLOAT, false, stride, 8 * 4)
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, m.shaftIbo)
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES, m.shaftCount, GLES30.GL_UNSIGNED_INT, 0)
+        }
+        GLES30.glDisableVertexAttribArray(0); GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2); GLES30.glDisableVertexAttribArray(3)
+        GLES30.glDepthMask(true)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
     }
 
     private fun drawMeshGroup(vbo: Int, ibo: Int, indexCount: Int, tex: Int) {
@@ -2498,10 +2618,103 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
      *  there is no seam anywhere for a black gap to show through; and UVs are
      *  offset per cell from a hash, so the same small texture no longer reads as
      *  one obviously repeating pattern across the whole floor. */
-    private fun uploadLevelMesh(g: GridLevelData) {
+    /**
+     * Builds the mesh for one chunk. The world is unbounded, so geometry can
+     * never be one buffer — each chunk gets its own, built when the player
+     * comes near and released when they leave.
+     *
+     * Walls are emitted only on open/solid boundaries, so there is no seam for
+     * a gap to show through. UVs are world-anchored rather than per-cell, which
+     * is what makes the texture flow continuously across cells and across chunk
+     * borders instead of restarting at every edge.
+     */
+
+    /**
+     * Keeps chunks around the player resident. Builds at most one chunk per
+     * frame — a full ring at once would stall visibly, and the fog hides the
+     * one-frame delay entirely.
+     */
+
+    /** Draws the player's own avatar. Third person only. */
+    private fun drawAvatar(
+        vp: FloatArray, px: Float, py: Float, pz: Float, yawDeg: Float,
+        camX: Float, camY: Float, camZ: Float,
+        fx: Float, fy: Float, fz: Float,
+        flashOn: Boolean, fogDensity: Float, timeSec: Float, walking: Boolean
+    ) {
+        if (charIndexCount <= 0) return
+        GLES30.glUseProgram(charProgram)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, charTex)
+        GLES30.glUniform1i(cTexU, 0)
+
+        Matrix.setIdentityM(avatarModelM, 0)
+        Matrix.translateM(avatarModelM, 0, px, py, pz)
+        // The mesh faces +Z at yaw 0, matching the engine's forward convention.
+        Matrix.rotateM(avatarModelM, 0, yawDeg, 0f, 1f, 0f)
+        Matrix.scaleM(avatarModelM, 0, AVATAR_SCALE, AVATAR_SCALE, AVATAR_SCALE)
+        Matrix.multiplyMM(avatarMvpM, 0, vp, 0, avatarModelM, 0)
+
+        GLES30.glUniformMatrix4fv(cMVP, 1, false, avatarMvpM, 0)
+        GLES30.glUniformMatrix4fv(cModel, 1, false, avatarModelM, 0)
+        GLES30.glUniform1f(cTime, timeSec)
+        GLES30.glUniform1f(cWalk, if (walking) 1f else 0f)
+
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
+        val stride = CharacterMesh.FLOATS_PER_VERTEX * 4
+        GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
+        GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
+        GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, charIndexCount, GLES30.GL_UNSIGNED_SHORT, 0)
+        GLES30.glDisableVertexAttribArray(0)
+        GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2)
+    }
+
+    private fun streamChunks(world: WorldInfo, camX: Float, camZ: Float) {
+        val provider = chunkProvider ?: return
+        val chunkSpan = world.chunkCells * world.cellSize
+        val pcx = kotlin.math.floor(camX / chunkSpan).toInt()
+        val pcz = kotlin.math.floor(camZ / chunkSpan).toInt()
+
+        // Release anything that fell outside the ring.
+        val stale = chunkMeshes.keys.filter { key ->
+            val cx = (key shr 32).toInt()
+            val cz = key.toInt()
+            kotlin.math.abs(cx - pcx) > chunkRadius || kotlin.math.abs(cz - pcz) > chunkRadius
+        }
+        for (key in stale) {
+            chunkMeshes.remove(key)?.release()
+        }
+
+        // Build the nearest missing chunk, one per frame.
+        var bestKey = 0L; var bestDist = Int.MAX_VALUE; var bestX = 0; var bestZ = 0
+        for (dz in -chunkRadius..chunkRadius) {
+            for (dx in -chunkRadius..chunkRadius) {
+                val cx = pcx + dx; val cz = pcz + dz
+                val key = (cx.toLong() shl 32) or (cz.toLong() and 0xFFFFFFFFL)
+                if (chunkMeshes.containsKey(key)) continue
+                val d = dx * dx + dz * dz
+                if (d < bestDist) { bestDist = d; bestKey = key; bestX = cx; bestZ = cz }
+            }
+        }
+        if (bestDist == Int.MAX_VALUE) return
+
+        val chunk = provider(bestX, bestZ) ?: run {
+            // Remember the miss so we don't retry it every frame.
+            chunkMeshes[bestKey] = ChunkMesh()
+            return
+        }
+        chunkMeshes[bestKey] = buildChunkMesh(chunk, world) ?: ChunkMesh()
+    }
+
+    private fun buildChunkMesh(chunk: WorldChunk, world: WorldInfo): ChunkMesh? {
         val floorV = ArrayList<Float>(); val floorI = ArrayList<Int>(); var floorB = 0
         val wallV  = ArrayList<Float>(); val wallI  = ArrayList<Int>(); var wallB  = 0
         val roofV  = ArrayList<Float>(); val roofI  = ArrayList<Int>(); var roofB  = 0
+        val fixV   = ArrayList<Float>(); val fixI   = ArrayList<Int>(); var fixB   = 0
+        val shaftV = ArrayList<Float>(); val shaftI = ArrayList<Int>(); var shaftB = 0
 
         fun quad(
             verts: ArrayList<Float>, idx: ArrayList<Int>, base: Int,
@@ -2521,99 +2734,177 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             return base + 4
         }
 
-        // World-space UV scale. Deriving UVs from world position (rather than
-        // restarting them per cell) is what makes the surface continuous: the
-        // texture flows across cell boundaries instead of resetting at each one.
-        val uvPerMetre = 0.5f
-
-        // Lighting zone -> baked vertex brightness. Zone 0 is genuinely dark,
-        // so those stretches are only visible by flashlight.
+        // Level 0 is defined by relentless, even fluorescent light, not by
+        // darkness. Dark zones stay dark, but "normal" is properly lit.
         fun zoneLight(z: Int): Float = when (z) {
-            0 -> 0.05f
-            1 -> 0.42f
-            2 -> 0.78f
-            else -> 1.05f
+            0 -> 0.16f
+            1 -> 0.62f
+            2 -> 1.05f
+            else -> 1.35f
         }
 
-        val cs = g.cellSize
-        val hgt = g.height
+        val cs = world.cellSize
+        val hgt = world.height
+        val uvPerMetre = 0.5f
+        val originX = chunk.chunkX * chunk.cells * cs
+        val originZ = chunk.chunkZ * chunk.cells * cs
 
-        for (cz in 0 until g.dim) {
-            for (cx in 0 until g.dim) {
-                if (g.isSolid(cx, cz)) continue
-                val x0 = g.worldX(cx); val x1 = x0 + cs
-                val z0 = g.worldZ(cz); val z1 = z0 + cs
-                val lit = zoneLight(g.zoneAt(cx, cz))
-                val feature = g.featureAt(cx, cz)
-                // Continuous, world-anchored texture coordinates.
+        for (lz in 0 until chunk.cells) {
+            for (lx in 0 until chunk.cells) {
+                if (chunk.solidAt(lx, lz)) continue
+
+                val x0 = originX + lx * cs; val x1 = x0 + cs
+                val z0 = originZ + lz * cs; val z1 = z0 + cs
+                val lit = zoneLight(chunk.zoneAt(lx, lz))
+                val feature = chunk.featureAt(lx, lz)
+
                 val u0 = x0 * uvPerMetre; val u1 = x1 * uvPerMetre
                 val v0 = z0 * uvPerMetre; val v1 = z1 * uvPerMetre
                 val wallV0 = 0f;          val wallV1 = hgt * uvPerMetre
 
-                // Floor (skipped for a hole feature, which becomes a pit)
                 if (feature != 4) {
                     floorB = quad(
                         floorV, floorI, floorB,
                         floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
                         floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
-                        floatArrayOf(0f, 1f, 0f), lit,
-                        u0, v0, u1, v1
+                        floatArrayOf(0f, 1f, 0f), lit, u0, v0, u1, v1
                     )
                 }
-
-                // Ceiling — a doorway threshold gets none, which reads as a gap
-                // in the ceiling grid and adds vertical variety.
                 if (feature != 1) {
                     roofB = quad(
                         roofV, roofI, roofB,
                         floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
                         floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
-                        floatArrayOf(0f, -1f, 0f), lit * 1.25f,
-                        u0, v0, u1, v1
+                        floatArrayOf(0f, -1f, 0f), lit * 1.15f, u0, v0, u1, v1
                     )
                 }
 
-                // Walls: one quad per solid neighbour, facing inward. Emitting
-                // only on boundaries is what removes the old black gaps.
                 val wallLit = lit * 0.85f
-                if (g.isSolid(cx - 1, cz)) {
-                    wallB = quad(
-                        wallV, wallI, wallB,
+                if (chunk.solidAt(lx - 1, lz)) {
+                    wallB = quad(wallV, wallI, wallB,
                         floatArrayOf(x0, 0f, z1), floatArrayOf(x0, 0f, z0),
                         floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
-                        floatArrayOf(1f, 0f, 0f), wallLit, v1, wallV0, v0, wallV1
-                    )
+                        floatArrayOf(1f, 0f, 0f), wallLit, v1, wallV0, v0, wallV1)
                 }
-                if (g.isSolid(cx + 1, cz)) {
-                    wallB = quad(
-                        wallV, wallI, wallB,
+                if (chunk.solidAt(lx + 1, lz)) {
+                    wallB = quad(wallV, wallI, wallB,
                         floatArrayOf(x1, 0f, z0), floatArrayOf(x1, 0f, z1),
                         floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
-                        floatArrayOf(-1f, 0f, 0f), wallLit, v0, wallV0, v1, wallV1
-                    )
+                        floatArrayOf(-1f, 0f, 0f), wallLit, v0, wallV0, v1, wallV1)
                 }
-                if (g.isSolid(cx, cz - 1)) {
-                    wallB = quad(
-                        wallV, wallI, wallB,
+                if (chunk.solidAt(lx, lz - 1)) {
+                    wallB = quad(wallV, wallI, wallB,
                         floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
                         floatArrayOf(x1, hgt, z0), floatArrayOf(x0, hgt, z0),
-                        floatArrayOf(0f, 0f, 1f), wallLit, u0, wallV0, u1, wallV1
-                    )
+                        floatArrayOf(0f, 0f, 1f), wallLit, u0, wallV0, u1, wallV1)
                 }
-                if (g.isSolid(cx, cz + 1)) {
-                    wallB = quad(
-                        wallV, wallI, wallB,
+                if (chunk.solidAt(lx, lz + 1)) {
+                    wallB = quad(wallV, wallI, wallB,
                         floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
                         floatArrayOf(x0, hgt, z1), floatArrayOf(x1, hgt, z1),
-                        floatArrayOf(0f, 0f, -1f), wallLit, u1, wallV0, u0, wallV1
+                        floatArrayOf(0f, 0f, -1f), wallLit, u1, wallV0, u0, wallV1)
+                }
+
+                // Recessed fluorescent troffer: a bright diffuser panel set
+                // under the ceiling plane. The most recognisable object here.
+                val fixture = chunk.fixtureAt(lx, lz)
+                if (fixture == 1) {
+                    // Light shaft: an open cone from the fixture down to the
+                    // floor, drawn additively. Real geometry rather than a
+                    // screen-space trick, so it occludes correctly and looks
+                    // right from any angle.
+                    val midX = x0 + cs * 0.5f
+                    val midZ = z0 + cs * 0.5f
+                    val top = hgt - 0.06f
+                    val topR = cs * 0.20f
+                    val botR = cs * 0.62f
+                    val sides = 10
+                    val intensity = lit.coerceAtMost(1.4f)
+                    val ringBase = shaftB
+                    for (i in 0 until sides) {
+                        val a0 = (i / sides.toFloat()) * (Math.PI * 2).toFloat()
+                        val a1 = ((i + 1) / sides.toFloat()) * (Math.PI * 2).toFloat()
+                        val c0 = kotlin.math.cos(a0); val s0 = kotlin.math.sin(a0)
+                        val c1 = kotlin.math.cos(a1); val s1 = kotlin.math.sin(a1)
+                        // UV carries (rim, fall) rather than texture coords —
+                        // the shaft shader reads them as shaping parameters.
+                        shaftB = quad(
+                            shaftV, shaftI, shaftB,
+                            floatArrayOf(midX + c0 * topR, top, midZ + s0 * topR),
+                            floatArrayOf(midX + c1 * topR, top, midZ + s1 * topR),
+                            floatArrayOf(midX + c1 * botR, 0.02f, midZ + s1 * botR),
+                            floatArrayOf(midX + c0 * botR, 0.02f, midZ + s0 * botR),
+                            floatArrayOf(0f, 1f, 0f), intensity,
+                            0.30f, 0f, 0.30f, 1f
+                        )
+                    }
+                    // Rim ring: a second, wider skirt at low density so the
+                    // cone fades out instead of ending abruptly.
+                    for (i in 0 until sides) {
+                        val a0 = (i / sides.toFloat()) * (Math.PI * 2).toFloat()
+                        val a1 = ((i + 1) / sides.toFloat()) * (Math.PI * 2).toFloat()
+                        val c0 = kotlin.math.cos(a0); val s0 = kotlin.math.sin(a0)
+                        val c1 = kotlin.math.cos(a1); val s1 = kotlin.math.sin(a1)
+                        shaftB = quad(
+                            shaftV, shaftI, shaftB,
+                            floatArrayOf(midX + c0 * topR * 1.5f, top, midZ + s0 * topR * 1.5f),
+                            floatArrayOf(midX + c1 * topR * 1.5f, top, midZ + s1 * topR * 1.5f),
+                            floatArrayOf(midX + c1 * botR * 1.35f, 0.02f, midZ + s1 * botR * 1.35f),
+                            floatArrayOf(midX + c0 * botR * 1.35f, 0.02f, midZ + s0 * botR * 1.35f),
+                            floatArrayOf(0f, 1f, 0f), intensity * 0.5f,
+                            0.85f, 0f, 0.85f, 1f
+                        )
+                    }
+                    if (ringBase == shaftB) { /* nothing emitted */ }
+                }
+                if (fixture != 0) {
+                    val halfW = cs * 0.34f
+                    val halfD = cs * 0.13f
+                    val midX = x0 + cs * 0.5f
+                    val midZ = z0 + cs * 0.5f
+                    val y = hgt - 0.045f
+                    val emit = if (fixture == 1) 2.6f else 0.20f
+                    fixB = quad(
+                        fixV, fixI, fixB,
+                        floatArrayOf(midX - halfW, y, midZ - halfD),
+                        floatArrayOf(midX - halfW, y, midZ + halfD),
+                        floatArrayOf(midX + halfW, y, midZ + halfD),
+                        floatArrayOf(midX + halfW, y, midZ - halfD),
+                        floatArrayOf(0f, -1f, 0f), emit, 0f, 0f, 1f, 1f
                     )
                 }
             }
         }
 
-        floorCount = uploadMeshBuffers(floorVbo, floorIbo, floorV, floorI)
-        roofCount  = uploadMeshBuffers(roofVbo,  roofIbo,  roofV,  roofI)
-        wallCount  = uploadMeshBuffers(wallVbo,  wallIbo,  wallV,  wallI)
+        if (floorI.isEmpty() && wallI.isEmpty() && roofI.isEmpty()) return null
+
+        val mesh = ChunkMesh()
+        mesh.floorVbo = genGlBuffer(); mesh.floorIbo = genGlBuffer()
+        mesh.floorCount = uploadMeshBuffers(mesh.floorVbo, mesh.floorIbo, floorV, floorI)
+        mesh.roofVbo = genGlBuffer(); mesh.roofIbo = genGlBuffer()
+        mesh.roofCount = uploadMeshBuffers(mesh.roofVbo, mesh.roofIbo, roofV, roofI)
+        mesh.wallVbo = genGlBuffer(); mesh.wallIbo = genGlBuffer()
+        mesh.wallCount = uploadMeshBuffers(mesh.wallVbo, mesh.wallIbo, wallV, wallI)
+        mesh.fixVbo = genGlBuffer(); mesh.fixIbo = genGlBuffer()
+        mesh.fixCount = uploadMeshBuffers(mesh.fixVbo, mesh.fixIbo, fixV, fixI)
+        mesh.shaftVbo = genGlBuffer(); mesh.shaftIbo = genGlBuffer()
+        mesh.shaftCount = uploadMeshBuffers(mesh.shaftVbo, mesh.shaftIbo, shaftV, shaftI)
+        return mesh
+    }
+
+    /** GL buffers for one streamed chunk. */
+    private class ChunkMesh {
+        var floorVbo = 0; var floorIbo = 0; var floorCount = 0
+        var wallVbo  = 0; var wallIbo  = 0; var wallCount  = 0
+        var roofVbo  = 0; var roofIbo  = 0; var roofCount  = 0
+        var fixVbo   = 0; var fixIbo   = 0; var fixCount   = 0
+        var shaftVbo = 0; var shaftIbo = 0; var shaftCount = 0
+
+        fun release() {
+            val bufs = intArrayOf(floorVbo, floorIbo, wallVbo, wallIbo, roofVbo, roofIbo,
+                                  fixVbo, fixIbo, shaftVbo, shaftIbo)
+            GLES30.glDeleteBuffers(bufs.size, bufs, 0)
+        }
     }
     private fun uploadMeshBuffers(vbo: Int, ibo: Int, verts: ArrayList<Float>, idx: ArrayList<Int>): Int {
         if (idx.isEmpty()) return 0
@@ -2718,6 +3009,9 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
 
     val hudLayout by settingsVm.uiLayout.collectAsState()
     val renderer = remember { OmniGLRenderer(ctx.applicationContext) }
+    // The renderer pulls chunks on its own thread as the player moves; the VM
+    // owns the native bridge, so it supplies the fetch.
+    LaunchedEffect(renderer) { renderer.chunkProvider = vm::fetchChunk }
     LaunchedEffect(state) { renderer.latestState = state }
     // Sampled twice a second: often enough to feel live, rare enough not to
     // trigger a recomposition storm.
@@ -2736,6 +3030,7 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
             resolutionScale = settingsState.resolutionScale.coerceIn(0.5f, 1f),
             colorBlindMode  = settingsState.colorBlindMode
         )
+        renderer.cameraView = settingsState.cameraView
     }
 
     val glView = remember {
@@ -3213,77 +3508,95 @@ private fun DrawScope.drawFrameRing(frame: String, r: Float, t: Float = 0f) {
     }
 
     when (frame) {
-        "gold" -> {
-            // Two concentric bands with the highlight offset between them, which
-            // is what gives the pair a sense of thickness.
-            litRing(CrtAmber, r * 1.16f, w * 1.6f, lightAngle = -0.9f, shimmer = 0.55f)
-            litRing(CrtAmber.copy(0.55f), r * 1.30f, w * 0.7f, lightAngle = -0.6f, shimmer = 0.35f)
-            // Four studs orbiting slowly.
+        "halogen" -> {
+            // Fluorescent tube ring: four straight segments with dark end-caps,
+            // like the ceiling fixtures. Flickers on a ballast rhythm rather
+            // than pulsing smoothly — the same failure the level's lights have.
+            val flickerSeed = kotlin.math.sin(t * 11.0f) * kotlin.math.sin(t * 3.7f)
+            val ballast = if (flickerSeed > -0.72f) 1f else 0.35f
             for (i in 0 until 4) {
-                val a = t * 0.5f + i * (Math.PI / 2).toFloat()
-                val pulse = 0.6f + 0.4f * kotlin.math.sin(t * 2.2f + i)
+                val a0 = i * (Math.PI / 2).toFloat() + 0.22f
+                val a1 = (i + 1) * (Math.PI / 2).toFloat() - 0.22f
+                drawArc(
+                    CrtAmber.copy(0.92f * ballast),
+                    startAngle = Math.toDegrees(a0.toDouble()).toFloat(),
+                    sweepAngle = Math.toDegrees((a1 - a0).toDouble()).toFloat(),
+                    useCenter = false,
+                    topLeft = Offset(center.x - r * 1.18f, center.y - r * 1.18f),
+                    size = Size(r * 2.36f, r * 2.36f),
+                    style = Stroke(w * 1.7f, cap = StrokeCap.Round)
+                )
+                // Glow bloom around the tube.
+                drawArc(
+                    CrtAmber.copy(0.22f * ballast),
+                    startAngle = Math.toDegrees(a0.toDouble()).toFloat(),
+                    sweepAngle = Math.toDegrees((a1 - a0).toDouble()).toFloat(),
+                    useCenter = false,
+                    topLeft = Offset(center.x - r * 1.18f, center.y - r * 1.18f),
+                    size = Size(r * 2.36f, r * 2.36f),
+                    style = Stroke(w * 4.2f, cap = StrokeCap.Round)
+                )
+                // End cap.
                 drawCircle(
-                    CrtAmber.copy(pulse), radius = w * 1.05f,
-                    center = Offset(center.x + kotlin.math.cos(a) * r * 1.23f,
-                                    center.y + kotlin.math.sin(a) * r * 1.23f)
+                    Color(0xFF2A2418), radius = w * 0.9f,
+                    center = Offset(center.x + kotlin.math.cos(a1 + 0.22f) * r * 1.18f,
+                                    center.y + kotlin.math.sin(a1 + 0.22f) * r * 1.18f)
                 )
             }
         }
-        "soulium" -> {
-            litRing(SouliumCol, r * 1.16f, w * 1.4f, lightAngle = 2.2f, shimmer = 0.7f)
-            // Crystal shards orbiting, each scaled by its phase so they read as
-            // passing in front of and behind the ring.
-            for (i in 0 until 8) {
-                val a = t * 0.8f + i * (Math.PI * 2 / 8).toFloat()
-                val depth = (kotlin.math.sin(a) + 1f) / 2f          // 0 = behind, 1 = front
-                val size0 = w * (0.7f + depth * 0.9f)
-                val cx = center.x + kotlin.math.cos(a) * r * 1.30f
-                val cy = center.y + kotlin.math.sin(a) * r * 1.30f * 0.42f   // ellipse = tilted orbit
-                val shard = Path().apply {
-                    moveTo(cx, cy - size0); lineTo(cx + size0 * 0.62f, cy)
-                    lineTo(cx, cy + size0); lineTo(cx - size0 * 0.62f, cy); close()
-                }
-                drawPath(shard, SouliumCol.copy(0.35f + depth * 0.6f))
+        "signal" -> {
+            // Broadcast ring: a static-filled band with a sweep line, like a
+            // radar return. Reads as transmission rather than as jewellery.
+            litRing(OmniumCol, r * 1.16f, w * 1.2f, lightAngle = 1.1f, shimmer = 0.4f)
+            val sweepA = t * 2.2f
+            // The sweep head, brightest, trailing into nothing.
+            for (k in 0 until 14) {
+                val a = sweepA - k * 0.11f
+                val fade = (1f - k / 14f)
+                drawCircle(
+                    OmniumCol.copy(fade * fade * 0.9f),
+                    radius = w * (0.85f - k * 0.03f).coerceAtLeast(0.15f),
+                    center = Offset(center.x + kotlin.math.cos(a) * r * 1.16f,
+                                    center.y + kotlin.math.sin(a) * r * 1.16f)
+                )
+            }
+            // Static ticks: pseudo-random dashes that jitter each frame.
+            for (i in 0 until 20) {
+                val a = i * 0.314f
+                val noise = kotlin.math.sin(t * 9f + i * 2.3f)
+                if (noise < 0.35f) continue
+                drawCircle(
+                    OmniumCol.copy(0.55f),
+                    radius = w * 0.45f,
+                    center = Offset(center.x + kotlin.math.cos(a) * r * 1.30f,
+                                    center.y + kotlin.math.sin(a) * r * 1.30f)
+                )
             }
         }
-        "omnium" -> {
-            litRing(OmniumCol, r * 1.16f, w * 1.4f, lightAngle = 0.4f, shimmer = 0.6f)
-            // A rotating arc sweeping around the band.
-            drawArc(
-                OmniumCol.copy(0.75f),
-                startAngle = Math.toDegrees((t * 1.6f).toDouble()).toFloat(),
-                sweepAngle = 110f, useCenter = false,
-                topLeft = Offset(center.x - r * 1.30f, center.y - r * 1.30f),
-                size = Size(r * 2.60f, r * 2.60f),
-                style = Stroke(w * 0.85f, cap = StrokeCap.Round)
-            )
-            drawArc(
-                OmniumCol.copy(0.30f),
-                startAngle = Math.toDegrees((t * 1.6f + Math.PI).toDouble()).toFloat(),
-                sweepAngle = 70f, useCenter = false,
-                topLeft = Offset(center.x - r * 1.38f, center.y - r * 1.38f),
-                size = Size(r * 2.76f, r * 2.76f),
-                style = Stroke(w * 0.55f, cap = StrokeCap.Round)
-            )
-        }
-        "event" -> {
-            litRing(DangerRed.copy(0.9f), r * 1.16f, w * 1.5f, lightAngle = -1.4f, shimmer = 0.8f)
-            // Spikes that breathe outward on a heartbeat rather than sitting still.
-            val beat = heartbeat((t / 2.4f) % 1f)
-            for (i in 0 until 6) {
-                val a = (Math.PI * 2 / 6 * i - Math.PI / 2).toFloat() + t * 0.25f
-                val reach = r * (1.30f + beat * 0.12f)
-                val spike = Path().apply {
-                    moveTo(center.x + kotlin.math.cos(a) * reach,
-                           center.y + kotlin.math.sin(a) * reach)
-                    lineTo(center.x + kotlin.math.cos(a + 0.20f) * r * 1.14f,
-                           center.y + kotlin.math.sin(a + 0.20f) * r * 1.14f)
-                    lineTo(center.x + kotlin.math.cos(a - 0.20f) * r * 1.14f,
-                           center.y + kotlin.math.sin(a - 0.20f) * r * 1.14f)
-                    close()
+        "threshold" -> {
+            // Two counter-rotating arc pairs with a gap where they cross,
+            // suggesting a doorway that never quite closes. The lore's exit.
+            litRing(SouliumCol.copy(0.55f), r * 1.10f, w * 0.8f, lightAngle = -0.5f)
+            for (pair in 0 until 2) {
+                val dir = if (pair == 0) 1f else -1f
+                val base = t * 0.9f * dir + pair * 1.57f
+                for (half in 0 until 2) {
+                    val start = base + half * Math.PI.toFloat()
+                    drawArc(
+                        SouliumCol.copy(0.85f),
+                        startAngle = Math.toDegrees(start.toDouble()).toFloat(),
+                        sweepAngle = 64f, useCenter = false,
+                        topLeft = Offset(center.x - r * (1.22f + pair * 0.12f),
+                                         center.y - r * (1.22f + pair * 0.12f)),
+                        size = Size(r * 2f * (1.22f + pair * 0.12f), r * 2f * (1.22f + pair * 0.12f)),
+                        style = Stroke(w * (1.3f - pair * 0.4f), cap = StrokeCap.Round)
+                    )
                 }
-                drawPath(spike, DangerRed.copy(0.55f + beat * 0.45f))
             }
+            // A pale core that brightens as the arcs align, so the frame has a
+            // rhythm without a literal heartbeat.
+            val align = kotlin.math.abs(kotlin.math.sin(t * 0.9f))
+            drawCircle(SouliumCol.copy(0.10f + align * 0.28f), radius = r * 1.05f, center = center)
         }
         else -> litRing(BorderCol, r * 1.14f, w, lightAngle = -0.8f)
     }
@@ -3312,7 +3625,7 @@ private fun DrawScope.drawCameraGlyph(c: Color) {
     drawLine(c, Offset(w * 0.64f, h * 0.30f), Offset(w * 0.56f, h * 0.22f), strokeWidth = sw, cap = StrokeCap.Round)
 }
 
-private fun DrawScope.drawStopwatchGlyph(c: Color) {
+internal fun DrawScope.drawStopwatchGlyph(c: Color) {
     val w = size.width; val h = size.height
     val sw = size.minDimension * 0.065f
     drawCircle(c, radius = w * 0.30f, center = Offset(w * 0.5f, h * 0.56f), style = Stroke(sw))
@@ -3364,7 +3677,7 @@ private fun FramePickerSheet(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val all = listOf("default", "gold", "soulium", "omnium", "event")
+    val all = listOf("default", "halogen", "signal", "threshold")
     val pickerClock = rememberFrameClock()
     Box(
         Modifier
@@ -3392,7 +3705,9 @@ private fun FramePickerSheet(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 all.forEach { f ->
-                    val unlocked = f == "default" || owned.contains(f)
+                    // Every authored frame is available; the lock path stays for
+                    // future event-gated frames.
+                    val unlocked = true
                     val sel = f == current
                     Box(
                         Modifier
@@ -3424,11 +3739,10 @@ private fun FramePickerSheet(
 }
 
 private fun frameDisplayName(key: String): String = when (key) {
-    "gold" -> "Gold"
-    "soulium" -> "Soulium"
-    "omnium" -> "Omnium"
-    "event" -> "Event"
-    else -> "Default"
+    "halogen"   -> "Halogen"
+    "signal"    -> "Signal"
+    "threshold" -> "Threshold"
+    else        -> "Default"
 }
 
 private fun formatDuration(ms: Long): String {
@@ -3609,13 +3923,13 @@ fun GameHud(
         // --- Top-left: vitals only. HP is gone; these three are the ones the
         // player can actually act on. ---------------------------------------
         // Each bar is placed independently so the editor can separate them.
-        Box(placed("bar_sanity", 0.10f, 0.08f, 150f, 22f).width((150 * scaleOf("bar_sanity")).dp)) {
+        Box(placed("bar_sanity", 0.11f, 0.10f, 150f, 30f).width((150 * scaleOf("bar_sanity")).dp)) {
             StatusBar(stringResource(R.string.game_hud_sanity), gameState.sanity / 100f, SouliumCol)
         }
-        Box(placed("bar_stamina", 0.10f, 0.14f, 150f, 22f).width((150 * scaleOf("bar_stamina")).dp)) {
+        Box(placed("bar_stamina", 0.11f, 0.20f, 150f, 30f).width((150 * scaleOf("bar_stamina")).dp)) {
             StatusBar(stringResource(R.string.game_hud_stamina), gameState.stamina / gameState.staminaMax, SuccessGreen)
         }
-        Box(placed("bar_battery", 0.10f, 0.20f, 150f, 22f).width((150 * scaleOf("bar_battery")).dp)) {
+        Box(placed("bar_battery", 0.11f, 0.30f, 150f, 30f).width((150 * scaleOf("bar_battery")).dp)) {
             StatusBar(stringResource(R.string.game_hud_battery), gameState.flashlightBattery, CrtAmber)
         }
 
@@ -3696,8 +4010,16 @@ fun GameHud(
     }
 }
 
-/** Round in-game action button. Larger and higher-contrast than the menu glyph
- *  buttons because it has to be hit reliably while something is chasing you. */
+/**
+ * In-game action button, built as stacked layers rather than a flat circle.
+ *
+ * The depth comes from five things drawn in order: an outer bloom, a domed
+ * body whose gradient runs light-to-dark top-to-bottom, a bright rim arc on the
+ * upper edge and a dark one below (the two together read as a bevel catching a
+ * light from above), the glyph, and finally a specular sheen. Pressing swaps
+ * the bevel arcs and sinks the face, so the button visibly depresses instead of
+ * merely shrinking.
+ */
 @Composable
 private fun HudActionButton(
     size: Dp,
@@ -3708,29 +4030,144 @@ private fun HudActionButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.86f else 1f, spring(), label = "hudBtn")
+    val press by animateFloatAsState(
+        if (pressed) 1f else 0f,
+        spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow),
+        label = "hudPress"
+    )
     val inf = rememberInfiniteTransition(label = "hudPulse")
     val pulse by inf.animateFloat(
         0.45f, 0.9f,
         infiniteRepeatable(tween(1200, easing = EaseInOut), RepeatMode.Reverse),
         "hudPulseV"
     )
-    val ringAlpha = if (emphasised) pulse else 0.5f
+    val ring = if (emphasised) pulse else 0.55f
+
     Box(
         Modifier
             .size(size)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(CircleShape)
-            .background(Color.Black.copy(0.5f))
-            .border(1.5.dp, accent.copy(ringAlpha), CircleShape)
+            .graphicsLayer {
+                val sc = 1f - press * 0.07f
+                scaleX = sc; scaleY = sc
+                translationY = press * 3f
+                // Real elevation, so the button casts onto the scene behind it.
+                shadowElevation = (8f - press * 6f) * density
+                spotShadowColor = accent.copy(0.5f)
+                ambientShadowColor = Color.Black
+                shape = CircleShape
+                clip = false
+            }
             .clickable(interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(size * 0.24f)) { glyph(accent) }
+        androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+            val r = this.size.minDimension / 2f
+            val c = center
+
+            // 1. Bloom, strongest when the action is being called out.
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(accent.copy(0.22f * ring), Color.Transparent),
+                    center = c, radius = r * 1.55f
+                ),
+                radius = r * 1.55f, center = c
+            )
+
+            // 2. Domed body. The gradient is what makes it read as a sphere
+            // section rather than a disc.
+            drawCircle(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF33312A).copy(0.95f - press * 0.15f),
+                        Color(0xFF15140F).copy(0.97f),
+                        accent.copy(0.20f)
+                    ),
+                    startY = c.y - r, endY = c.y + r
+                ),
+                radius = r * 0.94f, center = c
+            )
+
+            // 3. Bevel. Bright above, dark below — inverted while pressed, which
+            // is exactly how a real recessed button behaves under a fixed light.
+            val topAlpha = 0.55f - press * 0.45f
+            val botAlpha = 0.10f + press * 0.40f
+            drawArc(
+                Color.White.copy(topAlpha),
+                startAngle = 190f, sweepAngle = 160f, useCenter = false,
+                topLeft = Offset(c.x - r * 0.94f, c.y - r * 0.94f),
+                size = Size(r * 1.88f, r * 1.88f),
+                style = Stroke(r * 0.10f, cap = StrokeCap.Round)
+            )
+            drawArc(
+                Color.Black.copy(botAlpha + 0.25f),
+                startAngle = 10f, sweepAngle = 160f, useCenter = false,
+                topLeft = Offset(c.x - r * 0.94f, c.y - r * 0.94f),
+                size = Size(r * 1.88f, r * 1.88f),
+                style = Stroke(r * 0.10f, cap = StrokeCap.Round)
+            )
+
+            // 4. Accent rim.
+            drawCircle(accent.copy(ring), radius = r * 0.94f, center = c, style = Stroke(r * 0.055f))
+        }
+
+        androidx.compose.foundation.Canvas(
+            Modifier.fillMaxSize().padding(size * 0.26f)
+                .graphicsLayer { translationY = press * 2f }
+        ) { glyph(accent) }
+
+        // 5. Specular sheen, offset upward so the light reads as overhead.
+        androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+            val r = this.size.minDimension / 2f
+            drawOval(
+                Brush.radialGradient(
+                    listOf(Color.White.copy(0.16f - press * 0.12f), Color.Transparent)
+                ),
+                topLeft = Offset(center.x - r * 0.52f, center.y - r * 0.78f),
+                size = Size(r * 1.04f, r * 0.62f)
+            )
+        }
     }
 }
 
-private fun DrawScope.drawPauseGlyph(c: Color) {
+
+/** Joystick ring, for the layout editor's preview. Matches VirtualJoystick's
+ *  own artwork so what you arrange is what you get. */
+internal fun DrawScope.drawJoystickGlyph(c: Color) {
+    val r = size.minDimension / 2f
+    for (i in 0 until 4) {
+        val ang = (Math.PI / 2 * i).toFloat()
+        drawCircle(
+            c.copy(0.45f), radius = r * 0.07f,
+            center = Offset(center.x + kotlin.math.cos(ang) * r * 0.78f,
+                            center.y + kotlin.math.sin(ang) * r * 0.78f)
+        )
+    }
+    drawCircle(c.copy(0.30f), radius = r * 0.62f, center = center, style = Stroke(1.4f))
+    drawCircle(c.copy(0.85f), radius = r * 0.30f, center = center)
+}
+
+/** Status bar miniature, for the layout editor. */
+internal fun DrawScope.drawStatusBarGlyph(c: Color) {
+    val r = size.height * 0.30f
+    val corner = androidx.compose.ui.geometry.CornerRadius(r)
+    drawRoundRect(c.copy(0.25f), topLeft = Offset(size.width * 0.04f, size.height * 0.36f),
+        size = Size(size.width * 0.92f, size.height * 0.28f), cornerRadius = corner)
+    drawRoundRect(c, topLeft = Offset(size.width * 0.04f, size.height * 0.36f),
+        size = Size(size.width * 0.62f, size.height * 0.28f), cornerRadius = corner)
+}
+
+/** Session readouts chip, for the layout editor. */
+internal fun DrawScope.drawReadoutsGlyph(c: Color) {
+    drawRoundRect(
+        c.copy(0.75f), topLeft = Offset(size.width * 0.06f, size.height * 0.32f),
+        size = Size(size.width * 0.42f, size.height * 0.36f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.05f),
+        style = Stroke(size.minDimension * 0.07f)
+    )
+    drawCircle(c, radius = size.width * 0.075f, center = Offset(size.width * 0.70f, size.height * 0.5f))
+}
+
+internal fun DrawScope.drawPauseGlyph(c: Color) {
     val w = size.width; val h = size.height
     val barW = w * 0.18f
     drawRoundRect(c, topLeft = Offset(w * 0.28f - barW / 2, h * 0.18f), size = Size(barW, h * 0.64f),
@@ -3739,7 +4176,7 @@ private fun DrawScope.drawPauseGlyph(c: Color) {
         cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW * 0.3f))
 }
 
-private fun DrawScope.drawFlashlightGlyph(c: Color) {
+internal fun DrawScope.drawFlashlightGlyph(c: Color) {
     val w = size.width; val h = size.height
     val sw = size.minDimension * 0.09f
     // Torch body
@@ -3757,7 +4194,7 @@ private fun DrawScope.drawFlashlightGlyph(c: Color) {
     drawPath(beam, c.copy(0.8f), style = Stroke(sw * 0.7f))
 }
 
-private fun DrawScope.drawInteractGlyph(c: Color) {
+internal fun DrawScope.drawInteractGlyph(c: Color) {
     val w = size.width; val h = size.height
     val sw = size.minDimension * 0.085f
     // A hand reaching out — reads as "use" better than a generic arrow.
@@ -3772,7 +4209,7 @@ private fun DrawScope.drawInteractGlyph(c: Color) {
     drawLine(c, Offset(w * 0.34f, h * 0.56f), Offset(w * 0.20f, h * 0.48f), strokeWidth = sw * 0.9f, cap = StrokeCap.Round)
 }
 
-private fun DrawScope.drawJumpGlyph(c: Color) {
+internal fun DrawScope.drawJumpGlyph(c: Color) {
     val w = size.width; val h = size.height
     val sw = size.minDimension * 0.10f
     drawLine(c, Offset(w * 0.5f, h * 0.78f), Offset(w * 0.5f, h * 0.26f), strokeWidth = sw, cap = StrokeCap.Round)
@@ -3783,7 +4220,7 @@ private fun DrawScope.drawJumpGlyph(c: Color) {
     drawLine(c.copy(0.45f), Offset(w * 0.26f, h * 0.88f), Offset(w * 0.74f, h * 0.88f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
 }
 
-private fun DrawScope.drawCrouchGlyph(c: Color) {
+internal fun DrawScope.drawCrouchGlyph(c: Color) {
     val w = size.width; val h = size.height
     val sw = size.minDimension * 0.10f
     drawLine(c, Offset(w * 0.5f, h * 0.22f), Offset(w * 0.5f, h * 0.74f), strokeWidth = sw, cap = StrokeCap.Round)
@@ -5648,6 +6085,44 @@ fun VineLayer(accent: Color, modifier: Modifier = Modifier) {
 // the model is read against the surfaces it will actually be seen among, lit
 // the same way, rather than floating on a flat swatch.
 // ============================================================================
+
+
+private const val OMNI_SHAFT_VERT = """#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+layout(location=3) in float aLight;
+uniform mat4 uMVP;
+out float vFall;     // 0 at the fixture, 1 at the floor
+out float vEdge;     // 0 at the cone axis, 1 at its rim
+out float vIntensity;
+void main(){
+    vFall = aUV.y;
+    vEdge = aUV.x;
+    vIntensity = aLight;
+    gl_Position = uMVP * vec4(aPos, 1.0);
+}
+"""
+
+private const val OMNI_SHAFT_FRAG = """#version 300 es
+precision mediump float;
+in float vFall; in float vEdge; in float vIntensity;
+uniform float uFlicker;
+uniform vec3 uTint;
+out vec4 fragColor;
+void main(){
+    // Density falls off down the shaft and toward the rim. Squaring the rim
+    // term is what gives the cone a soft edge instead of a hard silhouette,
+    // which is the difference between "light in dusty air" and "a glass cone".
+    float down = 1.0 - vFall;
+    float rim  = 1.0 - vEdge;
+    float density = down * down * 0.55 + down * 0.45;
+    density *= rim * rim;
+    float a = density * vIntensity * uFlicker * 0.30;
+    if (a < 0.004) discard;
+    fragColor = vec4(uTint * a, a);
+}
+"""
 
 private const val OMNI_PREVIEW_VERT = """#version 300 es
 layout(location=0) in vec3 aPos;

@@ -21,7 +21,13 @@ add_library(
     il2cpp
     SHARED
     Engine.cpp
+    Map/Level_0.cpp
 )
+
+# Map/ holds level generation. Kept out of Engine.cpp because it is the part
+# most likely to be iterated on, and it has no business sharing a translation
+# unit with audio, netcode and the anti-tamper guard.
+target_include_directories(il2cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_include_directories(il2cpp PRIVATE
     ${CMAKE_SOURCE_DIR}

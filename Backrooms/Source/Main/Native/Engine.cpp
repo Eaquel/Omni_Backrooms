@@ -22,6 +22,11 @@
 #include <fcntl.h>
 #include <functional>
 #include <limits>
+#include "Map/Level_0.h"
+
+// Cells per chunk edge. 24 keeps a chunk mesh small enough to build in a frame
+// while large enough that streaming happens rarely.
+#define OMNI_CHUNK_CELLS 24
 #include <linux/prctl.h>
 #include <memory>
 #include <mutex>
@@ -135,192 +140,10 @@ private:
 };
 
 
-// ============================================================================
-// Level 0 generator. Grid-based rather than a chain of corridor tubes: a tube
-// chain leaves wedge-shaped holes wherever two segments meet at an angle, which
-// is what let players fall out of the world. An axis-aligned occupancy grid has
-// no such seams by construction — a cell is either open or solid, walls are
-// emitted exactly on the boundary between the two, and collision is a simple
-// clamp inside the open cell. It also produces the actual Level 0 silhouette:
-// wide irregular office rooms broken up by pillars and doorways, not a hallway.
-// ============================================================================
-
-struct GridLevel {
-    static constexpr int   kDim      = 96;      // 96 x 96 cells
-    static constexpr float kCell     = 3.2f;    // metres per cell
-    static constexpr float kHeight   = 3.0f;
-
-    int   dim   = kDim;
-    float cell  = kCell;
-    float height= kHeight;
-    // solid[i] : 1 = wall, 0 = walkable
-    std::vector<uint8_t> solid;
-    // zone[i]  : lighting zone id; 0 = unlit (dead fluorescents), 1..3 = lit tiers
-    std::vector<uint8_t> zone;
-    // feature[i]: 0 none, 1 doorway, 2 pillar cluster, 3 alcove, 4 pit/hole
-    std::vector<uint8_t> feature;
-
-    int   spawnCx=0, spawnCz=0;
-    int   exitCx=0,  exitCz=0;
-
-    inline int idx(int x,int z) const noexcept { return z*dim+x; }
-    inline bool inBounds(int x,int z) const noexcept { return x>=0&&z>=0&&x<dim&&z<dim; }
-    inline bool isSolid(int x,int z) const noexcept {
-        if(!inBounds(x,z)) return true;              // outside the grid is wall
-        return solid[idx(x,z)]!=0;
-    }
-    inline float worldX(int cx) const noexcept { return (cx-dim*0.5f)*cell; }
-    inline float worldZ(int cz) const noexcept { return (cz-dim*0.5f)*cell; }
-    inline int   cellX(float wx) const noexcept { return static_cast<int>(std::floor(wx/cell+dim*0.5f)); }
-    inline int   cellZ(float wz) const noexcept { return static_cast<int>(std::floor(wz/cell+dim*0.5f)); }
-};
-
-class Level0Gen {
-public:
-    explicit Level0Gen(uint64_t seed):rng_(seed),perlin_(seed) {}
-
-    GridLevel generate(int roomBudget,int depth) {
-        GridLevel g;
-        const int D=g.dim;
-        g.solid.assign(D*D,1);
-        g.zone.assign(D*D,1);
-        g.feature.assign(D*D,0);
-
-        // --- 1. Carve overlapping rectangular rooms -------------------------
-        // Overlap is intentional: it's what produces Level 0's rambling,
-        // "one room bleeds into the next" geometry instead of discrete boxes.
-        std::uniform_int_distribution<int> posD(3,D-4);
-        std::uniform_int_distribution<int> wD(4,14);
-        std::uniform_int_distribution<int> hD(4,14);
-        int rooms=std::clamp(roomBudget,60,220);
-        std::vector<std::pair<int,int>> centers;
-        centers.reserve(rooms);
-
-        for(int r=0;r<rooms;++r){
-            int cx=posD(rng_), cz=posD(rng_);
-            int rw=wD(rng_),  rh=hD(rng_);
-            int x0=std::max(1,cx-rw/2), x1=std::min(D-2,cx+rw/2);
-            int z0=std::max(1,cz-rh/2), z1=std::min(D-2,cz+rh/2);
-            for(int z=z0;z<=z1;++z)
-                for(int x=x0;x<=x1;++x)
-                    g.solid[g.idx(x,z)]=0;
-            centers.emplace_back((x0+x1)/2,(z0+z1)/2);
-        }
-
-        // --- 2. Connect every room centre so nothing is stranded ------------
-        for(size_t i=1;i<centers.size();++i){
-            auto [ax,az]=centers[i-1];
-            auto [bx,bz]=centers[i];
-            carveL(g,ax,az,bx,bz);
-        }
-
-        // --- 3. Pillars: the signature Level 0 support columns ---------------
-        std::uniform_real_distribution<float> uni(0.0f,1.0f);
-        for(int z=2;z<D-2;++z){
-            for(int x=2;x<D-2;++x){
-                if(g.solid[g.idx(x,z)]) continue;
-                // Regular-ish lattice with jitter, only in wide-open floor.
-                bool lattice=((x%6)==0&&(z%6)==0);
-                if(lattice&&openNeighbourhood(g,x,z,2)&&uni(rng_)<0.72f){
-                    g.solid[g.idx(x,z)]=1;
-                    g.feature[g.idx(x,z)]=2;
-                }
-            }
-        }
-
-        // --- 4. Lighting zones from noise: large dark stretches -------------
-        for(int z=0;z<D;++z){
-            for(int x=0;x<D;++x){
-                float n=perlin_.noise2d(x*0.055f,z*0.055f);
-                float m=perlin_.noise2d(x*0.017f+41.0f,z*0.017f-13.0f);
-                uint8_t zn;
-                if(m<-0.18f)      zn=0;              // fully dark region
-                else if(n<-0.10f) zn=1;              // dim / failing lights
-                else if(n<0.22f)  zn=2;              // normal fluorescent
-                else              zn=3;              // bright, blown-out
-                g.zone[g.idx(x,z)]=zn;
-            }
-        }
-
-        // --- 5. Features: doorways, alcoves, holes ---------------------------
-        for(int z=2;z<D-2;++z){
-            for(int x=2;x<D-2;++x){
-                int i=g.idx(x,z);
-                if(g.solid[i]||g.feature[i]) continue;
-                bool wallW=g.isSolid(x-1,z), wallE=g.isSolid(x+1,z);
-                bool wallN=g.isSolid(x,z-1), wallS=g.isSolid(x,z+1);
-                int walls=(wallW?1:0)+(wallE?1:0)+(wallN?1:0)+(wallS?1:0);
-                float u=uni(rng_);
-                if(walls==2&&((wallW&&wallE)||(wallN&&wallS))){
-                    if(u<0.30f) g.feature[i]=1;      // doorway / threshold
-                } else if(walls==3){
-                    if(u<0.35f) g.feature[i]=3;      // dead-end alcove
-                } else if(walls==0&&u<0.012f){
-                    g.feature[i]=4;                  // hole in the floor
-                }
-            }
-        }
-
-        // --- 6. Spawn and exit, placed far apart ----------------------------
-        pickSpawnAndExit(g);
-        return g;
-    }
-
-private:
-    void carveL(GridLevel& g,int ax,int az,int bx,int bz){
-        std::uniform_int_distribution<int> widthD(1,2);
-        int w=widthD(rng_);
-        int x=ax;
-        while(x!=bx){
-            for(int o=-w;o<=w;++o) setOpen(g,x,az+o);
-            x+=(bx>x)?1:-1;
-        }
-        int z=az;
-        while(z!=bz){
-            for(int o=-w;o<=w;++o) setOpen(g,bx+o,z);
-            z+=(bz>z)?1:-1;
-        }
-    }
-
-    static void setOpen(GridLevel& g,int x,int z){
-        if(x>0&&z>0&&x<g.dim-1&&z<g.dim-1) g.solid[g.idx(x,z)]=0;
-    }
-
-    static bool openNeighbourhood(const GridLevel& g,int x,int z,int r){
-        for(int dz=-r;dz<=r;++dz)
-            for(int dx=-r;dx<=r;++dx)
-                if(g.isSolid(x+dx,z+dz)) return false;
-        return true;
-    }
-
-    void pickSpawnAndExit(GridLevel& g){
-        std::vector<int> open;
-        open.reserve(g.dim*g.dim/3);
-        for(int i=0;i<g.dim*g.dim;++i) if(!g.solid[i]) open.push_back(i);
-        if(open.empty()){ g.spawnCx=g.spawnCz=g.exitCx=g.exitCz=g.dim/2; return; }
-        std::uniform_int_distribution<size_t> pick(0,open.size()-1);
-        int s=open[pick(rng_)];
-        g.spawnCx=s%g.dim; g.spawnCz=s/g.dim;
-        // Exit: the furthest open cell from spawn, so a run always has distance.
-        int best=s; long bestD=-1;
-        for(int i:open){
-            int x=i%g.dim, z=i/g.dim;
-            long dx=x-g.spawnCx, dz=z-g.spawnCz;
-            long d=dx*dx+dz*dz;
-            if(d>bestD){ bestD=d; best=i; }
-        }
-        g.exitCx=best%g.dim; g.exitCz=best/g.dim;
-    }
-
-    std::mt19937_64 rng_;
-    PerlinNoise     perlin_;
-};
-
 /** Grid collision. Because cells are axis-aligned there are no seams to slip
  *  through: we resolve each axis independently against the cell the player is
  *  trying to enter, which also gives clean sliding along walls. */
-inline void resolveGridCollision(const GridLevel& g,PhysicsBody& body,Vec3f prev,bool skipCeiling=false) noexcept {
-    if(g.solid.empty()) return;
+inline void resolveGridCollision(const omni::map::Level0Field& g,PhysicsBody& body,Vec3f prev,bool skipCeiling=false) noexcept {
     const float r=body.radius;
 
     // X axis
@@ -347,7 +170,7 @@ inline void resolveGridCollision(const GridLevel& g,PhysicsBody& body,Vec3f prev
     }
     if(!skipCeiling){
         constexpr float kEye=1.7f, kHead=0.15f;
-        float maxY=std::max(g.height-kEye-kHead,0.0f);
+        float maxY=std::max(omni::map::Level0Field::kHeight-kEye-kHead,0.0f);
         if(body.pos.y>maxY){ body.pos.y=maxY; if(body.vel.y>0.0f) body.vel.y=0.0f; }
     }
 }
@@ -1306,8 +1129,9 @@ static omni::core::CameraController* gCamera  =nullptr;
 static omni::core::CameraState       gCamState;
 static omni::core::PhysicsBody       gPlayerBody;
 static bool                          gSpawnFalling=false;
-static omni::core::GridLevel         gGrid;
-static std::unique_ptr<omni::core::Level0Gen> gLevel0;
+static omni::map::Level0Field        gField;
+static int                           gSpawnCx = 0, gSpawnCz = 0;
+static int                           gExitCx  = 0, gExitCz  = 0;
 static omni::core::Vec3f             gPrevPos;
 static omni::net::NetState           gNet;
 static omni::guard::GuardState       gGuard;
@@ -1386,8 +1210,7 @@ Java_com_omni_backrooms_NativeBridge_initCore(JNIEnv*, jobject, jlong seed) {
     delete gPhysics;  gPhysics =new omni::core::PlayerPhysics();
     delete gCamera;   gCamera  =new omni::core::CameraController();
     gCamState={}; gPlayerBody={}; gPlayerBody.pos={0.0f,1.7f,0.0f};
-    gLevel0=std::make_unique<omni::core::Level0Gen>(static_cast<uint64_t>(seed));
-    gGrid=omni::core::GridLevel{};
+    gField.setSeed(static_cast<uint64_t>(seed));
     gPrevPos=gPlayerBody.pos;
     LOGI_C("Core init seed=%lld",static_cast<long long>(seed));
 }
@@ -1399,41 +1222,66 @@ Java_com_omni_backrooms_NativeBridge_getFlicker(JNIEnv*, jobject, jfloat phase, 
 
 JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_generateLevel(JNIEnv* env, jobject, jint count, jint depth) {
-    if(!gLevel0) return nullptr;
-    gGrid=gLevel0->generate(count,depth);
-    gSpawnFalling=false;
+    // With an infinite field there is nothing to "generate" up front. This now
+    // just resolves spawn/exit and hands back a small header; geometry is
+    // streamed per chunk by generateChunk() as the player moves.
+    (void)count; (void)depth;
 
-    // Drop the player in above their spawn cell.
-    gPlayerBody.pos.x=gGrid.worldX(gGrid.spawnCx)+gGrid.cell*0.5f;
-    gPlayerBody.pos.z=gGrid.worldZ(gGrid.spawnCz)+gGrid.cell*0.5f;
-    gPlayerBody.pos.y=16.0f;
-    gPlayerBody.vel={};
-    gPrevPos=gPlayerBody.pos;
-    gSpawnFalling=true;
+    gField.findSpawn(gSpawnCx, gSpawnCz);
+    gField.findExit(gSpawnCx, gSpawnCz, gExitCx, gExitCz);
 
-    // Export layout: an 8-float header followed by 3 floats per cell.
-    // header: [dim, cellSize, height, spawnWorldX, spawnWorldZ, exitWorldX, exitWorldZ, cellCount]
-    // cell  : [solid, zone, feature]
-    const int D=gGrid.dim;
-    const int cells=D*D;
-    const jsize total=8+cells*3;
-    auto arr=env->NewFloatArray(total); if(!arr) return nullptr;
-    std::vector<float> flat; flat.reserve(total);
-    flat.push_back(static_cast<float>(D));
-    flat.push_back(gGrid.cell);
-    flat.push_back(gGrid.height);
-    flat.push_back(gGrid.worldX(gGrid.spawnCx)+gGrid.cell*0.5f);
-    flat.push_back(gGrid.worldZ(gGrid.spawnCz)+gGrid.cell*0.5f);
-    flat.push_back(gGrid.worldX(gGrid.exitCx)+gGrid.cell*0.5f);
-    flat.push_back(gGrid.worldZ(gGrid.exitCz)+gGrid.cell*0.5f);
-    flat.push_back(static_cast<float>(cells));
-    for(int i=0;i<cells;++i){
-        flat.push_back(static_cast<float>(gGrid.solid[i]));
-        flat.push_back(static_cast<float>(gGrid.zone[i]));
-        flat.push_back(static_cast<float>(gGrid.feature[i]));
+    const float cell = omni::map::Level0Field::kCell;
+    gPlayerBody.pos.x = omni::map::Level0Field::worldX(gSpawnCx) + cell * 0.5f;
+    gPlayerBody.pos.z = omni::map::Level0Field::worldZ(gSpawnCz) + cell * 0.5f;
+    gPlayerBody.pos.y = 16.0f;
+    gPlayerBody.vel = {};
+    gPrevPos = gPlayerBody.pos;
+    gSpawnFalling = true;
+
+    // header: [cellSize, height, spawnX, spawnZ, exitX, exitZ, chunkCells, reserved]
+    const jsize total = 8;
+    auto arr = env->NewFloatArray(total);
+    if (!arr) return nullptr;
+    float flat[8] = {
+        cell,
+        omni::map::Level0Field::kHeight,
+        omni::map::Level0Field::worldX(gSpawnCx) + cell * 0.5f,
+        omni::map::Level0Field::worldZ(gSpawnCz) + cell * 0.5f,
+        omni::map::Level0Field::worldX(gExitCx) + cell * 0.5f,
+        omni::map::Level0Field::worldZ(gExitCz) + cell * 0.5f,
+        static_cast<float>(OMNI_CHUNK_CELLS),
+        0.0f
+    };
+    env->SetFloatArrayRegion(arr, 0, total, flat);
+    LOGI_C("Level0 infinite: spawn=(%d,%d) exit=(%d,%d)", gSpawnCx, gSpawnCz, gExitCx, gExitCz);
+    return arr;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_generateChunk(JNIEnv* env, jobject, jint chunkX, jint chunkZ) {
+    // One chunk of cells, queried straight from the field. Nothing is cached
+    // here: the field is cheap and stateless, and caching on this side would
+    // just duplicate the mesh cache Kotlin already keeps.
+    constexpr int N = OMNI_CHUNK_CELLS;
+    const int baseX = chunkX * N;
+    const int baseZ = chunkZ * N;
+
+    const jsize total = N * N * 4;
+    auto arr = env->NewFloatArray(total);
+    if (!arr) return nullptr;
+
+    std::vector<float> flat;
+    flat.reserve(total);
+    for (int z = 0; z < N; ++z) {
+        for (int x = 0; x < N; ++x) {
+            const int cx = baseX + x, cz = baseZ + z;
+            flat.push_back(gField.isSolid(cx, cz) ? 1.0f : 0.0f);
+            flat.push_back(static_cast<float>(gField.zoneAt(cx, cz)));
+            flat.push_back(static_cast<float>(gField.featureAt(cx, cz)));
+            flat.push_back(static_cast<float>(gField.fixtureAt(cx, cz)));
+        }
     }
-    env->SetFloatArrayRegion(arr,0,total,flat.data());
-    LOGI_C("Level0 grid %dx%d spawn=(%d,%d) exit=(%d,%d)",D,D,gGrid.spawnCx,gGrid.spawnCz,gGrid.exitCx,gGrid.exitCz);
+    env->SetFloatArrayRegion(arr, 0, total, flat.data());
     return arr;
 }
 
@@ -1471,7 +1319,7 @@ Java_com_omni_backrooms_NativeBridge_physicsTick(JNIEnv*, jobject, jfloat dt) {
     if(!gPhysics) return;
     omni::core::Vec3f before=gPlayerBody.pos;
     gPhysics->update(gPlayerBody,dt);
-    omni::core::resolveGridCollision(gGrid,gPlayerBody,before,gSpawnFalling);
+    omni::core::resolveGridCollision(gField,gPlayerBody,before,gSpawnFalling);
     gPrevPos=gPlayerBody.pos;
     if(gSpawnFalling&&gPlayerBody.onGround) gSpawnFalling=false;
     if(gCamera) gCamera->update(gCamState,gPlayerBody,dt,1.0f);
