@@ -286,6 +286,8 @@ data class GameSettings(
     val showFps           : Boolean = false,
     val showPing          : Boolean = true,
     val colorBlindMode    : String  = "none",
+    /** "first" or "third" — camera perspective. */
+    val cameraView        : String  = "first",
     val pushNotifications : Boolean = true
 )
 
