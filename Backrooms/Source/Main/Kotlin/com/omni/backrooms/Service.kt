@@ -652,12 +652,17 @@ class SessionService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        // dataSync, not specialUse: this service exists to keep the netcode and
+        // simulation ticking, which is exactly what dataSync describes. Play
+        // requires a written justification for specialUse and a game session is
+        // not an accepted case for it — using an honest category avoids a review
+        // blocker and matches what the service actually does.
         ServiceCompat.startForeground(
             this,
             NOTIF_ID,
             buildNotif(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             else 0
         )
     }

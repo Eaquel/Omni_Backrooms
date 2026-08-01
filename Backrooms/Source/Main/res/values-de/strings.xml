@@ -220,4 +220,11 @@
     <string name="char_preview_equipped">Ausgerüstet</string>
     <string name="char_anim_idle">Ruhe</string>
     <string name="char_anim_walk">Gehen</string>
+    <string name="editor_btn_bars">Statusleisten</string>
+    <string name="editor_btn_pause">Pause</string>
+    <string name="editor_btn_readouts">Anzeigen</string>
+    <string name="editor_size">Größe</string>
+    <string name="editor_reset">Zurücksetzen</string>
+    <string name="editor_hint">Zum Verschieben ziehen; auswählen und mit dem Regler skalieren</string>
+    <string name="editor_selected">Ausgewählt</string>
 </resources>

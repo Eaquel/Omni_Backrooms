@@ -49,6 +49,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.core.DataStore
@@ -149,9 +151,36 @@ class SettingsRepository @Inject constructor(
             layout.forEach { b ->
                 p[floatPreferencesKey("ui_${b.buttonId}_x")] = b.offset.x
                 p[floatPreferencesKey("ui_${b.buttonId}_y")] = b.offset.y
+                // Scale was previously discarded, so resizing never survived a
+                // save/reload round-trip.
+                p[floatPreferencesKey("ui_${b.buttonId}_s")] = b.sizeScale
             }
         }
         syncToFirestore("ui_layout_saved", true)
+    }
+
+    /** Reads the layout back. Elements absent from the store fall back to the
+     *  caller's defaults, so adding a new HUD element never breaks an existing
+     *  saved layout. */
+    fun observeUiLayout(): Flow<Map<String, UiButtonLayout>> = store.data.map { p ->
+        val ids = p.asMap().keys
+            .map { it.name }
+            .filter { it.startsWith("ui_") && it.endsWith("_x") }
+            .map { it.removePrefix("ui_").removeSuffix("_x") }
+        ids.mapNotNull { id ->
+            val x = p[floatPreferencesKey("ui_${id}_x")] ?: return@mapNotNull null
+            val y = p[floatPreferencesKey("ui_${id}_y")] ?: return@mapNotNull null
+            val sc = p[floatPreferencesKey("ui_${id}_s")] ?: 1f
+            id to UiButtonLayout(id, Offset(x, y), sc)
+        }.toMap()
+    }
+
+    suspend fun resetUiLayout() {
+        store.edit { p ->
+            p.asMap().keys.map { it.name }.filter { it.startsWith("ui_") }.forEach {
+                p.remove(floatPreferencesKey(it))
+            }
+        }
     }
 
     suspend fun loadUiLayout(): List<UiButtonLayout> {
@@ -240,6 +269,10 @@ class SettingsVM @Inject constructor(
     private val locales          : LocaleStore
 ) : ViewModel() {
 
+    /** Saved HUD layout, consumed by GameHud so the editor's result is real. */
+    val uiLayout: StateFlow<Map<String, UiButtonLayout>> = repo.observeUiLayout()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     val languageSelection: StateFlow<String> = locales.observeSelection()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppLanguage.SYSTEM)
 
@@ -250,29 +283,42 @@ class SettingsVM @Inject constructor(
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
+    /** Keys the user has just changed, whose DataStore write may not have landed
+     *  yet. The store collector below skips these so a freshly-toggled switch is
+     *  not overwritten by the stale value still in flight. */
+    private val pendingWrites = mutableSetOf<String>()
+
     init {
         viewModelScope.launch {
             repo.observe().collect { g ->
-                _state.update {
-                    it.copy(
-                        playerName        = g.playerName,
-                        graphicsQuality   = g.graphicsQuality,
-                        vhsEnabled        = g.vhsEnabled,
-                        resolutionScale   = g.resolutionScale,
-                        musicVolume       = g.musicVolume,
-                        footstepVolume    = g.footstepVolume,
-                        monsterVolume     = g.monsterVolume,
-                        voiceVolume       = g.voiceVolume,
-                        cameraSensitivity = g.cameraSensitivity,
-                        fpsLimit          = g.fpsLimit,
-                        shadowsEnabled    = g.shadowsEnabled,
-                        antialiasingOn    = g.antialiasingOn,
-                        fogEnabled        = g.fogEnabled,
-                        vibrationOn       = g.vibrationOn,
-                        showFps           = g.showFps,
-                        showPing          = g.showPing,
-                        colorBlindMode    = g.colorBlindMode,
-                        pushNotifications = g.pushNotifications
+                _state.update { cur ->
+                    // Anything the user just touched keeps its local value until
+                    // the store agrees with it.
+                    fun <T> pick(key: String, stored: T, local: T): T =
+                        if (key in pendingWrites) {
+                            if (stored == local) pendingWrites.remove(key)
+                            local
+                        } else stored
+
+                    cur.copy(
+                        playerName        = pick("name", g.playerName, cur.playerName),
+                        graphicsQuality   = pick("quality", g.graphicsQuality, cur.graphicsQuality),
+                        vhsEnabled        = pick("vhs", g.vhsEnabled, cur.vhsEnabled),
+                        resolutionScale   = pick("res", g.resolutionScale, cur.resolutionScale),
+                        musicVolume       = pick("music", g.musicVolume, cur.musicVolume),
+                        footstepVolume    = pick("foot", g.footstepVolume, cur.footstepVolume),
+                        monsterVolume     = pick("monster", g.monsterVolume, cur.monsterVolume),
+                        voiceVolume       = pick("voice", g.voiceVolume, cur.voiceVolume),
+                        cameraSensitivity = pick("sens", g.cameraSensitivity, cur.cameraSensitivity),
+                        fpsLimit          = pick("fps", g.fpsLimit, cur.fpsLimit),
+                        shadowsEnabled    = pick("shadows", g.shadowsEnabled, cur.shadowsEnabled),
+                        antialiasingOn    = pick("aa", g.antialiasingOn, cur.antialiasingOn),
+                        fogEnabled        = pick("fog", g.fogEnabled, cur.fogEnabled),
+                        vibrationOn       = pick("vibe", g.vibrationOn, cur.vibrationOn),
+                        showFps           = pick("showFps", g.showFps, cur.showFps),
+                        showPing          = pick("showPing", g.showPing, cur.showPing),
+                        colorBlindMode    = pick("cb", g.colorBlindMode, cur.colorBlindMode),
+                        pushNotifications = pick("push", g.pushNotifications, cur.pushNotifications)
                     )
                 }
             }
@@ -348,27 +394,28 @@ class SettingsVM @Inject constructor(
      *  lobby and profile observe — previously the name only lived here, so those
      *  screens kept showing the old one. */
     fun onName(v: String) {
+        pendingWrites.add("name")
         _state.update { it.copy(playerName = v) }
         save { repo.saveName(v) }
         viewModelScope.launch { identity.setDisplayName(v) }
     }
-    fun onQuality(v: String)       { _state.update { it.copy(graphicsQuality   = v) }; save { repo.saveQuality(v) } }
-    fun onVhs(v: Boolean)          { _state.update { it.copy(vhsEnabled        = v) }; save { repo.saveVhs(v) } }
-    fun onResolution(v: Float)     { _state.update { it.copy(resolutionScale   = v) }; save { repo.saveResolution(v) } }
-    fun onMusic(v: Float)          { _state.update { it.copy(musicVolume       = v) }; save { repo.saveMusic(v) } }
-    fun onFootstep(v: Float)       { _state.update { it.copy(footstepVolume    = v) }; save { repo.saveFootstep(v) } }
-    fun onMonster(v: Float)        { _state.update { it.copy(monsterVolume     = v) }; save { repo.saveMonster(v) } }
-    fun onVoice(v: Float)          { _state.update { it.copy(voiceVolume       = v) }; save { repo.saveVoice(v) } }
-    fun onSensitivity(v: Float)    { _state.update { it.copy(cameraSensitivity = v) }; save { repo.saveSensitivity(v) } }
-    fun onFpsLimit(v: Int)         { _state.update { it.copy(fpsLimit          = v) }; save { repo.saveFpsLimit(v) } }
-    fun onShadows(v: Boolean)      { _state.update { it.copy(shadowsEnabled    = v) }; save { repo.saveShadows(v) } }
-    fun onAntialiasing(v: Boolean) { _state.update { it.copy(antialiasingOn    = v) }; save { repo.saveAntialiasing(v) } }
-    fun onFog(v: Boolean)          { _state.update { it.copy(fogEnabled        = v) }; save { repo.saveFog(v) } }
-    fun onVibration(v: Boolean)    { _state.update { it.copy(vibrationOn       = v) }; save { repo.saveVibration(v) } }
-    fun onShowFps(v: Boolean)      { _state.update { it.copy(showFps           = v) }; save { repo.saveShowFps(v) } }
-    fun onShowPing(v: Boolean)     { _state.update { it.copy(showPing          = v) }; save { repo.saveShowPing(v) } }
-    fun onColorBlind(v: String)    { _state.update { it.copy(colorBlindMode    = v) }; save { repo.saveColorBlind(v) } }
-    fun onPushNotif(v: Boolean)    { _state.update { it.copy(pushNotifications = v) }; save { repo.savePushNotif(v) } }
+    fun onQuality(v: String)       { pendingWrites.add("quality"); _state.update { it.copy(graphicsQuality   = v) }; save { repo.saveQuality(v) } }
+    fun onVhs(v: Boolean)          { pendingWrites.add("vhs"); _state.update { it.copy(vhsEnabled        = v) }; save { repo.saveVhs(v) } }
+    fun onResolution(v: Float)     { pendingWrites.add("res"); _state.update { it.copy(resolutionScale   = v) }; save { repo.saveResolution(v) } }
+    fun onMusic(v: Float)          { pendingWrites.add("music"); _state.update { it.copy(musicVolume       = v) }; save { repo.saveMusic(v) } }
+    fun onFootstep(v: Float)       { pendingWrites.add("foot"); _state.update { it.copy(footstepVolume    = v) }; save { repo.saveFootstep(v) } }
+    fun onMonster(v: Float)        { pendingWrites.add("monster"); _state.update { it.copy(monsterVolume     = v) }; save { repo.saveMonster(v) } }
+    fun onVoice(v: Float)          { pendingWrites.add("voice"); _state.update { it.copy(voiceVolume       = v) }; save { repo.saveVoice(v) } }
+    fun onSensitivity(v: Float)    { pendingWrites.add("sens"); _state.update { it.copy(cameraSensitivity = v) }; save { repo.saveSensitivity(v) } }
+    fun onFpsLimit(v: Int)         { pendingWrites.add("fps"); _state.update { it.copy(fpsLimit          = v) }; save { repo.saveFpsLimit(v) } }
+    fun onShadows(v: Boolean)      { pendingWrites.add("shadows"); _state.update { it.copy(shadowsEnabled    = v) }; save { repo.saveShadows(v) } }
+    fun onAntialiasing(v: Boolean) { pendingWrites.add("aa"); _state.update { it.copy(antialiasingOn    = v) }; save { repo.saveAntialiasing(v) } }
+    fun onFog(v: Boolean)          { pendingWrites.add("fog"); _state.update { it.copy(fogEnabled        = v) }; save { repo.saveFog(v) } }
+    fun onVibration(v: Boolean)    { pendingWrites.add("vibe"); _state.update { it.copy(vibrationOn       = v) }; save { repo.saveVibration(v) } }
+    fun onShowFps(v: Boolean)      { pendingWrites.add("showFps"); _state.update { it.copy(showFps           = v) }; save { repo.saveShowFps(v) } }
+    fun onShowPing(v: Boolean)     { pendingWrites.add("showPing"); _state.update { it.copy(showPing          = v) }; save { repo.saveShowPing(v) } }
+    fun onColorBlind(v: String)    { pendingWrites.add("cb"); _state.update { it.copy(colorBlindMode    = v) }; save { repo.saveColorBlind(v) } }
+    fun onPushNotif(v: Boolean)    { pendingWrites.add("push"); _state.update { it.copy(pushNotifications = v) }; save { repo.savePushNotif(v) } }
 
     fun syncToServer() {
         viewModelScope.launch {
@@ -915,97 +962,211 @@ private fun SettingsSlider(
     }
 }
 
-private data class DragBtn(val id: String, val labelRes: Int, var ox: Float, var oy: Float)
-
 @HiltViewModel
 class UiEditorVM @Inject constructor(private val repo: SettingsRepository) : ViewModel() {
+    val layout: StateFlow<Map<String, UiButtonLayout>> = repo.observeUiLayout()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     fun saveLayout(layout: List<UiButtonLayout>) {
         viewModelScope.launch { repo.saveUiLayout(layout) }
     }
+
+    fun reset() { viewModelScope.launch { repo.resetUiLayout() } }
 }
 
 @Composable
 fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
-    // Mirrors the real HUD exactly: same controls, same relative cluster
-    // positions. There is no sprint button in game, so the editor no longer
-    // offers one — it used to let players arrange a control that didn't exist.
-    val buttons = remember {
+    val saved by vm.layout.collectAsState()
+
+    // Every HUD element is editable, not just the action buttons — the status
+    // bars, the pause control and the readout row were previously fixed in
+    // place with no way to move or resize them.
+    val elements = remember {
         mutableStateListOf(
-            DragBtn("joystick",   R.string.editor_btn_move,       70f,  430f),
-            DragBtn("interact",   R.string.editor_btn_interact,   1010f, 440f),
-            DragBtn("flashlight", R.string.editor_btn_flashlight, 900f,  455f),
-            DragBtn("jump",       R.string.editor_btn_jump,       1000f, 340f),
-            DragBtn("crouch",     R.string.editor_btn_crouch,     890f,  340f)
+            HudElement("bars",       R.string.editor_btn_bars,       0.10f, 0.14f, 150f, 74f),
+            HudElement("readouts",   R.string.editor_btn_readouts,   0.78f, 0.07f, 120f, 30f),
+            HudElement("pause",      R.string.editor_btn_pause,      0.95f, 0.07f, 40f,  40f),
+            HudElement("joystick",   R.string.editor_btn_move,       0.14f, 0.74f, 140f, 140f),
+            HudElement("interact",   R.string.editor_btn_interact,   0.90f, 0.80f, 62f,  62f),
+            HudElement("flashlight", R.string.editor_btn_flashlight, 0.78f, 0.80f, 52f,  52f),
+            HudElement("jump",       R.string.editor_btn_jump,       0.90f, 0.63f, 46f,  46f),
+            HudElement("crouch",     R.string.editor_btn_crouch,     0.78f, 0.63f, 46f,  46f)
         )
     }
 
-    Box(Modifier.fillMaxSize().background(DarkBg.copy(0.92f))) {
+    // Apply anything already persisted, once the store has produced a value.
+    LaunchedEffect(saved) {
+        saved.forEach { (id, layout) ->
+            elements.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { i ->
+                elements[i] = elements[i].copy(
+                    normX = layout.offset.x, normY = layout.offset.y, scale = layout.sizeScale
+                )
+            }
+        }
+    }
+
+    var selectedId by remember { mutableStateOf<String?>(null) }
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         CrtOverlay()
 
-        Box(Modifier.fillMaxWidth().padding(top = 20.dp), Alignment.TopCenter) {
-            Text(
-                stringResource(R.string.controls_ui_layout).uppercase(),
-                color        = TextDim,
-                fontSize     = 10.sp,
-                letterSpacing = 3.sp
-            )
-        }
-
-        buttons.forEachIndexed { index, btn ->
-            var ox by remember { mutableFloatStateOf(btn.ox) }
-            var oy by remember { mutableFloatStateOf(btn.oy) }
-            val oxAnim by animateFloatAsState(ox, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh), label = "drag_x_$index")
-            val oyAnim by animateFloatAsState(oy, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh), label = "drag_y_$index")
-
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .offset { IntOffset(oxAnim.roundToInt(), oyAnim.roundToInt()) }
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(
-                        Brush.verticalGradient(listOf(MetalBg.copy(0.95f), DarkBg.copy(0.9f)))
-                    )
-                    .border(1.dp, YellowDim, RoundedCornerShape(4.dp))
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragEnd = { buttons[index] = btn.copy(ox = ox, oy = oy) }
-                        ) { ch, drag ->
-                            ch.consume()
-                            ox += drag.x
-                            oy += drag.y
+        Box(
+            Modifier.fillMaxSize().onSizeChanged { canvasSize = it }
+        ) {
+            elements.forEachIndexed { index, el ->
+                val selected = el.id == selectedId
+                val w = el.baseW * el.scale
+                val h = el.baseH * el.scale
+                Box(
+                    Modifier
+                        .offset {
+                            IntOffset(
+                                (el.normX * canvasSize.width - w * density / 2f).toInt(),
+                                (el.normY * canvasSize.height - h * density / 2f).toInt()
+                            )
+                        }
+                        .size(w.dp, h.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) Yellow.copy(0.16f) else Color.Black.copy(0.55f))
+                        .border(
+                            if (selected) 2.dp else 1.dp,
+                            if (selected) Yellow else YellowDim.copy(0.55f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .pointerInput(el.id) {
+                            detectDragGestures(
+                                onDragStart = { selectedId = el.id },
+                                onDrag = { change, drag ->
+                                    change.consume()
+                                    val cur = elements[index]
+                                    // Normalised coordinates keep the layout valid
+                                    // across screen sizes and orientations.
+                                    elements[index] = cur.copy(
+                                        normX = (cur.normX + drag.x / canvasSize.width.coerceAtLeast(1))
+                                            .coerceIn(0.04f, 0.96f),
+                                        normY = (cur.normY + drag.y / canvasSize.height.coerceAtLeast(1))
+                                            .coerceIn(0.04f, 0.96f)
+                                    )
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        androidx.compose.foundation.Canvas(
+                            Modifier.size((w * 0.42f).coerceIn(16f, 44f).dp)
+                        ) { editorGlyph(el.id, if (selected) Yellow else YellowDim) }
+                        if (h > 34f) {
+                            Text(
+                                stringResource(el.labelRes),
+                                color = if (selected) Yellow else TextDim,
+                                fontSize = 8.sp, maxLines = 1
+                            )
                         }
                     }
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    androidx.compose.foundation.Canvas(Modifier.size(30.dp)) {
-                        editorGlyph(btn.id, Yellow)
-                    }
-                    Text(
-                        stringResource(btn.labelRes),
-                        color        = Yellow,
-                        fontSize     = 8.sp,
-                        fontWeight   = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
-                    )
                 }
             }
         }
 
-        AtmosphericButton(
-            label    = stringResource(R.string.controls_save_exit),
-            icon     = Icons.Default.Save,
-            accent   = Yellow,
-            width    = 200.dp,
-            height   = 48.dp,
-            onClick  = {
-                vm.saveLayout(buttons.map { UiButtonLayout(buttonId = it.id, offset = Offset(it.ox, it.oy)) })
-                onSave()
-            },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-        )
+        // --- Controls --------------------------------------------------------
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(0.88f))
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                stringResource(R.string.editor_hint),
+                color = TextDim, fontSize = 10.sp, lineHeight = 14.sp
+            )
+
+            val sel = elements.firstOrNull { it.id == selectedId }
+            if (sel != null) {
+                val index = elements.indexOfFirst { it.id == sel.id }
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                    Text(
+                        "${stringResource(R.string.editor_selected)}: ${stringResource(sel.labelRes)}",
+                        color = Yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text("${(sel.scale * 100).toInt()}%", color = CrtAmber, fontSize = 11.sp)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.editor_size), color = TextSec, fontSize = 11.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Slider(
+                        value = sel.scale,
+                        onValueChange = { elements[index] = elements[index].copy(scale = it) },
+                        valueRange = 0.6f..1.8f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Yellow,
+                            activeTrackColor = Yellow.copy(0.75f),
+                            inactiveTrackColor = MetalBg
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AtmosphericButton(
+                    label = stringResource(R.string.editor_reset),
+                    icon = Icons.Default.Refresh,
+                    accent = TextSec,
+                    width = 150.dp, height = 44.dp,
+                    onClick = {
+                        vm.reset()
+                        selectedId = null
+                        // Restore the built-in positions immediately rather than
+                        // waiting for the store to round-trip.
+                        val defaults = listOf(
+                            Triple("bars", 0.10f to 0.14f, 1f),
+                            Triple("readouts", 0.78f to 0.07f, 1f),
+                            Triple("pause", 0.95f to 0.07f, 1f),
+                            Triple("joystick", 0.14f to 0.74f, 1f),
+                            Triple("interact", 0.90f to 0.80f, 1f),
+                            Triple("flashlight", 0.78f to 0.80f, 1f),
+                            Triple("jump", 0.90f to 0.63f, 1f),
+                            Triple("crouch", 0.78f to 0.63f, 1f)
+                        )
+                        defaults.forEach { (id, pos, sc) ->
+                            elements.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { i ->
+                                elements[i] = elements[i].copy(normX = pos.first, normY = pos.second, scale = sc)
+                            }
+                        }
+                    }
+                )
+                AtmosphericButton(
+                    label = stringResource(R.string.controls_save_exit),
+                    icon = Icons.Default.Check,
+                    accent = Yellow,
+                    width = 170.dp, height = 44.dp,
+                    onClick = {
+                        vm.saveLayout(
+                            elements.map { UiButtonLayout(it.id, Offset(it.normX, it.normY), it.scale) }
+                        )
+                        onSave()
+                    },
+                    isPrimary = true
+                )
+            }
+        }
     }
 }
+
+/** One editable HUD element. Position is normalised (0..1 of the screen) so a
+ *  layout stays correct on a different device or orientation. */
+private data class HudElement(
+    val id: String,
+    val labelRes: Int,
+    val normX: Float,
+    val normY: Float,
+    val baseW: Float,
+    val baseH: Float,
+    val scale: Float = 1f
+)
 
 
 /** Draws the same control glyphs the in-game HUD uses, so the layout editor is a
@@ -1090,7 +1251,6 @@ private fun openAppNotificationSettings(ctx: Context) {
  *  strings — Compose caches resolved resources per composition. */
 @Composable
 fun LanguageSection(current: String, onSelect: (String) -> Unit) {
-    val ctx = LocalContext.current
     val options = buildList {
         add(AppLanguage.SYSTEM to stringResource(R.string.settings_language_system))
         AppLanguage.entries.forEach { add(it.tag to it.endonym) }
@@ -1106,13 +1266,9 @@ fun LanguageSection(current: String, onSelect: (String) -> Unit) {
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (sel) Yellow.copy(0.12f) else MetalBg)
                     .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(4.dp))
-                    .clickable {
-                        if (!sel) {
-                            onSelect(tag)
-                            // Recreate so the whole UI picks up the new locale.
-                            (ctx as? android.app.Activity)?.recreate()
-                        }
-                    }
+                    // The app tree is keyed on the language, so selecting one
+                    // rebuilds every screen in place — no activity recreate.
+                    .clickable { if (!sel) onSelect(tag) }
                     .padding(horizontal = 12.dp, vertical = 11.dp)
             ) {
                 androidx.compose.foundation.Canvas(Modifier.size(16.dp)) {

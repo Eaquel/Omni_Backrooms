@@ -220,4 +220,11 @@
     <string name="char_preview_equipped">Экипировано</string>
     <string name="char_anim_idle">Покой</string>
     <string name="char_anim_walk">Ходьба</string>
+    <string name="editor_btn_bars">Полосы состояния</string>
+    <string name="editor_btn_pause">Пауза</string>
+    <string name="editor_btn_readouts">Показатели</string>
+    <string name="editor_size">Размер</string>
+    <string name="editor_reset">Сброс</string>
+    <string name="editor_hint">Перетащите, чтобы переместить; выберите и меняйте размер ползунком</string>
+    <string name="editor_selected">Выбрано</string>
 </resources>

@@ -68,6 +68,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -371,7 +373,23 @@ private object Route {
 }
 
 @Composable
-fun OmniBackroomsApp() {
+fun OmniBackroomsApp(localeVm: AppLocaleVM = hiltViewModel()) {
+    val language by localeVm.language.collectAsState()
+    val ctx = LocalContext.current
+
+    // Rebuild the entire UI tree when the language changes, with a Context whose
+    // resources resolve in that language. This replaces the old activity
+    // recreate: same effect, no flash, no back-stack disruption.
+    val localisedContext = remember(language) { applyAppLanguage(ctx, language) }
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalContext provides localisedContext
+    ) {
+        key(language) { OmniBackroomsAppContent() }
+    }
+}
+
+@Composable
+private fun OmniBackroomsAppContent() {
     val nav = rememberNavController()
     val guardVm: GuardVM = hiltViewModel()
     val guardReport by guardVm.report.collectAsState()
@@ -535,7 +553,8 @@ class GoogleAuthVM @Inject constructor(
                     )
                 }
                 .onFailure { e ->
-                    _state.update { it.copy(isLoading = false, error = e.message) }
+                    OmniLog.w("Market", "load failed; using local data", e)
+                    _state.update { it.copy(isLoading = false, error = null) }
                 }
         }
     }
@@ -938,7 +957,12 @@ class MarketVM @Inject constructor(
             _state.update { it.copy(isLoading = true, error = null) }
             runCatching { api.getMarketItems(tab.name.lowercase()) }
                 .onSuccess { page -> _state.update { it.copy(isLoading = false, items = page.items) } }
-                .onFailure { e   -> _state.update { it.copy(isLoading = false, error = e.message, items = fallbackItems(tab)) } }
+                .onFailure { e ->
+                    // The offline catalogue already covers this case, so the raw
+                    // network/converter message is noise — log it, don't show it.
+                    OmniLog.w("Market", "loadTab failed for $tab; using local catalogue", e)
+                    _state.update { it.copy(isLoading = false, error = null, items = fallbackItems(tab)) }
+                }
         }
     }
 
@@ -1884,11 +1908,31 @@ in vec3 vNormal; in vec2 vUV; in float vLight; in vec3 vWorldPos;
 uniform sampler2D uTex;
 uniform vec3 uCamPos; uniform vec3 uFlashDir; uniform float uFlashOn;
 uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
+uniform float uBumpStrength; uniform float uBumpTexel;
 out vec4 fragColor;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3,289.1))) * 43758.5453); }
 void main(){
     vec4 tex = texture(uTex, vUV);
+
+    // Derive a surface normal from the texture's own luminance slope, then
+    // rotate it into the face's tangent frame. Cheap bump mapping with no
+    // extra texture: the albedo doubles as a height field.
     vec3 n = normalize(vNormal);
+    if (uBumpStrength > 0.001) {
+        vec2 texel = vec2(uBumpTexel);
+        float hL = dot(texture(uTex, vUV - vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
+        float hR = dot(texture(uTex, vUV + vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
+        float hD = dot(texture(uTex, vUV - vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+        float hU = dot(texture(uTex, vUV + vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+        // Tangent frame from the geometric normal: walls are axis-aligned, so
+        // picking the least-aligned world axis gives a stable tangent.
+        vec3 up = abs(n.y) > 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+        vec3 tangent = normalize(cross(up, n));
+        vec3 bitangent = cross(n, tangent);
+        vec3 bump = tangent * (hL - hR) + bitangent * (hD - hU);
+        n = normalize(n + bump * uBumpStrength);
+    }
+
     float overhead = clamp(dot(n, vec3(0.0,1.0,0.0)), 0.0, 1.0) * vLight * uFlicker;
     vec3 toCam = uCamPos - vWorldPos;
     float dist = length(toCam);
@@ -1911,6 +1955,13 @@ void main(){
     float micro = 0.94 + 0.06 * hash(floor(vUV * 37.0));
     float lit = (0.08 + overhead*0.95 + flash) * groundAO;
     vec3 col = tex.rgb * lit * micro;
+
+    // Tight specular from the flashlight, which is what reveals the bump relief.
+    if (uFlashOn > 0.5) {
+        vec3 h = normalize(toCamN + toCamN);
+        float spec = pow(max(dot(n, h), 0.0), 42.0) * flash * 0.55;
+        col += vec3(spec) * vec3(1.0, 0.94, 0.80);
+    }
     float fog = 1.0 - exp(-uFogDensity * dist * dist * 0.008);
     col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
     fragColor = vec4(col, 1.0);
@@ -2047,6 +2098,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var uMVP = 0; private var uTex = 0; private var uCamPos = 0
     private var uFlashDir = 0; private var uFlashOn = 0; private var uFogDensity = 0
     private var uFogColor = 0; private var uFlicker = 0
+    private var uBumpStrength = 0; private var uBumpTexel = 0
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
     private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
@@ -2062,25 +2114,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var billboardVbo = 0
     private var postVbo = 0
 
-    // Character model + its own program. Null when the asset is missing, in
-    // which case entities fall back to the billboard path.
-    private var charProgram = 0
-    private var charVbo = 0; private var charIbo = 0; private var charIndexCount = 0
-    private var charTex = 0
-    private var cMVP = 0; private var cModel = 0; private var cTime = 0; private var cWalk = 0
-    private var cHeight = 0; private var cTexU = 0; private var cCamPos = 0
-    private var cFlashDir = 0; private var cFlashOn = 0; private var cFogD = 0
-    private var cFogCol = 0; private var cAmbient = 0
-    private val charModelM = FloatArray(16)
-    private val charMvpM = FloatArray(16)
 
     private var fbo = 0; private var fboTex = 0; private var fboDepth = 0
     private var surfaceW = 1; private var surfaceH = 1
     private var renderW = 1; private var renderH = 1
     private var lastResScale = -1f
-
-    /** World height of a character in metres. The mesh is normalised to 1.0. */
-    private val CHAR_SCALE = 1.75f
 
     private val projM = FloatArray(16)
     private val viewM = FloatArray(16)
@@ -2120,6 +2158,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         uFogDensity = GLES30.glGetUniformLocation(sceneProgram, "uFogDensity")
         uFogColor = GLES30.glGetUniformLocation(sceneProgram, "uFogColor")
         uFlicker = GLES30.glGetUniformLocation(sceneProgram, "uFlicker")
+        uBumpStrength = GLES30.glGetUniformLocation(sceneProgram, "uBumpStrength")
+        uBumpTexel = GLES30.glGetUniformLocation(sceneProgram, "uBumpTexel")
 
         billboardProgram = linkGlProgram(OMNI_BILLBOARD_VERT, OMNI_BILLBOARD_FRAG)
         bVP = GLES30.glGetUniformLocation(billboardProgram, "uVP")
@@ -2146,41 +2186,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         sCenter = GLES30.glGetUniformLocation(shadowProgram, "uCenter")
         sSize = GLES30.glGetUniformLocation(shadowProgram, "uSize")
         sAlpha = GLES30.glGetUniformLocation(shadowProgram, "uAlpha")
-
-        // Character: program, geometry and texture. Any failure leaves
-        // charIndexCount at 0 and the renderer simply skips it.
-        runCatching {
-            charProgram = linkGlProgram(OMNI_CHAR_VERT, OMNI_CHAR_FRAG)
-            cMVP = GLES30.glGetUniformLocation(charProgram, "uMVP")
-            cModel = GLES30.glGetUniformLocation(charProgram, "uModel")
-            cTime = GLES30.glGetUniformLocation(charProgram, "uTime")
-            cWalk = GLES30.glGetUniformLocation(charProgram, "uWalk")
-            cHeight = GLES30.glGetUniformLocation(charProgram, "uHeight")
-            cTexU = GLES30.glGetUniformLocation(charProgram, "uTex")
-            cCamPos = GLES30.glGetUniformLocation(charProgram, "uCamPos")
-            cFlashDir = GLES30.glGetUniformLocation(charProgram, "uFlashDir")
-            cFlashOn = GLES30.glGetUniformLocation(charProgram, "uFlashOn")
-            cFogD = GLES30.glGetUniformLocation(charProgram, "uFogDensity")
-            cFogCol = GLES30.glGetUniformLocation(charProgram, "uFogColor")
-            cAmbient = GLES30.glGetUniformLocation(charProgram, "uAmbient")
-
-            val mesh = CharacterMesh.load(appContext, "character.omesh")
-            if (mesh != null) {
-                charVbo = genGlBuffer(); charIbo = genGlBuffer()
-                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
-                GLES30.glBufferData(
-                    GLES30.GL_ARRAY_BUFFER, mesh.vertexBuffer.size * 4,
-                    glFloatBuffer(mesh.vertexBuffer), GLES30.GL_STATIC_DRAW
-                )
-                val ib = ByteBuffer.allocateDirect(mesh.indices.size * 2)
-                    .order(ByteOrder.nativeOrder()).asShortBuffer()
-                ib.put(mesh.indices); ib.position(0)
-                GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
-                GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 2, ib, GLES30.GL_STATIC_DRAW)
-                charIndexCount = mesh.indices.size
-            }
-            charTex = loadOmniTexture("character_texture.png", 0xFFE8D5C8.toInt())
-        }.onFailure { OmniLog.e("Render", "character setup failed; falling back to billboards", it) }
 
         floorTex = loadOmniTexture("Level_0/Floor.png", 0xFF3A3020.toInt())
         wallTex  = loadOmniTexture("Level_0/Wall.png",  0xFF4A4030.toInt())
@@ -2277,7 +2282,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
             val fogDensity = (if (rs.fogEnabled) 1.0f else 0.15f) * fogMult
             val flicker = state.flickerIntensity.coerceIn(0.35f, 1f)
-            drawLevel(vpM, smoothX, eyeY, smoothZ, fx, fy, fz, state.flashlightOn, fogDensity, flicker)
+            val bump = when (rs.quality) { "low" -> 0f; "high" -> 1.6f; else -> 0.9f }
+            drawLevel(vpM, smoothX, eyeY, smoothZ, fx, fy, fz, state.flashlightOn, fogDensity, flicker, bump)
 
             val activeIds = HashSet<Int>()
             for (e in state.entities) {
@@ -2291,14 +2297,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             smoothEntities.keys.retainAll(activeIds)
 
             if (shadowsOn) drawShadows(vpM, state.entities, smoothX, smoothZ, entityRange)
-            if (charIndexCount > 0) {
-                drawCharacters(
-                    vpM, state.entities, smoothX, eyeY, smoothZ, fx, fy, fz,
-                    state.flashlightOn, fogDensity, entityRange, timeSec
-                )
-            } else {
-                drawEntities(vpM, state.entities, yawRad.toFloat(), smoothX, smoothZ, entityRange, timeSec, cbMix)
-            }
+            // Entities are the Backrooms creatures — they stay billboards. The
+            // character model is the player's own avatar and belongs to the
+            // preview screen, not to the corridors.
+            drawEntities(vpM, state.entities, yawRad.toFloat(), smoothX, smoothZ, entityRange, timeSec, cbMix)
         }
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
@@ -2308,7 +2310,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         drawPost(timeSec, state.flickerIntensity, (if (rs.vhsEnabled) 1f else 0f) * postStrength, cbMix, cbAxis)
     }
 
-    private fun drawLevel(vp: FloatArray, camX: Float, camY: Float, camZ: Float, fx: Float, fy: Float, fz: Float, flashOn: Boolean, fogDensity: Float, flicker: Float) {
+    private fun drawLevel(vp: FloatArray, camX: Float, camY: Float, camZ: Float, fx: Float, fy: Float, fz: Float, flashOn: Boolean, fogDensity: Float, flicker: Float, bumpStrength: Float) {
         GLES30.glUseProgram(sceneProgram)
         GLES30.glUniformMatrix4fv(uMVP, 1, false, vp, 0)
         GLES30.glUniform3f(uCamPos, camX, camY, camZ)
@@ -2317,6 +2319,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glUniform1f(uFogDensity, fogDensity)
         GLES30.glUniform3f(uFogColor, 0.05f, 0.045f, 0.03f)
         GLES30.glUniform1f(uFlicker, flicker)
+        // Bump detail scales with quality: off on low, subtle on medium, full
+        // on high. The texel step controls how coarse the derived relief is.
+        GLES30.glUniform1f(uBumpStrength, bumpStrength)
+        GLES30.glUniform1f(uBumpTexel, 1.0f / 512f)
         drawMeshGroup(floorVbo, floorIbo, floorCount, floorTex)
         drawMeshGroup(roofVbo,  roofIbo,  roofCount,  roofTex)
         drawMeshGroup(wallVbo,  wallIbo,  wallCount,  wallTex)
@@ -2371,64 +2377,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glDisableVertexAttribArray(0)
     }
 
-
-    /** Draws entities as full 3D characters when the model is available, falling
-     *  back to the billboard path when it isn't. Each entity gets its own walk
-     *  weight from its AI state, so a chasing creature actually strides. */
-    private fun drawCharacters(
-        vp: FloatArray, entities: List<EntityState>, camX: Float, camY: Float, camZ: Float,
-        fx: Float, fy: Float, fz: Float, flashOn: Boolean, fogDensity: Float,
-        range: Float, timeSec: Float
-    ) {
-        if (charIndexCount <= 0 || entities.isEmpty()) return
-        GLES30.glUseProgram(charProgram)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, charTex)
-        GLES30.glUniform1i(cTexU, 0)
-        GLES30.glUniform3f(cCamPos, camX, camY, camZ)
-        GLES30.glUniform3f(cFlashDir, fx, fy, fz)
-        GLES30.glUniform1f(cFlashOn, if (flashOn) 1f else 0f)
-        GLES30.glUniform1f(cFogD, fogDensity)
-        GLES30.glUniform3f(cFogCol, 0.05f, 0.045f, 0.03f)
-        GLES30.glUniform1f(cHeight, 1.0f)   // mesh is normalised to unit height
-
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
-        val stride = CharacterMesh.FLOATS_PER_VERTEX * 4
-        GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
-        GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
-        GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
-        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
-
-        val rangeSq = range * range
-        for (e in entities) {
-            if (!e.isActive) continue
-            val sp = smoothEntities[e.id] ?: floatArrayOf(e.posX, e.posY, e.posZ)
-            val dx = sp[0] - camX; val dz = sp[2] - camZ
-            val d2 = dx * dx + dz * dz
-            if (d2 > rangeSq) continue
-
-            // Face the player. atan2 of the offset gives the yaw directly in the
-            // engine's (sin, cos) forward convention.
-            val yawDeg = Math.toDegrees(kotlin.math.atan2(dx.toDouble(), dz.toDouble())).toFloat()
-            Matrix.setIdentityM(charModelM, 0)
-            Matrix.translateM(charModelM, 0, sp[0], sp[1], sp[2])
-            Matrix.rotateM(charModelM, 0, yawDeg + 180f, 0f, 1f, 0f)
-            Matrix.scaleM(charModelM, 0, CHAR_SCALE, CHAR_SCALE, CHAR_SCALE)
-            Matrix.multiplyMM(charMvpM, 0, vp, 0, charModelM, 0)
-
-            GLES30.glUniformMatrix4fv(cMVP, 1, false, charMvpM, 0)
-            GLES30.glUniformMatrix4fv(cModel, 1, false, charModelM, 0)
-            // Per-entity time offset stops a crowd moving in lockstep.
-            GLES30.glUniform1f(cTime, timeSec + e.id * 0.83f)
-            // Chase/attack states stride; idle and wander only breathe.
-            GLES30.glUniform1f(cWalk, if (e.aiState >= 2) 1f else 0.15f)
-            GLES30.glUniform1f(cAmbient, if (e.playerInSight) 0.95f else 0.75f)
-            GLES30.glDrawElements(GLES30.GL_TRIANGLES, charIndexCount, GLES30.GL_UNSIGNED_SHORT, 0)
-        }
-        GLES30.glDisableVertexAttribArray(0)
-        GLES30.glDisableVertexAttribArray(1)
-        GLES30.glDisableVertexAttribArray(2)
-    }
 
     private fun drawShadows(vp: FloatArray, entities: List<EntityState>, camX: Float, camZ: Float, range: Float) {
         if (entities.isEmpty()) return
@@ -2715,6 +2663,7 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { vm.startGame(resume = resume) }
 
+    val hudLayout by settingsVm.uiLayout.collectAsState()
     val renderer = remember { OmniGLRenderer(ctx.applicationContext) }
     LaunchedEffect(state) { renderer.latestState = state }
     // Sampled twice a second: often enough to feel live, rare enough not to
@@ -2778,6 +2727,7 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
             else -> GameHud(
                 gameState  = state,
                 canEscape  = vm.canEscape,
+                layout     = hudLayout,
                 onPause    = { vm.togglePause() },
                 onFlash    = { vm.toggleFlashlight() },
                 onMove     = { dx, dy, dz -> vm.onMove(dx, dy, dz) },
@@ -3178,6 +3128,7 @@ private fun XpBar(progress: Float, xp: Long, xpToNext: Long) {
 /** Avatar with an equippable decorative frame drawn in code. */
 @Composable
 private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: () -> Unit) {
+    val clock = rememberFrameClock()
     Box(Modifier.size(size).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val r = this.size.minDimension * 0.36f
@@ -3194,7 +3145,7 @@ private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: ()
                 close()
             }
             drawPath(body, Yellow.copy(0.8f))
-            drawFrameRing(frame, r)
+            drawFrameRing(frame, r, clock)
         }
         // Decoded directly rather than via an image-loading library: it's one
         // small avatar, so pulling in a whole dependency for it isn't warranted.
@@ -3221,48 +3172,138 @@ private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: ()
     }
 }
 
-/** Frame styles are pure decoration — deliberately no gameplay effect. */
-private fun DrawScope.drawFrameRing(frame: String, r: Float) {
+/**
+ * Frame styles are pure decoration — no gameplay effect by design.
+ *
+ * Animated and shaded rather than flat: [t] drives orbiting elements, and the
+ * ring is built from short arc segments whose brightness varies with their
+ * angle to a fixed light. That angular shading is what reads as a rounded metal
+ * band catching light, instead of a printed circle.
+ */
+
+/** Continuously advancing seconds, for Canvas art that animates. Shared so
+ *  several frames on screen stay in phase with each other. */
+@Composable
+private fun rememberFrameClock(): Float {
+    val inf = rememberInfiniteTransition(label = "frameClock")
+    val t by inf.animateFloat(
+        0f, (Math.PI * 2).toFloat() * 4f,
+        infiniteRepeatable(tween(25_000, easing = LinearEasing), RepeatMode.Restart),
+        "frameClockV"
+    )
+    return t
+}
+
+private fun DrawScope.drawFrameRing(frame: String, r: Float, t: Float = 0f) {
     val w = size.minDimension * 0.035f
+
+    // A ring drawn as lit segments. `lightAngle` is where the highlight sits;
+    // segments facing it are brighter, the far side falls into shadow.
+    fun litRing(
+        color: Color,
+        radius: Float,
+        thickness: Float,
+        lightAngle: Float,
+        segments: Int = 48,
+        shimmer: Float = 0f
+    ) {
+        val step = (Math.PI * 2 / segments).toFloat()
+        for (i in 0 until segments) {
+            val a0 = i * step
+            val facing = kotlin.math.cos(a0 - lightAngle)          // 1 = toward light
+            val lit = 0.30f + 0.70f * ((facing + 1f) / 2f)
+            // A travelling glint on top of the static highlight.
+            val glint = kotlin.math.max(0f, kotlin.math.cos(a0 - t * 2.4f)).let { it * it * it }
+            val alpha = (lit + glint * shimmer).coerceIn(0f, 1f)
+            drawArc(
+                color = color.copy(alpha),
+                startAngle = Math.toDegrees(a0.toDouble()).toFloat(),
+                sweepAngle = Math.toDegrees(step.toDouble()).toFloat() + 1.2f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = Size(radius * 2, radius * 2),
+                style = Stroke(thickness, cap = StrokeCap.Butt)
+            )
+        }
+    }
+
     when (frame) {
         "gold" -> {
-            drawCircle(CrtAmber, radius = r * 1.16f, center = center, style = Stroke(w * 1.5f))
-            drawCircle(CrtAmber.copy(0.45f), radius = r * 1.28f, center = center, style = Stroke(w * 0.6f))
-        }
-        "soulium" -> {
-            drawCircle(SouliumCol, radius = r * 1.16f, center = center, style = Stroke(w * 1.3f))
-            for (i in 0 until 8) {
-                val a = (Math.PI * 2 / 8 * i).toFloat()
+            // Two concentric bands with the highlight offset between them, which
+            // is what gives the pair a sense of thickness.
+            litRing(CrtAmber, r * 1.16f, w * 1.6f, lightAngle = -0.9f, shimmer = 0.55f)
+            litRing(CrtAmber.copy(0.55f), r * 1.30f, w * 0.7f, lightAngle = -0.6f, shimmer = 0.35f)
+            // Four studs orbiting slowly.
+            for (i in 0 until 4) {
+                val a = t * 0.5f + i * (Math.PI / 2).toFloat()
+                val pulse = 0.6f + 0.4f * kotlin.math.sin(t * 2.2f + i)
                 drawCircle(
-                    SouliumCol.copy(0.8f), radius = w * 0.9f,
-                    center = Offset(center.x + cos(a) * r * 1.30f, center.y + sin(a) * r * 1.30f)
+                    CrtAmber.copy(pulse), radius = w * 1.05f,
+                    center = Offset(center.x + kotlin.math.cos(a) * r * 1.23f,
+                                    center.y + kotlin.math.sin(a) * r * 1.23f)
                 )
             }
         }
+        "soulium" -> {
+            litRing(SouliumCol, r * 1.16f, w * 1.4f, lightAngle = 2.2f, shimmer = 0.7f)
+            // Crystal shards orbiting, each scaled by its phase so they read as
+            // passing in front of and behind the ring.
+            for (i in 0 until 8) {
+                val a = t * 0.8f + i * (Math.PI * 2 / 8).toFloat()
+                val depth = (kotlin.math.sin(a) + 1f) / 2f          // 0 = behind, 1 = front
+                val size0 = w * (0.7f + depth * 0.9f)
+                val cx = center.x + kotlin.math.cos(a) * r * 1.30f
+                val cy = center.y + kotlin.math.sin(a) * r * 1.30f * 0.42f   // ellipse = tilted orbit
+                val shard = Path().apply {
+                    moveTo(cx, cy - size0); lineTo(cx + size0 * 0.62f, cy)
+                    lineTo(cx, cy + size0); lineTo(cx - size0 * 0.62f, cy); close()
+                }
+                drawPath(shard, SouliumCol.copy(0.35f + depth * 0.6f))
+            }
+        }
         "omnium" -> {
-            drawCircle(OmniumCol, radius = r * 1.16f, center = center, style = Stroke(w * 1.3f))
+            litRing(OmniumCol, r * 1.16f, w * 1.4f, lightAngle = 0.4f, shimmer = 0.6f)
+            // A rotating arc sweeping around the band.
             drawArc(
-                OmniumCol.copy(0.55f), -40f, 260f, false,
+                OmniumCol.copy(0.75f),
+                startAngle = Math.toDegrees((t * 1.6f).toDouble()).toFloat(),
+                sweepAngle = 110f, useCenter = false,
                 topLeft = Offset(center.x - r * 1.30f, center.y - r * 1.30f),
-                size = Size(r * 2.60f, r * 2.60f), style = Stroke(w * 0.7f)
+                size = Size(r * 2.60f, r * 2.60f),
+                style = Stroke(w * 0.85f, cap = StrokeCap.Round)
+            )
+            drawArc(
+                OmniumCol.copy(0.30f),
+                startAngle = Math.toDegrees((t * 1.6f + Math.PI).toDouble()).toFloat(),
+                sweepAngle = 70f, useCenter = false,
+                topLeft = Offset(center.x - r * 1.38f, center.y - r * 1.38f),
+                size = Size(r * 2.76f, r * 2.76f),
+                style = Stroke(w * 0.55f, cap = StrokeCap.Round)
             )
         }
         "event" -> {
-            drawCircle(DangerRed.copy(0.85f), radius = r * 1.16f, center = center, style = Stroke(w * 1.4f))
-            for (i in 0 until 3) {
-                val a = (Math.PI * 2 / 3 * i - Math.PI / 2).toFloat()
-                val p = Path().apply {
-                    moveTo(center.x + cos(a) * r * 1.34f, center.y + sin(a) * r * 1.34f)
-                    lineTo(center.x + cos(a + 0.22f) * r * 1.16f, center.y + sin(a + 0.22f) * r * 1.16f)
-                    lineTo(center.x + cos(a - 0.22f) * r * 1.16f, center.y + sin(a - 0.22f) * r * 1.16f)
+            litRing(DangerRed.copy(0.9f), r * 1.16f, w * 1.5f, lightAngle = -1.4f, shimmer = 0.8f)
+            // Spikes that breathe outward on a heartbeat rather than sitting still.
+            val beat = heartbeat((t / 2.4f) % 1f)
+            for (i in 0 until 6) {
+                val a = (Math.PI * 2 / 6 * i - Math.PI / 2).toFloat() + t * 0.25f
+                val reach = r * (1.30f + beat * 0.12f)
+                val spike = Path().apply {
+                    moveTo(center.x + kotlin.math.cos(a) * reach,
+                           center.y + kotlin.math.sin(a) * reach)
+                    lineTo(center.x + kotlin.math.cos(a + 0.20f) * r * 1.14f,
+                           center.y + kotlin.math.sin(a + 0.20f) * r * 1.14f)
+                    lineTo(center.x + kotlin.math.cos(a - 0.20f) * r * 1.14f,
+                           center.y + kotlin.math.sin(a - 0.20f) * r * 1.14f)
                     close()
                 }
-                drawPath(p, DangerRed.copy(0.85f))
+                drawPath(spike, DangerRed.copy(0.55f + beat * 0.45f))
             }
         }
-        else -> drawCircle(BorderCol, radius = r * 1.14f, center = center, style = Stroke(w))
+        else -> litRing(BorderCol, r * 1.14f, w, lightAngle = -0.8f)
     }
 }
+
 
 private fun DrawScope.drawFrameGlyph(c: Color) {
     val w = size.width; val h = size.height
@@ -3339,6 +3380,7 @@ private fun FramePickerSheet(
     onDismiss: () -> Unit
 ) {
     val all = listOf("default", "gold", "soulium", "omnium", "event")
+    val pickerClock = rememberFrameClock()
     Box(
         Modifier
             .fillMaxSize()
@@ -3377,7 +3419,7 @@ private fun FramePickerSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(8.dp)) {
-                            drawFrameRing(f, size.minDimension * 0.28f)
+                            drawFrameRing(f, size.minDimension * 0.28f, pickerClock)
                             if (!unlocked) {
                                 drawLine(
                                     TextDim, Offset(size.width * 0.2f, size.height * 0.8f),
@@ -3533,6 +3575,7 @@ fun CrtOverlay() {
 fun GameHud(
     gameState : GameState,
     canEscape : Boolean,
+    layout    : Map<String, UiButtonLayout> = emptyMap(),
     onPause   : () -> Unit,
     onFlash   : () -> Unit,
     onMove    : (Float, Float, Float) -> Unit,
@@ -3545,7 +3588,26 @@ fun GameHud(
         if (gameState.sanity < 30f) DangerRed.copy(0.15f * (1f - gameState.sanity / 30f)) else Color.Transparent,
         tween(500), label = "sanity_tint"
     )
-    Box(Modifier.fillMaxSize()) {
+    var hudSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // Places an element at its saved normalised position, falling back to the
+    // built-in default when the player hasn't moved it.
+    fun placed(id: String, defX: Float, defY: Float, w: Float, h: Float): Modifier {
+        val l = layout[id]
+        val nx = l?.offset?.x ?: defX
+        val ny = l?.offset?.y ?: defY
+        val sc = l?.sizeScale ?: 1f
+        return Modifier
+            .offset {
+                IntOffset(
+                    (nx * hudSize.width - w * density * sc / 2f).toInt(),
+                    (ny * hudSize.height - h * density * sc / 2f).toInt()
+                )
+            }
+    }
+    fun scaleOf(id: String): Float = layout[id]?.sizeScale ?: 1f
+
+    Box(Modifier.fillMaxSize().onSizeChanged { hudSize = it }) {
         // Look surface first, so every control laid out after it takes priority.
         Box(
             Modifier
@@ -3562,7 +3624,8 @@ fun GameHud(
         // --- Top-left: vitals only. HP is gone; these three are the ones the
         // player can actually act on. ---------------------------------------
         Column(
-            Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 14.dp).width(150.dp),
+            placed("bars", 0.10f, 0.14f, 150f, 74f)
+                .width((150 * scaleOf("bars")).dp),
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             StatusBar(stringResource(R.string.game_hud_sanity),  gameState.sanity / 100f,                  SouliumCol)
@@ -3572,7 +3635,7 @@ fun GameHud(
 
         // --- Top-right: session readouts and pause -------------------------
         Row(
-            Modifier.align(Alignment.TopEnd).padding(end = 10.dp, top = 10.dp),
+            placed("readouts", 0.78f, 0.07f, 120f, 30f),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment     = Alignment.CenterVertically
         ) {
@@ -3596,7 +3659,9 @@ fun GameHud(
                 }
                 HudBadge("${gameState.fps} FPS", fpsColor)
             }
-            IconGlyphButton(34.dp, Yellow.copy(0.8f), onClick = onPause) { drawPauseGlyph(it) }
+        }
+        Box(placed("pause", 0.95f, 0.07f, 40f, 40f)) {
+            IconGlyphButton((34 * scaleOf("pause")).dp, Yellow.copy(0.8f), onClick = onPause) { drawPauseGlyph(it) }
         }
 
         // --- Exit proximity prompt -----------------------------------------
@@ -3609,39 +3674,38 @@ fun GameHud(
         }
 
         // --- Bottom-left: movement ------------------------------------------
-        Box(Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 22.dp)) {
-            VirtualJoystick(Modifier.size(140.dp), onMove = { dx, dy -> onMove(dx, 0f, -dy) })
+        Box(placed("joystick", 0.14f, 0.74f, 140f, 140f)) {
+            VirtualJoystick(
+                Modifier.size((140 * scaleOf("joystick")).dp),
+                onMove = { dx, dy -> onMove(dx, 0f, -dy) }
+            )
         }
 
         // --- Bottom-right: actions, arranged as a thumb-reachable cluster ---
         // Jump sits highest and interact closest to the thumb, since interact is
         // the most-used action and jump the least.
-        Box(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 18.dp)) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HudActionButton(46.dp, TextSec, onCrouch) { drawCrouchGlyph(it) }
-                    HudActionButton(46.dp, Yellow,  onJump)   { drawJumpGlyph(it) }
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    HudActionButton(
-                        52.dp,
-                        if (gameState.flashlightOn) CrtAmber else TextDim,
-                        onFlash
-                    ) { drawFlashlightGlyph(it) }
-                    HudActionButton(
-                        62.dp,
-                        if (canEscape) SuccessGreen else TextSec,
-                        onInteract,
-                        emphasised = canEscape
-                    ) { drawInteractGlyph(it) }
-                }
-            }
+        // Each action is placed independently so the editor can arrange them
+        // freely rather than only moving a fixed cluster.
+        Box(placed("crouch", 0.78f, 0.63f, 46f, 46f)) {
+            HudActionButton((46 * scaleOf("crouch")).dp, TextSec, onCrouch) { drawCrouchGlyph(it) }
+        }
+        Box(placed("jump", 0.90f, 0.63f, 46f, 46f)) {
+            HudActionButton((46 * scaleOf("jump")).dp, Yellow, onJump) { drawJumpGlyph(it) }
+        }
+        Box(placed("flashlight", 0.78f, 0.80f, 52f, 52f)) {
+            HudActionButton(
+                (52 * scaleOf("flashlight")).dp,
+                if (gameState.flashlightOn) CrtAmber else TextDim,
+                onFlash
+            ) { drawFlashlightGlyph(it) }
+        }
+        Box(placed("interact", 0.90f, 0.80f, 62f, 62f)) {
+            HudActionButton(
+                (62 * scaleOf("interact")).dp,
+                if (canEscape) SuccessGreen else TextSec,
+                onInteract,
+                emphasised = canEscape
+            ) { drawInteractGlyph(it) }
         }
     }
 }
@@ -4134,6 +4198,7 @@ private fun MarketCard(
         }
         // Item artwork, drawn from the item's own id so every entry has a
         // distinct picture rather than one shared placeholder icon.
+        val cardClock = rememberFrameClock()
         val artPulse by inf.animateFloat(
             0.95f, 1.05f,
             infiniteRepeatable(tween(2100, easing = EaseInOut), RepeatMode.Reverse),
@@ -4158,7 +4223,7 @@ private fun MarketCard(
             androidx.compose.foundation.Canvas(
                 Modifier.fillMaxSize().padding(9.dp)
                     .graphicsLayer { scaleX = artPulse; scaleY = artPulse }
-            ) { marketItemArt(item.id, item.category, currencyColor) }
+            ) { marketItemArt(item.id, item.category, currencyColor, cardClock) }
             // Small cue that this particular art opens a full 3D inspection.
             if (inspectable) {
                 androidx.compose.foundation.Canvas(
@@ -4779,6 +4844,7 @@ fun NotificationPermissionGate() {
  *  screen so the two can't drift apart. */
 @Composable
 private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: () -> Unit) {
+    val clock = rememberFrameClock()
     Box(Modifier.size(50.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val r = size.minDimension * 0.36f
@@ -4794,7 +4860,7 @@ private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: (
                 close()
             }
             drawPath(body, Yellow.copy(0.8f))
-            drawFrameRing(frame, r)
+            drawFrameRing(frame, r, clock)
         }
         val ctx = LocalContext.current
         val bmp by produceState<ImageBitmap?>(null, localUri) {
@@ -4832,13 +4898,13 @@ private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: (
 /** Per-item artwork for the store, drawn from vector paths. Keyed on the item id
  *  first (so a specific item can have bespoke art) and its category second, so
  *  new server-provided items still get something meaningful rather than a blank. */
-private fun DrawScope.marketItemArt(id: String, category: String, accent: Color) {
+private fun DrawScope.marketItemArt(id: String, category: String, accent: Color, artClock: Float = 0f) {
     when {
         id.startsWith("frame_") -> {
             // Show the actual frame the player would equip.
             val key = id.removePrefix("frame_")
             drawCircle(accent.copy(0.18f), radius = size.minDimension * 0.24f, center = center)
-            drawFrameRing(key, size.minDimension * 0.26f)
+            drawFrameRing(key, size.minDimension * 0.26f, artClock)
         }
         id.startsWith("trail_") -> {
             // A comet-like wake, denser toward the head.
@@ -5305,92 +5371,6 @@ class CharacterMesh(
     }
 }
 
-private const val OMNI_CHAR_VERT = """#version 300 es
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
-
-uniform mat4 uMVP;
-uniform mat4 uModel;
-uniform float uTime;
-uniform float uWalk;      // 0 = idle, 1 = full stride
-uniform float uHeight;    // model height in world units, for sway weighting
-
-out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
-
-void main(){
-    vec3 p = aPos;
-
-    // Height weight: feet stay planted, the torso and head carry the motion.
-    float h = clamp(p.y / max(uHeight, 0.001), 0.0, 1.0);
-    float upper = smoothstep(0.25, 1.0, h);
-
-    // Idle: slow breathing lift plus a lateral drift, out of phase so it reads
-    // as a living stance rather than a bobbing object.
-    float breathe = sin(uTime * 1.5) * 0.006 * upper;
-    float driftX  = sin(uTime * 0.7 + 1.2) * 0.008 * upper;
-
-    // Walk: vertical bob at twice stride frequency, counter-rotating lean, and
-    // a slight forward pitch of the upper body.
-    float stride  = uTime * 7.5;
-    float bob     = sin(stride * 2.0) * 0.035 * uWalk;
-    float leanX   = sin(stride) * 0.055 * uWalk * upper;
-    float pitch   = 0.12 * uWalk * upper;
-
-    p.y += breathe + bob;
-    p.x += driftX + leanX;
-    p.z += pitch * h * 0.15;
-
-    // Legs swing opposite to each other, split by the model's centre line.
-    float legMask = 1.0 - smoothstep(0.0, 0.45, h);
-    float side = sign(aPos.x + 0.0001);
-    p.z += sin(stride + (side > 0.0 ? 0.0 : 3.14159)) * 0.09 * uWalk * legMask;
-
-    vec4 world = uModel * vec4(p, 1.0);
-    vWorldPos = world.xyz;
-    vNormal = mat3(uModel) * aNormal;
-    vUV = aUV;
-    gl_Position = uMVP * vec4(p, 1.0);
-}
-"""
-
-private const val OMNI_CHAR_FRAG = """#version 300 es
-precision mediump float;
-in vec3 vNormal; in vec2 vUV; in vec3 vWorldPos;
-uniform sampler2D uTex;
-uniform vec3 uCamPos; uniform vec3 uFlashDir; uniform float uFlashOn;
-uniform float uFogDensity; uniform vec3 uFogColor; uniform float uAmbient;
-out vec4 fragColor;
-void main(){
-    vec4 tex = texture(uTex, vUV);
-    if (tex.a < 0.35) discard;
-    vec3 n = normalize(vNormal);
-    vec3 toCam = uCamPos - vWorldPos;
-    float dist = length(toCam);
-    vec3 toCamN = toCam / max(dist, 0.001);
-
-    // Cel shading: two flat bands plus a rim light. Matches the character's
-    // anime source art far better than a smooth Lambert ramp would.
-    float ndl = dot(n, normalize(vec3(0.3, 1.0, 0.4)));
-    float band = ndl > 0.25 ? 1.0 : (ndl > -0.15 ? 0.72 : 0.5);
-    float rim = pow(1.0 - max(dot(n, toCamN), 0.0), 2.5) * 0.45;
-
-    float flash = 0.0;
-    if (uFlashOn > 0.5) {
-        float spotCos = dot(-toCamN, normalize(uFlashDir));
-        float cone = smoothstep(0.80, 0.97, spotCos);
-        float atten = clamp(1.0 - dist / 20.0, 0.0, 1.0);
-        flash = cone * max(dot(n, toCamN), 0.0) * atten * 1.5;
-    }
-
-    vec3 col = tex.rgb * (uAmbient * band + flash) + vec3(rim) * 0.6;
-    float fog = 1.0 - exp(-uFogDensity * dist * dist * 0.008);
-    col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
-    fragColor = vec4(col, 1.0);
-}
-"""
-
-
 // ============================================================================
 // Real 3D vines. The earlier version drew flat Canvas strokes — no amount of
 // glow makes those read as three-dimensional. This builds actual tube geometry:
@@ -5724,18 +5704,85 @@ uniform mat4 uModel;
 uniform float uTime;
 uniform float uWalk;
 out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
+
+// Rotate a point about an arbitrary pivot on the Y axis.
+vec3 rotY(vec3 p, vec3 pivot, float a){
+    vec3 d = p - pivot;
+    float c = cos(a), s = sin(a);
+    return pivot + vec3(d.x * c + d.z * s, d.y, -d.x * s + d.z * c);
+}
+// Rotate about the X axis (forward/back swing).
+vec3 rotX(vec3 p, vec3 pivot, float a){
+    vec3 d = p - pivot;
+    float c = cos(a), s = sin(a);
+    return pivot + vec3(d.x, d.y * c - d.z * s, d.y * s + d.z * c);
+}
+// Rotate about the Z axis (arms dropping to the sides).
+vec3 rotZ(vec3 p, vec3 pivot, float a){
+    vec3 d = p - pivot;
+    float c = cos(a), s = sin(a);
+    return pivot + vec3(d.x * c - d.y * s, d.x * s + d.y * c, d.z);
+}
+
 void main(){
     vec3 p = aPos;
-    // Same height-weighted motion model as in-game, so the preview is honest
-    // about how the character will actually move.
     float h = clamp(p.y, 0.0, 1.0);
+    float stride = uTime * 6.4;
+
+    // --- 1. Break the T-pose ------------------------------------------------
+    // The source mesh is modelled arms-out. Rotate each arm down about its own
+    // shoulder so the character rests naturally; without this she stands with
+    // both arms straight out, which is what the in-game screenshot showed.
+    float armSide = sign(p.x);
+    float armReach = smoothstep(0.10, 0.30, abs(p.x));          // 0 at torso, 1 at hand
+    float armBand = smoothstep(0.58, 0.66, p.y) * (1.0 - smoothstep(0.80, 0.88, p.y));
+    float armMask = armReach * armBand;
+    if (armMask > 0.001) {
+        vec3 shoulder = vec3(armSide * 0.11, 0.74, 0.0);
+        // ~78 degrees down, so the arms hang close to the body.
+        p = rotZ(p, shoulder, armSide * 1.36 * armMask);
+        // Slight inward tuck so the hands sit beside the hips, not splayed.
+        p = rotY(p, shoulder, -armSide * 0.20 * armMask);
+    }
+
+    // --- 2. Arm swing -------------------------------------------------------
+    // Opposite phase per side, and opposite to the legs, as in a real gait.
+    if (armMask > 0.001) {
+        vec3 shoulder = vec3(armSide * 0.11, 0.74, 0.0);
+        float swing = sin(stride + (armSide > 0.0 ? 3.14159 : 0.0));
+        float amount = swing * (0.42 * uWalk + 0.05) * armMask;
+        p = rotX(p, shoulder, amount);
+    }
+
+    // --- 3. Legs ------------------------------------------------------------
+    float legMask = 1.0 - smoothstep(0.05, 0.48, p.y);
+    if (legMask > 0.001) {
+        vec3 hip = vec3(sign(p.x) * 0.05, 0.48, 0.0);
+        float legSwing = sin(stride + (p.x > 0.0 ? 0.0 : 3.14159));
+        p = rotX(p, hip, legSwing * 0.55 * uWalk * legMask);
+    }
+
+    // --- 4. Head ------------------------------------------------------------
+    // Idle look-around: a slow yaw scan with an occasional downward glance, so
+    // she reads as alive rather than frozen.
+    float headMask = smoothstep(0.80, 0.90, p.y);
+    if (headMask > 0.001) {
+        vec3 neck = vec3(0.0, 0.83, 0.0);
+        float lookYaw = sin(uTime * 0.42) * 0.38 + sin(uTime * 0.17) * 0.16;
+        float lookPitch = sin(uTime * 0.31 + 2.1) * 0.14 - 0.04;
+        // While walking she mostly faces forward, watching where she is going.
+        lookYaw = mix(lookYaw, sin(stride * 0.5) * 0.10, uWalk);
+        p = rotY(p, neck, lookYaw * headMask);
+        p = rotX(p, neck, lookPitch * headMask);
+    }
+
+    // --- 5. Whole-body motion ----------------------------------------------
     float upper = smoothstep(0.25, 1.0, h);
-    float stride = uTime * 7.0;
-    p.y += sin(uTime * 1.5) * 0.006 * upper + sin(stride * 2.0) * 0.030 * uWalk;
-    p.x += sin(uTime * 0.7 + 1.2) * 0.008 * upper + sin(stride) * 0.050 * uWalk * upper;
-    float legMask = 1.0 - smoothstep(0.0, 0.45, h);
-    float side = sign(aPos.x + 0.0001);
-    p.z += sin(stride + (side > 0.0 ? 0.0 : 3.14159)) * 0.085 * uWalk * legMask;
+    p.y += sin(uTime * 1.5) * 0.005 * upper;              // breathing
+    p.y += abs(sin(stride)) * 0.030 * uWalk;              // gait bob
+    p.x += sin(uTime * 0.7 + 1.2) * 0.006 * upper;        // idle drift
+    p = rotZ(p, vec3(0.0, 0.0, 0.0), sin(stride) * 0.035 * uWalk);   // hip sway
+    p = rotX(p, vec3(0.0, 0.0, 0.0), 0.06 * uWalk);       // slight forward lean
 
     vec4 world = uModel * vec4(p, 1.0);
     vWorldPos = world.xyz;
@@ -6053,4 +6100,16 @@ private fun DrawScope.drawCloseGlyph(c: Color) {
     val w = size.width; val h = size.height; val sw = size.minDimension * 0.11f
     drawLine(c, Offset(w * 0.28f, h * 0.28f), Offset(w * 0.72f, h * 0.72f), strokeWidth = sw, cap = StrokeCap.Round)
     drawLine(c, Offset(w * 0.72f, h * 0.28f), Offset(w * 0.28f, h * 0.72f), strokeWidth = sw, cap = StrokeCap.Round)
+}
+
+
+/** Exposes the resolved app language so the whole UI can rebuild on change. */
+@HiltViewModel
+class AppLocaleVM @Inject constructor(private val locales: LocaleStore) : ViewModel() {
+    val language: StateFlow<AppLanguage> = locales.observeSelection()
+        .map { sel ->
+            if (sel == AppLanguage.SYSTEM) AppLanguage.matchDevice()
+            else AppLanguage.fromTag(sel) ?: AppLanguage.matchDevice()
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppLanguage.matchDevice())
 }

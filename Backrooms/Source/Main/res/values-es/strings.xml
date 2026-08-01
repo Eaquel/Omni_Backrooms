@@ -220,4 +220,11 @@
     <string name="char_preview_equipped">Equipado</string>
     <string name="char_anim_idle">Reposo</string>
     <string name="char_anim_walk">Caminar</string>
+    <string name="editor_btn_bars">Barras de estado</string>
+    <string name="editor_btn_pause">Pausa</string>
+    <string name="editor_btn_readouts">Indicadores</string>
+    <string name="editor_size">Tamaño</string>
+    <string name="editor_reset">Restablecer</string>
+    <string name="editor_hint">Arrastra para mover; selecciona y usa el control para redimensionar</string>
+    <string name="editor_selected">Seleccionado</string>
 </resources>

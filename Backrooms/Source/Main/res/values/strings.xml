@@ -250,4 +250,11 @@
     <string name="char_preview_equipped">Kuşanıldı</string>
     <string name="char_anim_idle">Bekleme</string>
     <string name="char_anim_walk">Yürüyüş</string>
+    <string name="editor_btn_bars">Durum Barları</string>
+    <string name="editor_btn_pause">Duraklat</string>
+    <string name="editor_btn_readouts">Göstergeler</string>
+    <string name="editor_size">Boyut</string>
+    <string name="editor_reset">Sıfırla</string>
+    <string name="editor_hint">Sürükleyerek taşı, seçip kaydırıcıyla boyutlandır</string>
+    <string name="editor_selected">Seçili</string>
 </resources>
