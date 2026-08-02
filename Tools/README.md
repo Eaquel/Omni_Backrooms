@@ -96,3 +96,38 @@ so the engine can scale it to any world height with a single multiply
 ```
 7886 vertices, 8426 triangles, 302924 bytes, 16-bit indices
 ```
+
+## Verification
+
+| File | Purpose |
+|---|---|
+| `check_shaders.py` | Compiles every GLSL shader embedded in the Kotlin sources. |
+| `level0_probe.cpp` | Exercises the level generator over many seeds and asserts the properties a run depends on. |
+
+### Shaders
+
+```bash
+python3 Tools/check_shaders.py
+```
+
+A shader that fails to compile throws at runtime, on the GL thread, the first
+time the screen it belongs to is opened — and the only symptom is a black
+screen. The Kotlin compiler cannot see inside a raw string, so nothing else in
+the build catches it.
+
+Needs `glslangValidator` (`apt install glslang-tools`).
+
+### Level generator
+
+```bash
+g++ -std=c++20 -O2 -I Backrooms/Source/Main/Native \
+    Tools/level0_probe.cpp Backrooms/Source/Main/Native/Map/Level_0.cpp \
+    -o /tmp/level0_probe && /tmp/level0_probe 40
+```
+
+Level 0 is an infinite pure function, so nothing about it can be eyeballed in an
+editor and a bad seed cannot be spotted until a player is already lost in it.
+The probe floods the map from the spawn and proves the exit is actually
+reachable, checks that a relocated exit is reachable from wherever the player
+wandered to, and asserts the floor plan's density, its lighting coverage and
+that no column ever stands somewhere it could seal a corridor.

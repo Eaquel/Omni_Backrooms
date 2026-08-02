@@ -984,19 +984,28 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
     // Every HUD element is editable, not just the action buttons — the status
     // bars, the pause control and the readout row were previously fixed in
     // place with no way to move or resize them.
+    //
+    // Positions and sizes come from HUD_DEFAULT_SLOTS / HUD_DEFAULT_SIZES, the
+    // same tables the HUD itself lays out from, so the editor cannot start the
+    // player off from a layout the game never used.
     val elements = remember {
+        fun of(id: String, labelRes: Int): HudElement {
+            val slot = HUD_DEFAULT_SLOTS.getValue(id)
+            val (w, h) = HUD_DEFAULT_SIZES.getValue(id)
+            return HudElement(id, labelRes, slot.x, slot.y, w, h, slot.scale)
+        }
         mutableStateListOf(
-            HudElement("bar_sanity",  R.string.game_hud_sanity,      0.11f, 0.10f, 150f, 30f),
-            HudElement("bar_stamina", R.string.game_hud_stamina,     0.11f, 0.20f, 150f, 30f),
-            HudElement("bar_battery", R.string.game_hud_battery,     0.11f, 0.30f, 150f, 30f),
-            HudElement("readouts",   R.string.editor_btn_readouts,   0.78f, 0.07f, 120f, 30f),
-            HudElement("pause",      R.string.editor_btn_pause,      0.95f, 0.07f, 40f,  40f),
-            HudElement("joystick",   R.string.editor_btn_move,       0.14f, 0.74f, 140f, 140f),
-            HudElement("interact",   R.string.editor_btn_interact,   0.90f, 0.80f, 62f,  62f),
-            HudElement("flashlight", R.string.editor_btn_flashlight, 0.78f, 0.80f, 52f,  52f),
-            HudElement("jump",       R.string.editor_btn_jump,       0.90f, 0.63f, 46f,  46f),
-            HudElement("crouch",     R.string.editor_btn_crouch,     0.72f, 0.63f, 46f,  46f),
-            HudElement("sprint",     R.string.editor_btn_sprint,     0.81f, 0.71f, 50f,  50f)
+            of("bar_sanity",  R.string.game_hud_sanity),
+            of("bar_stamina", R.string.game_hud_stamina),
+            of("bar_battery", R.string.game_hud_battery),
+            of("readouts",    R.string.editor_btn_readouts),
+            of("pause",       R.string.editor_btn_pause),
+            of("joystick",    R.string.editor_btn_move),
+            of("interact",    R.string.editor_btn_interact),
+            of("sprint",      R.string.editor_btn_sprint),
+            of("flashlight",  R.string.editor_btn_flashlight),
+            of("jump",        R.string.editor_btn_jump),
+            of("crouch",      R.string.editor_btn_crouch)
         )
     }
 
@@ -1033,12 +1042,13 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                             )
                         }
                         .size(w.dp, h.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (selected) Yellow.copy(0.16f) else Color.Black.copy(0.55f))
-                        .border(
-                            if (selected) 2.dp else 1.dp,
-                            if (selected) Yellow else YellowDim.copy(0.55f),
-                            RoundedCornerShape(8.dp)
+                        // Only a selection ring. The control itself draws its own
+                        // real artwork underneath, so the editor must not put a
+                        // plate behind it that the game does not have.
+                        .then(
+                            if (selected)
+                                Modifier.border(1.dp, Yellow.copy(0.85f), RoundedCornerShape(10.dp))
+                            else Modifier
                         )
                         .pointerInput(el.id) {
                             detectDragGestures(
@@ -1059,21 +1069,23 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        EditorGlyph(
-                            el.id,
-                            if (selected) Yellow else YellowDim,
-                            Modifier.size((w * 0.42f).coerceIn(16f, 44f).dp)
-                        )
-                        if (h > 34f) {
-                            Text(
-                                stringResource(el.labelRes),
-                                color = if (selected) Yellow else TextDim,
-                                fontSize = 8.sp, maxLines = 1
-                            )
-                        }
-                    }
+                    // The live control, at the size and with the artwork and
+                    // animation it will actually have in the corridor.
+                    EditorPreview(el.id, w, selected)
                 }
+                // Label outside the control, so it does not sit on top of the
+                // thing being arranged.
+                Text(
+                    stringResource(el.labelRes),
+                    color = if (selected) Yellow else TextDim,
+                    fontSize = 8.sp, maxLines = 1,
+                    modifier = Modifier.offset {
+                        IntOffset(
+                            (el.normX * canvasSize.width - w * density / 2f).toInt(),
+                            (el.normY * canvasSize.height + h * density / 2f + 2 * density).toInt()
+                        )
+                    }
+                )
             }
         }
 
@@ -1127,24 +1139,14 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                     onClick = {
                         vm.reset()
                         selectedId = null
-                        // Restore the built-in positions immediately rather than
-                        // waiting for the store to round-trip.
-                        val defaults = listOf(
-                            Triple("bar_sanity", 0.11f to 0.10f, 1f),
-                            Triple("bar_stamina", 0.11f to 0.20f, 1f),
-                            Triple("bar_battery", 0.11f to 0.30f, 1f),
-                            Triple("readouts", 0.78f to 0.07f, 1f),
-                            Triple("pause", 0.95f to 0.07f, 1f),
-                            Triple("joystick", 0.14f to 0.74f, 1f),
-                            Triple("interact", 0.90f to 0.80f, 1f),
-                            Triple("flashlight", 0.78f to 0.80f, 1f),
-                            Triple("jump", 0.90f to 0.63f, 1f),
-                            Triple("crouch", 0.72f to 0.63f, 1f),
-                            Triple("sprint", 0.81f to 0.71f, 1f)
-                        )
-                        defaults.forEach { (id, pos, sc) ->
+                        // Straight from the tables the HUD lays out from, so
+                        // "reset" lands on exactly the built-in layout rather
+                        // than on a third copy of the numbers that has drifted.
+                        HUD_DEFAULT_SLOTS.forEach { (id, slot) ->
                             elements.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { i ->
-                                elements[i] = elements[i].copy(normX = pos.first, normY = pos.second, scale = sc)
+                                elements[i] = elements[i].copy(
+                                    normX = slot.x, normY = slot.y, scale = slot.scale
+                                )
                             }
                         }
                     }
@@ -1181,26 +1183,49 @@ private data class HudElement(
 
 
 /**
- * Every action control resolves through [hudIconRes] — the same vector asset the
- * in-game button renders — so what you arrange here is literally the icon you
- * will press in the corridor. The editor used to carry its own hand-drawn
- * lookalikes, and they had drifted from the real ones; for a layout tool that is
- * a correctness problem, not a cosmetic one.
+ * Renders the real control, not a picture of one.
  *
- * The non-button elements (status bars, readouts, the stick) have no icon asset,
- * so those keep their code-drawn miniatures.
+ * Every action button here is the same [HudActionButton] composable the game
+ * lays out, at the same size, with the same vector icon, the same domed body and
+ * bevel, and the same idle animation — only with its click handler removed so
+ * dragging it around cannot fire the action. The status bars and the stick are
+ * likewise the actual [StatusBar] and [VirtualJoystick].
+ *
+ * The editor used to draw its own simplified lookalikes on a plain plate, which
+ * meant you were arranging things that did not match what you would end up
+ * pressing. For a layout tool that is a correctness problem, not a cosmetic one.
  */
 @Composable
-private fun EditorGlyph(id: String, c: Color, modifier: Modifier = Modifier) {
+private fun EditorPreview(id: String, widthDp: Float, selected: Boolean) {
+    val accent = if (selected) Yellow else YellowDim
     when (id) {
-        "bar_sanity", "bar_stamina", "bar_battery" ->
-            androidx.compose.foundation.Canvas(modifier) { drawStatusBarGlyph(c) }
-        "readouts" ->
-            androidx.compose.foundation.Canvas(modifier) { drawReadoutsGlyph(c) }
-        "joystick" ->
-            androidx.compose.foundation.Canvas(modifier) { drawJoystickGlyph(c) }
-        else -> HudGlyph(id, c, modifier)
+        "bar_sanity"  -> Box(Modifier.width(widthDp.dp)) { StatusBar(stringResource(R.string.game_hud_sanity), 0.68f, SouliumCol) }
+        "bar_stamina" -> Box(Modifier.width(widthDp.dp)) { StatusBar(stringResource(R.string.game_hud_stamina), 0.86f, SuccessGreen) }
+        "bar_battery" -> Box(Modifier.width(widthDp.dp)) { StatusBar(stringResource(R.string.game_hud_battery), 0.74f, CrtAmber) }
+        "readouts" -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            EditorBadge("04:12", TextSec)
+            EditorBadge("◉ 2", DangerRed)
+        }
+        "joystick" -> VirtualJoystick(Modifier.size(widthDp.dp)) { _, _ -> }
+        "pause" -> IconGlyphButton((widthDp * 0.85f).dp, Yellow.copy(0.8f), onClick = {}) {
+            HudGlyph("pause", it, Modifier.fillMaxSize())
+        }
+        else -> HudActionButton(
+            widthDp.dp, accent, id,
+            onClick = {},
+            interactive = false
+        )
     }
+}
+
+/** Matches the HUD's own readout chip, for the editor preview. */
+@Composable
+private fun EditorBadge(text: String, color: Color) {
+    Box(
+        Modifier.clip(RoundedCornerShape(2.dp))
+            .background(MetalBg.copy(0.8f))
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+    ) { Text(text, color = color, fontSize = 10.sp) }
 }
 
 

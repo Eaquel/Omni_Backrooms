@@ -1278,23 +1278,26 @@ Java_com_omni_backrooms_NativeBridge_generateChunk(JNIEnv* env, jobject, jint ch
     // walls you could walk straight through where two chunks met.
     constexpr int N = OMNI_CHUNK_CELLS;
     constexpr int NP = N + 2;
-    const int baseX = chunkX * N;
-    const int baseZ = chunkZ * N;
+    constexpr int kFloatsPerCell = 5;
 
-    const jsize total = NP * NP * 4;
+    static thread_local omni::map::CellSample samples[NP * NP];
+    gField.sampleChunk(chunkX, chunkZ, N, samples);
+
+    const jsize total = NP * NP * kFloatsPerCell;
     auto arr = env->NewFloatArray(total);
     if (!arr) return nullptr;
 
     std::vector<float> flat;
     flat.reserve(total);
-    for (int z = -1; z <= N; ++z) {
-        for (int x = -1; x <= N; ++x) {
-            const int cx = baseX + x, cz = baseZ + z;
-            flat.push_back(gField.isSolid(cx, cz) ? 1.0f : 0.0f);
-            flat.push_back(static_cast<float>(gField.zoneAt(cx, cz)));
-            flat.push_back(static_cast<float>(gField.featureAt(cx, cz)));
-            flat.push_back(static_cast<float>(gField.fixtureAt(cx, cz)));
-        }
+    for (int i = 0; i < NP * NP; ++i) {
+        const auto& s = samples[i];
+        flat.push_back(s.solid ? 1.0f : 0.0f);
+        // Continuous illuminance, not a zone index. The mesher interpolates it
+        // across faces, which is what removed the banding between regions.
+        flat.push_back(s.light);
+        flat.push_back(static_cast<float>(s.feature));
+        flat.push_back(static_cast<float>(s.fixture));
+        flat.push_back(s.power);
     }
     env->SetFloatArrayRegion(arr, 0, total, flat.data());
     return arr;

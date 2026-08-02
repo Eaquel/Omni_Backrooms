@@ -1799,9 +1799,10 @@ class WorldChunk(
     val chunkZ: Int,
     val cells: Int,
     private val solid  : ByteArray,
-    private val zone   : ByteArray,
+    private val light  : FloatArray,
     private val feature: ByteArray,
-    private val fixture: ByteArray
+    private val fixture: ByteArray,
+    private val power  : FloatArray
 ) {
     /**
      * Queries are in chunk-local cells, but the arrays carry a one-cell apron on
@@ -1821,8 +1822,13 @@ class WorldChunk(
     fun solidAt(x: Int, z: Int): Boolean =
         if (!inRange(x, z)) true else solid[index(x, z)] != 0.toByte()
 
-    fun zoneAt(x: Int, z: Int): Int =
-        if (!inRange(x, z)) 2 else zone[index(x, z)].toInt()
+    /** Baked illuminance, continuous. ~1.0 is a normally lit corridor. */
+    fun lightAt(x: Int, z: Int): Float =
+        if (!inRange(x, z)) 0.6f else light[index(x, z)]
+
+    /** 0..1 mains health, used to scale how badly the lights struggle. */
+    fun powerAt(x: Int, z: Int): Float =
+        if (!inRange(x, z)) 1f else power[index(x, z)]
 
     fun featureAt(x: Int, z: Int): Int =
         if (!inRange(x, z)) 0 else feature[index(x, z)].toInt()
@@ -1831,24 +1837,26 @@ class WorldChunk(
         if (!inRange(x, z)) 0 else fixture[index(x, z)].toInt()
 
     companion object {
-        const val FLOATS_PER_CELL = 4
+        const val FLOATS_PER_CELL = 5
 
         fun parse(chunkX: Int, chunkZ: Int, cells: Int, data: FloatArray?): WorldChunk? {
             if (data == null || cells <= 0) return null
             val padded = cells + 2
             val n = padded * padded
             if (data.size < n * FLOATS_PER_CELL) return null
-            val solid = ByteArray(n); val zone = ByteArray(n)
+            val solid = ByteArray(n); val light = FloatArray(n)
             val feature = ByteArray(n); val fixture = ByteArray(n)
+            val power = FloatArray(n)
             var p = 0
             for (i in 0 until n) {
                 solid[i]   = data[p].toInt().toByte()
-                zone[i]    = data[p + 1].toInt().toByte()
+                light[i]   = data[p + 1]
                 feature[i] = data[p + 2].toInt().toByte()
                 fixture[i] = data[p + 3].toInt().toByte()
+                power[i]   = data[p + 4]
                 p += FLOATS_PER_CELL
             }
-            return WorldChunk(chunkX, chunkZ, cells, solid, zone, feature, fixture)
+            return WorldChunk(chunkX, chunkZ, cells, solid, light, feature, fixture, power)
         }
     }
 }

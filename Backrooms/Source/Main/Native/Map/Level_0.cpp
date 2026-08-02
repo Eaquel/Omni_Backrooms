@@ -37,9 +37,32 @@ namespace {
 // Rooms are capped well below sector size so the one-ring scan above is
 // guaranteed to find every room that could overlap a given cell.
 constexpr int kSectorSize     = 24;
-constexpr int kRoomsPerSector = 3;
-constexpr int kMaxRoomHalf    = 9;   // must stay < kSectorSize / 2
-constexpr int kFixtureSpacing = 5;
+constexpr int kRoomsPerSector = 5;
+// Rooms used to run to half-extent 9 — nineteen cells across, most of a sector.
+// Four of those per sector overlapped into one continuous plate, and the level
+// measured two-thirds open floor: a hall you walk across, not a place you get
+// lost in. Capped at 5 they stay distinct, which is what puts walls between
+// them and turns the plan back into rooms joined by corridors.
+constexpr int kMaxRoomHalf    = 5;   // must stay < kSectorSize / 2
+
+// Troffers every three cells — 9.6 m. Wider than a real office grid, but this
+// is a 3.2 m cell world and it is close enough that adjacent lights overlap,
+// which is what produces continuous illumination rather than pools of light
+// with dark gaps between them.
+constexpr int kFixtureSpacing = 3;
+
+// How far one tube meaningfully reaches, in cells. Sets the working margin
+// sampleChunk needs around the chunk it is asked for.
+constexpr int   kLightRadius = 4;
+// Gaussian falloff width. 1.9 cells (~6 m) against a 9.6 m spacing puts the
+// half-power point just past the midpoint between two fixtures, so the seam
+// between them is a gentle dip rather than a shadow.
+constexpr float kLightSigma  = 1.9f;
+constexpr float kLitOutput   = 1.05f;
+constexpr float kDeadOutput  = 0.05f;
+/** Floor under everything. Even an unpowered corridor is not pitch black: light
+ *  bleeds in from the powered ones and off every surface. */
+constexpr float kAmbient     = 0.11f;
 
 // Salts keep the different attribute layers from correlating with each other.
 constexpr uint64_t kSaltRoom    = 0x1000ULL;
@@ -103,10 +126,13 @@ inline void sectorRooms(int sx, int sz, uint64_t seed, Room out[kRoomsPerSector]
         out[i].cz = baseZ + hashRange(h1, 4, kSectorSize - 5);
 
         // Wide and shallow, alternating the long axis, so the plan reads as an
-        // office floor plate rather than a warren of cubes.
+        // office floor plate rather than a warren of cubes. Every fourth plate
+        // is a small back room, which breaks up the rhythm of same-sized halls
+        // and gives the layout somewhere that feels tucked away.
         const bool wideOnX  = (h2 & 1ULL) != 0;
-        const int  longHalf  = hashRange(h2 >> 1, 5, kMaxRoomHalf);
-        const int  shortHalf = hashRange(h3, 3, 6);
+        const bool backRoom = (i >= kRoomsPerSector - 2) && ((h3 >> 9) & 3ULL) != 0;
+        const int  longHalf  = backRoom ? hashRange(h2 >> 1, 2, 3) : hashRange(h2 >> 1, 3, kMaxRoomHalf);
+        const int  shortHalf = backRoom ? hashRange(h3, 1, 2)      : hashRange(h3, 2, 3);
         out[i].halfW = wideOnX ? longHalf : shortHalf;
         out[i].halfD = wideOnX ? shortHalf : longHalf;
     }
@@ -128,13 +154,43 @@ inline bool onCorridor(int cx, int cz, int ax, int az, int bx, int bz, int halfW
 } // namespace
 
 bool Level0Field::isPillar(int cx, int cz) const noexcept {
-    // Regular lattice with deterministic dropout, so columns read as building
-    // structure rather than as scattered obstacles.
-    if (cx % 7 != 0 || cz % 7 != 0) return false;
-    return hashFloat(hashCell(cx, cz, seed_, kSaltPillar)) < 0.70f;
+    // A building's columns sit on a structural bay, not wherever a hash says so.
+    // Locking them to a 7-cell lattice is what makes a long sightline read as a
+    // colonnade receding into the haze rather than as scattered obstacles.
+    const int mx = ((cx % 7) + 7) % 7;
+    const int mz = ((cz % 7) + 7) % 7;
+    if (mx != 0 || mz != 0) return false;
+    if (hashFloat(hashCell(cx, cz, seed_, kSaltPillar)) >= 0.70f) return false;
+
+    // A column may only stand where there is floor all round it.
+    //
+    // This is a correctness guard, not a styling one. Pillars punch holes back
+    // into open floor, and a corridor is as narrow as three cells — so a column
+    // landing in one could seal it, and sealing the wrong corridor can cut the
+    // exit off from the player entirely with no way for them to know. Requiring
+    // eight open neighbours means a column can only ever appear in the middle of
+    // a room, where going round it is trivial.
+    //
+    // Only reached for lattice cells that already passed the hash, so this costs
+    // about a tenth of a percent on top of an ordinary query.
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dz == 0) continue;
+            if (!isOpenBase(cx + dx, cz + dz)) return false;
+        }
+    }
+    return true;
 }
 
 bool Level0Field::isOpen(int cx, int cz) const noexcept {
+    // Pillars punch back into otherwise open floor.
+    return isOpenBase(cx, cz) && !isPillar(cx, cz);
+}
+
+/** The floor plan before columns are subtracted from it. Kept separate so
+ *  isPillar() can ask whether a cell has floor all round it without
+ *  recursing back through itself. */
+bool Level0Field::isOpenBase(int cx, int cz) const noexcept {
     const int sx = floorDiv(cx, kSectorSize);
     const int sz = floorDiv(cz, kSectorSize);
 
@@ -159,45 +215,95 @@ bool Level0Field::isOpen(int cx, int cz) const noexcept {
             }
             if (inside) break;
 
+            // Corridors of width 1 or 3 cells. Wider than this and they stop reading
+            // as corridors at all — they merge with the rooms they connect.
+            const int halfWidth = hashRange(hashCell(nx, nz, seed_, kSaltCorrW), 0, 1);
+
+            // Internal circulation: the sector's own rooms are chained together
+            // rather than all hanging off one hub. Real floor plates have halls
+            // that thread between rooms, and without these the plan read as a
+            // few disconnected blobs joined by a single trunk.
+            //
+            // Every one of these runs stays inside the sector that owns it, so
+            // the one-ring scan still sees every corridor that can reach a cell.
+            bool onInternal = false;
+            for (int i = 0; i + 1 < kRoomsPerSector && !onInternal; ++i) {
+                onInternal = onCorridor(cx, cz,
+                                        rooms[i].cx, rooms[i].cz,
+                                        rooms[i + 1].cx, rooms[i + 1].cz, halfWidth);
+            }
+            if (onInternal) { inside = true; break; }
+
             // Corridors to the east and south neighbours. Both sides of a
             // boundary compute the same endpoints, so the runs line up.
             sectorRooms(nx + 1, nz, seed_, east);
             sectorRooms(nx, nz + 1, seed_, south);
-            const int halfWidth = hashRange(hashCell(nx, nz, seed_, kSaltCorrW), 1, 2);
 
             if (onCorridor(cx, cz, rooms[0].cx, rooms[0].cz, east[0].cx, east[0].cz, halfWidth) ||
                 onCorridor(cx, cz, rooms[0].cx, rooms[0].cz, south[0].cx, south[0].cz, halfWidth)) {
                 inside = true;
                 break;
             }
+
+            // A second, narrower link on some boundaries. One trunk per sector
+            // edge made every route a forced march down the same hallway; a
+            // parallel service corridor gives the maze real alternatives, which
+            // is most of what makes it feel navigable rather than arbitrary.
+            if ((hashCell(nx, nz, seed_, kSaltCorrW + 1ULL) & 3ULL) == 0 &&
+                onCorridor(cx, cz, rooms[1].cx, rooms[1].cz, east[1].cx, east[1].cz, 0)) {
+                inside = true;
+                break;
+            }
         }
     }
 
-    // Pillars punch back into otherwise open floor.
-    return inside && !isPillar(cx, cz);
+    return inside;
 }
 
-uint8_t Level0Field::zoneAt(int cx, int cz) const noexcept {
-    // Two scales of value noise: broad regions of failure, finer hotspots.
+float Level0Field::powerAt(int cx, int cz) const noexcept {
+    // Two scales of value noise: broad regions where the mains have failed, and
+    // finer hotspots. Returned as a continuous 0..1 rather than bucketed, so a
+    // failing region fades in over tens of metres instead of switching on a
+    // cell boundary.
     const float broad = noise(cx * 0.018f, cz * 0.018f, kSaltBroad);
     const float fine  = noise(cx * 0.060f, cz * 0.060f, kSaltFine);
 
-    if (broad < -0.42f) return kZoneDark;
-    if (broad < -0.20f) return kZoneDim;
-    if (fine  >  0.34f) return kZoneBright;
+    // Remap so most of the world is healthy and failure is the exception, with
+    // a wide transition band on either side of the threshold.
+    float health = (broad + 0.42f) / 0.62f;          // -0.42 -> 0, +0.20 -> 1
+    health = health < 0.0f ? 0.0f : (health > 1.0f ? 1.0f : health);
+    // Smoothstep, so the ramp has no visible kink where it meets the flats.
+    health = health * health * (3.0f - 2.0f * health);
+    // Hotspots push a little past full, which the caller clamps into a bloom.
+    return health * (0.94f + fine * 0.22f);
+}
+
+uint8_t Level0Field::zoneAt(int cx, int cz) const noexcept {
+    // Kept as a coarse classification for gameplay code that wants a category
+    // rather than a number. Rendering uses the continuous value; bucketing it
+    // is exactly what put hard steps between regions.
+    const float p = powerAt(cx, cz);
+    if (p < 0.10f) return kZoneDark;
+    if (p < 0.45f) return kZoneDim;
+    if (p > 0.92f) return kZoneBright;
     return kZoneNormal;
 }
 
 uint8_t Level0Field::fixtureAt(int cx, int cz) const noexcept {
     if (cx % kFixtureSpacing != 0 || cz % kFixtureSpacing != 0) return kFixtureNone;
     if (!isOpen(cx, cz)) return kFixtureNone;
+    return fixtureFor(cx, cz, powerAt(cx, cz));
+}
 
-    const uint8_t zone = zoneAt(cx, cz);
-    if (zone == kZoneDark) return kFixtureNone;
-
+uint8_t Level0Field::fixtureFor(int cx, int cz, float power) const noexcept {
+    // No mains, no fitting worth drawing.
+    if (power < 0.06f) return kFixtureNone;
     const float u = hashFloat(hashCell(cx, cz, seed_, kSaltFixture));
-    const bool dead = (zone == kZoneDim && u < 0.45f) || u < 0.13f;
-    return dead ? kFixtureDead : kFixtureLit;
+    // Failure probability rises smoothly as the mains weaken, instead of
+    // switching at a zone boundary — so a dying region thins out gradually,
+    // one dead tube at a time, the way a real one does.
+    const float deadChance = 0.06f + (1.0f - power) * 0.72f;
+    return u < deadChance ? kFixtureDead : kFixtureLit;
 }
 
 uint8_t Level0Field::featureAt(int cx, int cz) const noexcept {
@@ -218,6 +324,122 @@ uint8_t Level0Field::featureAt(int cx, int cz) const noexcept {
         return kFeatureHole;
     }
     return kFeatureNone;
+}
+
+void Level0Field::sampleChunk(int chunkX, int chunkZ, int cells, CellSample* out) const noexcept {
+    if (!out || cells <= 0) return;
+
+    // The emitted grid is the chunk plus a one-cell apron. Light gathering needs
+    // to see kLightRadius beyond even that, because a tube just outside the
+    // apron still lights cells inside it — and if we guessed instead, the guess
+    // would show up as a seam exactly on the chunk boundary.
+    const int outSide  = cells + 2;
+    const int margin   = 1 + kLightRadius;
+    const int workSide = cells + 2 * margin;
+    const int baseX    = chunkX * cells - margin;
+    const int baseZ    = chunkZ * cells - margin;
+
+    // Bounded so this stays on the stack: 24 + 2*5 = 34 -> 1156 cells.
+    constexpr int kMaxWork = 96;
+    if (workSide > kMaxWork) return;
+
+    static thread_local bool  open [kMaxWork * kMaxWork];
+    static thread_local float power[kMaxWork * kMaxWork];
+    static thread_local unsigned char fixture[kMaxWork * kMaxWork];
+
+    // Pass 1 — occupancy and mains. One isOpen() per cell, once. The old
+    // per-cell path evaluated it seven times over for every cell it resolved.
+    for (int z = 0; z < workSide; ++z) {
+        for (int x = 0; x < workSide; ++x) {
+            const int i = z * workSide + x;
+            const int cx = baseX + x, cz = baseZ + z;
+            open[i]  = isOpen(cx, cz);
+            power[i] = open[i] ? powerAt(cx, cz) : 0.0f;
+        }
+    }
+
+    // Pass 2 — fittings. Only lattice cells can carry one, so most of the grid
+    // is a single modulo test.
+    for (int z = 0; z < workSide; ++z) {
+        for (int x = 0; x < workSide; ++x) {
+            const int i = z * workSide + x;
+            const int cx = baseX + x, cz = baseZ + z;
+            fixture[i] = kFixtureNone;
+            if (!open[i]) continue;
+            if (((cx % kFixtureSpacing) + kFixtureSpacing) % kFixtureSpacing != 0) continue;
+            if (((cz % kFixtureSpacing) + kFixtureSpacing) % kFixtureSpacing != 0) continue;
+            fixture[i] = fixtureFor(cx, cz, power[i]);
+        }
+    }
+
+    // Pass 3 — gather. Illuminance at a cell is what every tube within reach
+    // actually throws at it, summed. This is the whole point of the rewrite:
+    // brightness now comes FROM the lights, so a corridor is bright because it
+    // has working tubes over it and dims as they thin out, with the falloff
+    // doing the blending. Nothing anywhere quantises it into a band.
+    //
+    // Precomputed falloff by squared cell distance — the kernel is tiny and
+    // the same for every cell, so there is no reason to call exp() per pair.
+    constexpr int kR = kLightRadius;
+    float kernel[(2 * kR + 1) * (2 * kR + 1)];
+    for (int dz = -kR; dz <= kR; ++dz) {
+        for (int dx = -kR; dx <= kR; ++dx) {
+            const float d2 = static_cast<float>(dx * dx + dz * dz);
+            const float g  = std::exp(-d2 / (2.0f * kLightSigma * kLightSigma));
+            // Hard cut at the radius, faded to zero at the rim so the truncation
+            // itself cannot become a visible ring.
+            const float rim = 1.0f - d2 / static_cast<float>(kR * kR + 1);
+            kernel[(dz + kR) * (2 * kR + 1) + (dx + kR)] = g * (rim > 0.0f ? rim : 0.0f);
+        }
+    }
+
+    for (int z = 0; z < outSide; ++z) {
+        for (int x = 0; x < outSide; ++x) {
+            // Output cell (x-1, z-1) of the chunk maps to work index offset by
+            // the extra light margin.
+            const int wx = x + kLightRadius;
+            const int wz = z + kLightRadius;
+            const int wi = wz * workSide + wx;
+
+            float sum = 0.0f;
+            for (int dz = -kR; dz <= kR; ++dz) {
+                const int nz = wz + dz;
+                for (int dx = -kR; dx <= kR; ++dx) {
+                    const int ni = nz * workSide + (wx + dx);
+                    const unsigned char f = fixture[ni];
+                    if (f == kFixtureNone) continue;
+                    const float emit = (f == kFixtureLit) ? kLitOutput : kDeadOutput;
+                    sum += emit * power[ni] * kernel[(dz + kR) * (2 * kR + 1) + (dx + kR)];
+                }
+            }
+
+            CellSample& s = out[z * outSide + x];
+            s.solid   = open[wi] ? 0 : 1;
+            s.fixture = fixture[wi];
+            s.power   = power[wi];
+            s.light   = kAmbient + sum;
+
+            // Features read straight off the cached occupancy — five isOpen()
+            // calls per cell used to be the single most expensive thing here.
+            if (!open[wi]) {
+                const int cx = baseX + wx, cz = baseZ + wz;
+                s.feature = isPillar(cx, cz) ? kFeaturePillar : kFeatureNone;
+                continue;
+            }
+            const bool wallW = !open[wi - 1],        wallE = !open[wi + 1];
+            const bool wallN = !open[wi - workSide], wallS = !open[wi + workSide];
+            const int walls = (wallW ? 1 : 0) + (wallE ? 1 : 0) + (wallN ? 1 : 0) + (wallS ? 1 : 0);
+            const float u = hashFloat(hashCell(baseX + wx, baseZ + wz, seed_, kSaltFeature));
+            s.feature = kFeatureNone;
+            if (walls == 2 && ((wallW && wallE) || (wallN && wallS))) {
+                if (u < 0.28f) s.feature = kFeatureDoorway;
+            } else if (walls == 3) {
+                if (u < 0.32f) s.feature = kFeatureAlcove;
+            } else if (walls == 0 && u < 0.008f) {
+                s.feature = kFeatureHole;
+            }
+        }
+    }
 }
 
 float Level0Field::noise(float x, float z, uint64_t salt) const noexcept {
