@@ -35,6 +35,21 @@ constexpr uint8_t kFixtureNone = 0;
 constexpr uint8_t kFixtureLit  = 1;
 constexpr uint8_t kFixtureDead = 2;
 
+/** One cell, fully resolved. Produced in bulk by Level0Field::sampleChunk. */
+struct CellSample {
+    uint8_t solid;
+    uint8_t feature;
+    uint8_t fixture;
+    /** Continuous baked illuminance. ~1.0 is a normally lit corridor, ~0.1 an
+     *  unpowered one. Deliberately NOT quantised into zones: a handful of
+     *  discrete tiers put a hard step on a cell edge wherever the tier changed,
+     *  and that step is what read as crude banding between regions. */
+    float   light;
+    /** 0..1 mains health at the cell. Drives flicker amplitude on the render
+     *  side, so a failing region visibly struggles instead of just being dim. */
+    float   power;
+};
+
 /**
  * The world. Construct once with a seed; every query is deterministic, so two
  * clients with the same seed see byte-identical geometry without exchanging any
@@ -61,6 +76,23 @@ public:
     uint8_t fixtureAt(int cx, int cz) const noexcept;
     uint8_t featureAt(int cx, int cz) const noexcept;
 
+    /** 0..1 mains health. Continuous, so lit and failed regions blend. */
+    float powerAt(int cx, int cz) const noexcept;
+
+    /**
+     * Resolves a whole chunk plus a one-cell apron in a single pass, writing
+     * (cells + 2)^2 samples in row-major order starting at cell (-1, -1) of the
+     * chunk.
+     *
+     * Done in bulk for two reasons. It is far cheaper — isOpen() is evaluated
+     * once per cell rather than once per neighbour test, and feature detection
+     * alone used to cost five of them. More importantly it is the only way to
+     * bake light spill at all: illuminance at a point is the sum of what every
+     * fixture within a few cells actually throws, and a per-cell query cannot
+     * see those without re-deriving the whole neighbourhood each time.
+     */
+    void sampleChunk(int chunkX, int chunkZ, int cells, CellSample* out) const noexcept;
+
     /** First lit, open cell near the origin. */
     void findSpawn(int& outCx, int& outCz) const noexcept;
     /** A run's authored distance away from spawn, in a seed-chosen direction. */
@@ -84,6 +116,9 @@ public:
 
 private:
     float noise(float x, float z, uint64_t salt) const noexcept;
+    /** Fixture kind for an already-known open cell and mains health, so the bulk
+     *  sampler does not pay for isOpen/powerAt twice. */
+    uint8_t fixtureFor(int cx, int cz, float power) const noexcept;
 
     uint64_t seed_;
 };
