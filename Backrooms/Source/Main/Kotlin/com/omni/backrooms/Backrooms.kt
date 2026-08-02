@@ -30,6 +30,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+// The market grids are LazyVerticalGrid, so itemsIndexed comes from grid.*.
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -459,11 +460,37 @@ private fun OmniBackroomsAppContent() {
                 enterTransition = { slideInVertically(tween(400)) { it } + fadeIn(tween(400)) },
                 exitTransition  = { slideOutVertically(tween(300)) { it } + fadeOut(tween(300)) }
             ) { MarketScreen(onBack = { nav.popBackStack() }) }
-            composable(Route.ROOM)        { Room(onJoined = { nav.navigate("${Route.GAME}?resume=false") }, onBack = { nav.popBackStack() }, onCreate = { nav.navigate(Route.CREATE_ROOM) }) }
-            composable(Route.CREATE_ROOM) { CreateRoom(onCreated = { nav.popBackStack() }, onBack = { nav.popBackStack() }) }
-            composable(Route.LEADERBOARD) { LeaderboardScreen(onBack = { nav.popBackStack() }) }
-            composable(Route.PROFILE)     { ProfileScreen(onBack = { nav.popBackStack() }) }
-            composable(Route.UI_EDITOR)   { UiEditor(onSave = { nav.popBackStack() }) }
+            // The rest slide in from the side like Settings and Story. Half the
+            // routes used to cut with no transition at all, which read as the
+            // app dropping frames rather than as a deliberate change of screen.
+            composable(
+                Route.ROOM,
+                enterTransition = { slideInHorizontally(tween(400)) { it } + fadeIn(tween(400)) },
+                exitTransition  = { slideOutHorizontally(tween(300)) { it } + fadeOut(tween(300)) }
+            ) { Room(onJoined = { nav.navigate("${Route.GAME}?resume=false") }, onBack = { nav.popBackStack() }, onCreate = { nav.navigate(Route.CREATE_ROOM) }) }
+            composable(
+                Route.CREATE_ROOM,
+                enterTransition = { slideInVertically(tween(380)) { it } + fadeIn(tween(380)) },
+                exitTransition  = { slideOutVertically(tween(280)) { it } + fadeOut(tween(280)) }
+            ) { CreateRoom(onCreated = { nav.popBackStack() }, onBack = { nav.popBackStack() }) }
+            composable(
+                Route.LEADERBOARD,
+                enterTransition = { slideInHorizontally(tween(400)) { it } + fadeIn(tween(400)) },
+                exitTransition  = { slideOutHorizontally(tween(300)) { it } + fadeOut(tween(300)) }
+            ) { LeaderboardScreen(onBack = { nav.popBackStack() }) }
+            composable(
+                Route.PROFILE,
+                enterTransition = { slideInHorizontally(tween(400)) { -it } + fadeIn(tween(400)) },
+                exitTransition  = { slideOutHorizontally(tween(300)) { -it } + fadeOut(tween(300)) }
+            ) { ProfileScreen(onBack = { nav.popBackStack() }) }
+            composable(
+                Route.UI_EDITOR,
+                // Scales up out of the settings row it was launched from, which
+                // is the one screen where "this replaced what you were looking
+                // at" is the right reading.
+                enterTransition = { scaleIn(tween(360), initialScale = 0.92f) + fadeIn(tween(360)) },
+                exitTransition  = { scaleOut(tween(260), targetScale = 0.94f) + fadeOut(tween(260)) }
+            ) { UiEditor(onSave = { nav.popBackStack() }) }
         }
     }
 }
@@ -3401,53 +3428,67 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 // under the ceiling plane. The most recognisable object here.
                 val fixture = chunk.fixtureAt(lx, lz)
                 if (fixture == 1) {
-                    // Light shaft: an open cone from the fixture down to the
-                    // floor, drawn additively. Real geometry rather than a
-                    // screen-space trick, so it occludes correctly and looks
-                    // right from any angle.
+                    // Light in the air below the fitting. Real geometry rather
+                    // than a screen-space trick, so it occludes correctly and
+                    // holds up from any angle.
+                    //
+                    // A rectangular slab, not the cone this used to be: the
+                    // emitter is a metre-long row of tubes, and a cone spreading
+                    // evenly in every direction from a point is the wrong shape
+                    // for it — it read as a spotlight in an office ceiling.
                     val midX = x0 + cs * 0.5f
                     val midZ = z0 + cs * 0.5f
-                    val top = hgt - 0.06f
-                    val topR = cs * 0.20f
-                    val botR = cs * 0.62f
-                    val sides = 10
-                    val intensity = lit.coerceAtMost(1.4f)
-                    val ringBase = shaftB
-                    for (i in 0 until sides) {
-                        val a0 = (i / sides.toFloat()) * (Math.PI * 2).toFloat()
-                        val a1 = ((i + 1) / sides.toFloat()) * (Math.PI * 2).toFloat()
-                        val c0 = kotlin.math.cos(a0); val s0 = kotlin.math.sin(a0)
-                        val c1 = kotlin.math.cos(a1); val s1 = kotlin.math.sin(a1)
-                        // UV carries (rim, fall) rather than texture coords —
-                        // the shaft shader reads them as shaping parameters.
+                    val top = hgt - 0.09f
+                    val halfLen = cs * 0.34f          // along the tubes
+                    val topHalf = cs * 0.16f          // across them, at the fitting
+                    val botHalf = cs * 0.54f          // across them, at the floor
+                    val botLen  = halfLen + cs * 0.20f
+                    val intensity = lit.coerceAtMost(1.5f)
+                    val floorY = 0.02f
+
+                    // Two long faces, one either side, splaying outward as they
+                    // fall. UV carries (rim, fall) rather than texture coords —
+                    // the shaft shader reads them as shaping parameters.
+                    for (side in -1..1 step 2) {
+                        val s = side.toFloat()
                         shaftB = quadFlat(
                             shaftV, shaftI, shaftB,
-                            floatArrayOf(midX + c0 * topR, top, midZ + s0 * topR),
-                            floatArrayOf(midX + c1 * topR, top, midZ + s1 * topR),
-                            floatArrayOf(midX + c1 * botR, 0.02f, midZ + s1 * botR),
-                            floatArrayOf(midX + c0 * botR, 0.02f, midZ + s0 * botR),
+                            floatArrayOf(midX - halfLen, top, midZ + s * topHalf),
+                            floatArrayOf(midX + halfLen, top, midZ + s * topHalf),
+                            floatArrayOf(midX + botLen, floorY, midZ + s * botHalf),
+                            floatArrayOf(midX - botLen, floorY, midZ + s * botHalf),
                             floatArrayOf(0f, 1f, 0f), intensity,
-                            0.30f, 0f, 0.30f, 1f
+                            0.28f, 0f, 0.28f, 1f
                         )
                     }
-                    // Rim ring: a second, wider skirt at low density so the
-                    // cone fades out instead of ending abruptly.
-                    for (i in 0 until sides) {
-                        val a0 = (i / sides.toFloat()) * (Math.PI * 2).toFloat()
-                        val a1 = ((i + 1) / sides.toFloat()) * (Math.PI * 2).toFloat()
-                        val c0 = kotlin.math.cos(a0); val s0 = kotlin.math.sin(a0)
-                        val c1 = kotlin.math.cos(a1); val s1 = kotlin.math.sin(a1)
+                    // Two short end caps, so the slab is closed rather than a
+                    // pair of floating sheets seen edge-on from the side.
+                    for (side in -1..1 step 2) {
+                        val s = side.toFloat()
                         shaftB = quadFlat(
                             shaftV, shaftI, shaftB,
-                            floatArrayOf(midX + c0 * topR * 1.5f, top, midZ + s0 * topR * 1.5f),
-                            floatArrayOf(midX + c1 * topR * 1.5f, top, midZ + s1 * topR * 1.5f),
-                            floatArrayOf(midX + c1 * botR * 1.35f, 0.02f, midZ + s1 * botR * 1.35f),
-                            floatArrayOf(midX + c0 * botR * 1.35f, 0.02f, midZ + s0 * botR * 1.35f),
-                            floatArrayOf(0f, 1f, 0f), intensity * 0.5f,
-                            0.85f, 0f, 0.85f, 1f
+                            floatArrayOf(midX + s * halfLen, top, midZ - topHalf),
+                            floatArrayOf(midX + s * halfLen, top, midZ + topHalf),
+                            floatArrayOf(midX + s * botLen, floorY, midZ + botHalf),
+                            floatArrayOf(midX + s * botLen, floorY, midZ - botHalf),
+                            floatArrayOf(0f, 1f, 0f), intensity * 0.85f,
+                            0.55f, 0f, 0.55f, 1f
                         )
                     }
-                    if (ringBase == shaftB) { /* nothing emitted */ }
+                    // Outer skirt at low density, so the haze fades out into the
+                    // room instead of ending on a hard edge.
+                    for (side in -1..1 step 2) {
+                        val s = side.toFloat()
+                        shaftB = quadFlat(
+                            shaftV, shaftI, shaftB,
+                            floatArrayOf(midX - halfLen * 1.3f, top, midZ + s * topHalf * 1.7f),
+                            floatArrayOf(midX + halfLen * 1.3f, top, midZ + s * topHalf * 1.7f),
+                            floatArrayOf(midX + botLen * 1.25f, floorY, midZ + s * botHalf * 1.30f),
+                            floatArrayOf(midX - botLen * 1.25f, floorY, midZ + s * botHalf * 1.30f),
+                            floatArrayOf(0f, 1f, 0f), intensity * 0.45f,
+                            0.86f, 0f, 0.86f, 1f
+                        )
+                    }
                 }
                 if (fixture != 0) {
                     // A recessed fluorescent troffer, built the way the real
@@ -3899,9 +3940,11 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(s.items) { item ->
-                                MarketCard(item, s.purchasing == item.id, item.id in s.ownedIds,
-                                    onInspect = { inspecting = true }) { vm.confirmBuy(item) }
+                            itemsIndexed(s.items) { index, item ->
+                                MarketCard(
+                                    item, s.purchasing == item.id, item.id in s.ownedIds, index,
+                                    onInspect = { inspecting = true }
+                                ) { vm.confirmBuy(item) }
                             }
                         }
                     }
@@ -3915,9 +3958,11 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                items(s.dailyDeals) { item ->
-                                    MarketCard(item, s.purchasing == item.id, item.id in s.ownedIds,
-                                        onInspect = { inspecting = true }) { vm.confirmBuy(item) }
+                                itemsIndexed(s.dailyDeals) { index, item ->
+                                    MarketCard(
+                                        item, s.purchasing == item.id, item.id in s.ownedIds, index,
+                                        onInspect = { inspecting = true }
+                                    ) { vm.confirmBuy(item) }
                                 }
                             }
                         }
@@ -3933,9 +3978,11 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                items(s.items) { item ->
-                                    MarketCard(item, s.purchasing == item.id, item.id in s.ownedIds,
-                                        onInspect = { inspecting = true }) { vm.confirmBuy(item) }
+                                itemsIndexed(s.items) { index, item ->
+                                    MarketCard(
+                                        item, s.purchasing == item.id, item.id in s.ownedIds, index,
+                                        onInspect = { inspecting = true }
+                                    ) { vm.confirmBuy(item) }
                                 }
                             }
                         }
@@ -5723,6 +5770,8 @@ private fun MarketCard(
     item: MarketItemDto,
     isPurchasing: Boolean,
     owned: Boolean = false,
+    /** Position in the grid, used to stagger the entrance. */
+    index: Int = 0,
     onInspect: () -> Unit = {},
     onBuy: () -> Unit
 ) {
@@ -5732,9 +5781,32 @@ private fun MarketCard(
     val interSrc  = remember { MutableInteractionSource() }
     val isPressed by interSrc.collectIsPressedAsState()
     val scale     by animateFloatAsState(if (isPressed) 0.97f else 1f, spring(), label = "card_scale")
+
+    // Staggered entrance. Cards arriving together as one block reads as a
+    // screenshot appearing; arriving in sequence reads as a list being dealt
+    // out, and it gives the eye an order to follow. Keyed on the item so
+    // switching tabs re-runs it rather than snapping in.
+    var entered by remember(item.id) { mutableStateOf(false) }
+    LaunchedEffect(item.id) {
+        delay(index * 55L)
+        entered = true
+    }
+    val enter by animateFloatAsState(
+        if (entered) 1f else 0f,
+        spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow),
+        label = "card_enter"
+    )
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.scale(scale)
+        modifier = Modifier
+            .graphicsLayer {
+                alpha = enter
+                translationY = (1f - enter) * 26f * density
+                val s = 0.94f + enter * 0.06f
+                scaleX = s; scaleY = s
+            }
+            .scale(scale)
             .clip(RoundedCornerShape(3.dp))
             .background(MetalBg)
             .border(1.dp, if (item.isLimited) CrtAmber.copy(glow) else BorderCol, RoundedCornerShape(3.dp))
