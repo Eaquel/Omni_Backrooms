@@ -2205,9 +2205,25 @@ uniform vec3 uCamPos;
 uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
 uniform float uBumpStrength; uniform float uBumpTexel;
 uniform vec3 uLampTint;
+/**
+ * Metres-to-UV, per texture.
+ *
+ * The mesher emits UVs in world METRES and this converts them, because the
+ * three level textures are neither the same size nor the same aspect:
+ * 1536x1024, 1448x1086 and 1024x1024. Mapping all three through one scale
+ * stretched two of them onto square tiles and gave each surface a different
+ * texel density — the floor finer than the wall, the wall finer than the
+ * ceiling, and both of the non-square ones squashed along one axis. That is
+ * what "the textures don't match" was.
+ *
+ * Set per draw group to (density/width, density/height), so one metre of world
+ * covers the same number of texels on every surface and on both axes.
+ */
+uniform vec2 uUvScale;
 out vec4 fragColor;
 void main(){
-    vec4 tex = texture(uTex, vUV);
+    vec2 uv = vUV * uUvScale;
+    vec4 tex = texture(uTex, uv);
 
     // Derive a surface normal from the texture's own luminance slope, then
     // rotate it into the face's tangent frame. Cheap bump mapping with no
@@ -2215,10 +2231,10 @@ void main(){
     vec3 n = normalize(vNormal);
     if (uBumpStrength > 0.001) {
         vec2 texel = vec2(uBumpTexel);
-        float hL = dot(texture(uTex, vUV - vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
-        float hR = dot(texture(uTex, vUV + vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
-        float hD = dot(texture(uTex, vUV - vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
-        float hU = dot(texture(uTex, vUV + vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+        float hL = dot(texture(uTex, uv - vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
+        float hR = dot(texture(uTex, uv + vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
+        float hD = dot(texture(uTex, uv - vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
+        float hU = dot(texture(uTex, uv + vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
         // Tangent frame from the geometric normal: walls are axis-aligned, so
         // picking the least-aligned world axis gives a stable tangent.
         vec3 up = abs(n.y) > 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
@@ -2410,6 +2426,67 @@ void main(){
 }
 """
 
+/**
+ * The torch she carries.
+ *
+ * A lathed body — barrel, knurled grip, flared head, lens — built as a triangle
+ * strip of revolution. Modelled rather than downloaded: it is nine rings of
+ * eight segments, so authoring it in code costs less than an asset would, and
+ * it inherits the scene's own palette instead of arriving with a baked one.
+ *
+ * Vertex layout matches the level mesh (pos, normal, uv, light) so it can share
+ * the buffer conventions, but it has its own program because the shading is
+ * metal-and-lens rather than baked room light.
+ */
+private const val OMNI_TORCH_VERT = """#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+layout(location=3) in float aPart;   // 0 body, 1 head, 2 lens
+uniform mat4 uMVP; uniform mat4 uModel;
+out vec3 vNormal; out float vPart; out float vAxial;
+void main(){
+    vNormal = mat3(uModel) * aNormal;
+    vPart = aPart;
+    vAxial = aUV.y;
+    gl_Position = uMVP * vec4(aPos, 1.0);
+}
+"""
+
+private const val OMNI_TORCH_FRAG = """#version 300 es
+precision mediump float;
+in vec3 vNormal; in float vPart; in float vAxial;
+uniform float uOn;
+uniform vec3 uAmbient;
+out vec4 fragColor;
+void main(){
+    vec3 n = normalize(vNormal);
+    // Fixed key light from above-front, matching the level's ceiling sources.
+    vec3 key = normalize(vec3(-0.35, 0.86, 0.38));
+    float ndl = max(dot(n, key), 0.0);
+    float rim = pow(1.0 - abs(n.z), 2.5) * 0.35;
+
+    vec3 col;
+    if (vPart > 1.5) {
+        // Lens. Dark glass when off; when on it is the brightest thing in the
+        // frame, which is what sells the torch actually being the light source.
+        vec3 dark = vec3(0.10, 0.10, 0.12);
+        vec3 hot  = vec3(1.0, 0.97, 0.84) * 2.6;
+        col = mix(dark, hot, uOn);
+    } else if (vPart > 0.5) {
+        // Head: brushed aluminium, brighter than the body.
+        col = vec3(0.52, 0.53, 0.56) * (0.30 + ndl * 0.85) + rim;
+        // Spill from the lens washes back over the head when lit.
+        col += vec3(1.0, 0.94, 0.78) * uOn * (1.0 - vAxial) * 0.45;
+    } else {
+        // Body: dark rubberised grip with a knurled band.
+        float knurl = 0.86 + 0.14 * step(0.5, fract(vAxial * 26.0));
+        col = vec3(0.16, 0.16, 0.17) * knurl * (0.34 + ndl * 0.80) + rim * 0.6;
+    }
+    fragColor = vec4(col, 1.0);
+}
+"""
+
 private const val OMNI_POST_VERT = """#version 300 es
 layout(location=0) in vec2 aPos;
 out vec2 vUV;
@@ -2552,6 +2629,9 @@ data class RenderSettings(
     val colorBlindMode : String  = "none"
 )
 
+/** Fittings are a flat colour, so their UVs pass through unscaled. */
+private val LAMP_UV = floatArrayOf(1f, 1f)
+
 class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
     @Volatile var latestState: GameState = GameState()
@@ -2567,6 +2647,23 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var sMVP = 0; private var sFlicker = 0; private var sTint = 0
     private var cMVP = 0; private var cModel = 0; private var cTime = 0; private var cWalk = 0
     private var cTexU = 0; private var cIsChar = 0
+    private var cCrouch = 0; private var cAir = 0
+    private var cHeadYaw = 0; private var cHeadPitch = 0; private var cTorch = 0
+
+    // The torch she carries in third person.
+    private var torchProgram = 0
+    private var torchVbo = 0; private var torchIbo = 0; private var torchIndexCount = 0
+    private var tMVP = 0; private var tModel = 0; private var tOn = 0; private var tAmbient = 0
+    private val torchModelM = FloatArray(16)
+    private val torchMvpM = FloatArray(16)
+    /** Eased 0..1 raise of the torch arm, so switching it on is a movement. */
+    private var torchRaise = 0f
+    /** Eased crouch and airborne blends for the avatar rig. */
+    private var avatarCrouch = 0f
+    private var avatarAir = 0f
+    /** Where the head is turned relative to the body. */
+    private var headYaw = 0f
+    private var lastBodyYaw = 0f
     private val avatarModelM = FloatArray(16)
     private val avatarMvpM = FloatArray(16)
     private var lastAvatarX = 0f
@@ -2585,6 +2682,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var uFogDensity = 0
     private var uFogColor = 0; private var uFlicker = 0
     private var uBumpStrength = 0; private var uBumpTexel = 0; private var uLampTint = 0
+    private var uUvScale = 0
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
     private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
@@ -2602,6 +2700,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var xWidth = 0; private var xHeight = 0; private var xTime = 0; private var xNear = 0
 
     private var floorTex = 0; private var wallTex = 0; private var roofTex = 0
+    /** Metres-to-UV scale per texture, derived from its pixel size so every
+     *  surface ends up at the same texel density. See uUvScale in the shader. */
+    private var floorUv = floatArrayOf(0.5f, 0.5f)
+    private var wallUv  = floatArrayOf(0.5f, 0.5f)
+    private var roofUv  = floatArrayOf(0.5f, 0.5f)
     /** Flat near-white for the light fittings. Drawing them on the ceiling tile
      *  tinted the tubes with the ceiling's own grain, which is the one surface
      *  in the level that must not look like the ceiling. */
@@ -2640,6 +2743,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var smoothX = 0f; private var smoothY = 1.7f; private var smoothZ = 0f
     private var smoothYaw = 0f; private var smoothPitch = 0f
     private var smoothTilt = 0f
+    /** Third-person boom length after collision, eased so the camera slides in
+     *  and out rather than snapping when it clears an obstruction. */
+    private var smoothCamDist = 0f
     private var smoothInit = false
     private val smoothEntities = HashMap<Int, FloatArray>() // id -> [x,y,z]
 
@@ -2653,6 +2759,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // avatar buffers are recreated below in the same pass.
         chunkMeshes.clear()
         charIndexCount = 0
+        torchIndexCount = 0
+        torchRaise = 0f; avatarCrouch = 0f; avatarAir = 0f; headYaw = 0f
         smoothInit = false
         smoothTilt = 0f
         avatarSpeed = 0f
@@ -2679,6 +2787,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         uBumpStrength = GLES30.glGetUniformLocation(sceneProgram, "uBumpStrength")
         uBumpTexel = GLES30.glGetUniformLocation(sceneProgram, "uBumpTexel")
         uLampTint = GLES30.glGetUniformLocation(sceneProgram, "uLampTint")
+        uUvScale = GLES30.glGetUniformLocation(sceneProgram, "uUvScale")
 
         billboardProgram = linkGlProgram(OMNI_BILLBOARD_VERT, OMNI_BILLBOARD_FRAG)
         bVP = GLES30.glGetUniformLocation(billboardProgram, "uVP")
@@ -2744,6 +2853,24 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             cWalk = GLES30.glGetUniformLocation(charProgram, "uWalk")
             cTexU = GLES30.glGetUniformLocation(charProgram, "uTex")
             cIsChar = GLES30.glGetUniformLocation(charProgram, "uIsCharacter")
+            cCrouch = GLES30.glGetUniformLocation(charProgram, "uCrouch")
+            cAir = GLES30.glGetUniformLocation(charProgram, "uAir")
+            cHeadYaw = GLES30.glGetUniformLocation(charProgram, "uHeadYaw")
+            cHeadPitch = GLES30.glGetUniformLocation(charProgram, "uHeadPitch")
+            cTorch = GLES30.glGetUniformLocation(charProgram, "uTorch")
+
+            torchProgram = linkGlProgram(OMNI_TORCH_VERT, OMNI_TORCH_FRAG)
+            tMVP = GLES30.glGetUniformLocation(torchProgram, "uMVP")
+            tModel = GLES30.glGetUniformLocation(torchProgram, "uModel")
+            tOn = GLES30.glGetUniformLocation(torchProgram, "uOn")
+            tAmbient = GLES30.glGetUniformLocation(torchProgram, "uAmbient")
+            val (tv, ti) = buildTorchMesh()
+            torchVbo = genGlBuffer(); torchIbo = genGlBuffer()
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, torchVbo)
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, tv.size * 4, glFloatBuffer(tv), GLES30.GL_STATIC_DRAW)
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, torchIbo)
+            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, ti.size * 4, glIntBuffer(ti), GLES30.GL_STATIC_DRAW)
+            torchIndexCount = ti.size
 
             CharacterMesh.load(appContext, "Models/Anime_Character.omesh")?.let { mesh ->
                 charVbo = genGlBuffer(); charIbo = genGlBuffer()
@@ -2762,9 +2889,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             charTex = loadOmniTexture("Models/Anime_Texture.png", 0xFFE8D5C8.toInt())
         }.onFailure { OmniLog.e("Render", "avatar setup failed; third person unavailable", it) }
 
-        floorTex = loadOmniTexture("Level_0/Floor.png", 0xFF3A3020.toInt())
-        wallTex  = loadOmniTexture("Level_0/Wall.png",  0xFF4A4030.toInt())
-        roofTex  = loadOmniTexture("Level_0/Roof.png",  0xFF23210F.toInt())
+        floorTex = loadOmniTexture("Level_0/Floor.png", 0xFF3A3020.toInt(), floorUv)
+        wallTex  = loadOmniTexture("Level_0/Wall.png",  0xFF4A4030.toInt(), wallUv)
+        roofTex  = loadOmniTexture("Level_0/Roof.png",  0xFF23210F.toInt(), roofUv)
         lampTex  = uploadTexture(solidTile(0xFFF4F0E2.toInt()))
 
         val quadCorners = floatArrayOf(-1f,-1f, 1f,-1f, -1f,1f, 1f,1f)
@@ -2848,13 +2975,29 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             val eyeY = smoothY + state.eyeOffset
 
             // Third person pulls the camera back along the view axis and lifts
-            // it, so the avatar sits in the lower third of frame.
+            // it, so the avatar sits in the lower third of frame — but only as
+            // far back as the room allows.
             val thirdPerson = cameraView == "third" && charIndexCount > 0
-            val camDist = if (thirdPerson) 2.9f else 0f
-            val camLift = if (thirdPerson) 0.45f else 0f
+            val camLift = if (thirdPerson) 0.42f else 0f
+            val wantDist = if (thirdPerson) 2.9f else 0f
+            val ceiling = if (state.world.isValid) state.world.height else 2.6f
+            val camDist = if (thirdPerson) {
+                // The pivot is the lifted eye, so the ray tested is the one the
+                // lens actually travels.
+                smoothCamDist += (resolveCameraDistance(
+                    smoothX, eyeY + camLift, smoothZ,
+                    -fx, -fy, -fz, wantDist, state.world, ceiling
+                ) - smoothCamDist) * (1f - kotlin.math.exp(-dt * 14f))
+                smoothCamDist
+            } else {
+                smoothCamDist = 0f
+                0f
+            }
             val eyeX = smoothX - fx * camDist
             val eyeZ = smoothZ - fz * camDist
-            val camY = eyeY - fy * camDist + camLift
+            // Even at zero distance the lens must stay inside the room: the lift
+            // alone can push it into the ceiling in a low corridor.
+            val camY = (eyeY - fy * camDist + camLift).coerceIn(0.30f, ceiling - 0.22f)
             Matrix.setLookAtM(
                 viewM, 0,
                 eyeX, camY, eyeZ,
@@ -2894,9 +3037,38 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 // translated by this point, so handing it the camera height left
                 // her hanging a full body-length above the floor.
                 val feetY = smoothY - (cam.eyeHeight + state.eyeOffset)
+                val ease = 1f - kotlin.math.exp(-dt * 9f)
+
+                // Pose blends, all eased so nothing in the rig ever snaps.
+                avatarCrouch += ((if (state.isCrouching) 1f else 0f) - avatarCrouch) * ease
+                // Airborne is read off the body, not off a flag: any upward or
+                // rapid downward motion of the feet counts, which covers jumps,
+                // falls and the arrival drop without three separate signals.
+                val airborne = if (feetY > 0.10f) 1f else 0f
+                avatarAir += (airborne - avatarAir) * ease
+                torchRaise += ((if (state.flashlightOn) 1f else 0f) - torchRaise) * (1f - kotlin.math.exp(-dt * 7f))
+
+                // Head lead: she turns her head into a turn before her body
+                // follows. Driven from how fast the view is yawing, decaying
+                // back to centre when the player stops turning.
+                var yawDelta = cam.yaw - lastBodyYaw
+                while (yawDelta > 180f) yawDelta -= 360f
+                while (yawDelta < -180f) yawDelta += 360f
+                lastBodyYaw = cam.yaw
+                val targetHead = (yawDelta * 0.09f).coerceIn(-0.62f, 0.62f)
+                headYaw += (targetHead - headYaw) * (1f - kotlin.math.exp(-dt * 5f))
+                val headPitch = (-Math.toRadians(smoothPitch.toDouble()).toFloat() * 0.45f)
+                    .coerceIn(-0.40f, 0.40f)
+
+                val walkBlend = (avatarSpeed / 3.6f).coerceIn(0f, 1.6f)
                 drawAvatar(
                     vpM, smoothX, feetY, smoothZ, smoothYaw,
-                    timeSec, walk = (avatarSpeed / 3.6f).coerceIn(0f, 1.6f)
+                    timeSec, walkBlend,
+                    avatarCrouch, avatarAir, headYaw, headPitch, torchRaise
+                )
+                drawTorch(
+                    vpM, smoothX, feetY, smoothZ, smoothYaw,
+                    timeSec, walkBlend, torchRaise, avatarCrouch, state.flashlightOn
                 )
             }
 
@@ -2993,11 +3165,12 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glUniform1f(uBumpTexel, 1.0f / 512f)
         // Grouped by texture across all resident chunks, so the whole world
         // costs three texture binds rather than three per chunk.
-        for (m in chunkMeshes.values) drawMeshGroup(m.floorVbo, m.floorIbo, m.floorCount, floorTex)
-        for (m in chunkMeshes.values) drawMeshGroup(m.roofVbo,  m.roofIbo,  m.roofCount,  roofTex)
-        for (m in chunkMeshes.values) drawMeshGroup(m.wallVbo,  m.wallIbo,  m.wallCount,  wallTex)
+        for (m in chunkMeshes.values) drawMeshGroup(m.floorVbo, m.floorIbo, m.floorCount, floorTex, floorUv)
+        for (m in chunkMeshes.values) drawMeshGroup(m.roofVbo,  m.roofIbo,  m.roofCount,  roofTex,  roofUv)
+        for (m in chunkMeshes.values) drawMeshGroup(m.wallVbo,  m.wallIbo,  m.wallCount,  wallTex,  wallUv)
         // Fixtures last: their high baked light makes them read as emitters.
-        for (m in chunkMeshes.values) drawMeshGroup(m.fixVbo, m.fixIbo, m.fixCount, lampTex)
+        // Flat colour, so its UVs need no scaling at all.
+        for (m in chunkMeshes.values) drawMeshGroup(m.fixVbo, m.fixIbo, m.fixCount, lampTex, LAMP_UV)
 
         // Light shafts, additive and depth-tested but not depth-written, so
         // several overlapping cones accumulate instead of culling each other.
@@ -3025,11 +3198,12 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
     }
 
-    private fun drawMeshGroup(vbo: Int, ibo: Int, indexCount: Int, tex: Int) {
+    private fun drawMeshGroup(vbo: Int, ibo: Int, indexCount: Int, tex: Int, uvScale: FloatArray) {
         if (indexCount <= 0) return
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex)
         GLES30.glUniform1i(uTex, 0)
+        GLES30.glUniform2f(uUvScale, uvScale[0], uvScale[1])
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
         val stride = 9 * 4
         GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
@@ -3174,10 +3348,174 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
      * one-frame delay entirely.
      */
 
+    /**
+     * Builds the torch as a solid of revolution.
+     *
+     * Nine rings along the barrel, each with a radius and a part tag; the strip
+     * between consecutive rings becomes the surface. Modelled in code because it
+     * is a lathe form — nothing an imported asset would give us is worth the
+     * loader, the file, or the licence.
+     *
+     * Local axes: +Z is the direction the beam leaves, origin at the grip so the
+     * hand transform can place it without an offset.
+     */
+    private fun buildTorchMesh(): Pair<FloatArray, IntArray> {
+        // (z along the barrel, radius, part tag)
+        val profile = arrayOf(
+            floatArrayOf(-0.070f, 0.000f, 0f),  // butt cap centre
+            floatArrayOf(-0.070f, 0.020f, 0f),  // butt rim
+            floatArrayOf(-0.030f, 0.023f, 0f),  // grip
+            floatArrayOf( 0.020f, 0.022f, 0f),  // knurled barrel
+            floatArrayOf( 0.052f, 0.024f, 0f),  // step up to the head
+            floatArrayOf( 0.058f, 0.034f, 1f),  // head shoulder
+            floatArrayOf( 0.086f, 0.041f, 1f),  // head flare
+            floatArrayOf( 0.092f, 0.040f, 2f),  // bezel
+            floatArrayOf( 0.093f, 0.036f, 2f)   // lens face
+        )
+        val sides = 10
+        val verts = ArrayList<Float>()
+        val idx = ArrayList<Int>()
+
+        for (r in profile.indices) {
+            val z = profile[r][0]; val rad = profile[r][1]; val part = profile[r][2]
+            // Slope of the profile gives the correct normal for a lathe surface.
+            val prev = profile[max(r - 1, 0)]
+            val next = profile[min(r + 1, profile.lastIndex)]
+            val dz = next[0] - prev[0]
+            val dr = next[1] - prev[1]
+            val len = kotlin.math.hypot(dz, dr).coerceAtLeast(1e-5f)
+            val nRad = dz / len          // radial component of the normal
+            val nAxial = -dr / len       // axial component
+            for (s in 0 until sides) {
+                val a = (s / sides.toFloat()) * (Math.PI * 2).toFloat()
+                val ca = cos(a); val sa = sin(a)
+                verts.add(ca * rad); verts.add(sa * rad); verts.add(z)
+                verts.add(ca * nRad); verts.add(sa * nRad); verts.add(nAxial)
+                verts.add(s / sides.toFloat()); verts.add(r / (profile.size - 1f))
+                verts.add(part)
+            }
+        }
+        for (r in 0 until profile.size - 1) {
+            for (s in 0 until sides) {
+                val s2 = (s + 1) % sides
+                val a = r * sides + s
+                val b = r * sides + s2
+                val c = (r + 1) * sides + s2
+                val d = (r + 1) * sides + s
+                idx.add(a); idx.add(b); idx.add(c)
+                idx.add(a); idx.add(c); idx.add(d)
+            }
+        }
+        // Lens disc, so the beam face is solid rather than an open tube.
+        val lensBase = verts.size / 9
+        val lensZ = profile.last()[0]
+        val lensR = profile.last()[1]
+        verts.add(0f); verts.add(0f); verts.add(lensZ)
+        verts.add(0f); verts.add(0f); verts.add(1f)
+        verts.add(0.5f); verts.add(1f); verts.add(2f)
+        for (s in 0 until sides) {
+            val a = (s / sides.toFloat()) * (Math.PI * 2).toFloat()
+            verts.add(cos(a) * lensR); verts.add(sin(a) * lensR); verts.add(lensZ)
+            verts.add(0f); verts.add(0f); verts.add(1f)
+            verts.add(s / sides.toFloat()); verts.add(1f); verts.add(2f)
+        }
+        for (s in 0 until sides) {
+            idx.add(lensBase); idx.add(lensBase + 1 + s); idx.add(lensBase + 1 + (s + 1) % sides)
+        }
+        return FloatArray(verts.size) { verts[it] } to IntArray(idx.size) { idx[it] }
+    }
+
+    /**
+     * Places the torch in her right hand.
+     *
+     * The hand's position is derived from the same shoulder pivot and the same
+     * rotations the vertex shader applies to the arm, evaluated here on the CPU.
+     * Keeping the two in step is the price of skinning in a vertex shader with
+     * no bone buffer to read back; the alternative — a second, authoritative
+     * skeleton — is far more machinery than one prop is worth.
+     */
+    private fun drawTorch(
+        vp: FloatArray, px: Float, py: Float, pz: Float, yawDeg: Float,
+        timeSec: Float, walk: Float, torch: Float, crouch: Float, on: Boolean
+    ) {
+        if (torchIndexCount <= 0 || torch <= 0.01f) return
+
+        // --- Mirror of the shader's arm chain, right side only ---------------
+        val gait = walk.coerceIn(0f, 1.6f)
+        val run = ((gait - 1f).coerceIn(0f, 0.6f)) / 0.6f
+        val stride = timeSec * 6.4f
+        val shoulderX = 0.11f; val shoulderY = 0.74f
+        val phase = stride + Math.PI.toFloat()
+        val idleSway = sin(timeSec * 0.9f + 1f) * 0.055f
+        val swung = sin(phase) * (0.40f + 0.30f * run) * gait + idleSway
+        val shoulderPitch = swung + (-1.24f - swung) * torch
+        val shoulderRoll = -0.34f * torch
+        val elbowPitch = (sin(phase - 0.85f) * 0.30f * gait + 0.10f) +
+            (-0.52f - (sin(phase - 0.85f) * 0.30f * gait + 0.10f)) * torch
+
+        // Upper arm down to the elbow, then forearm out to the hand. Lengths are
+        // in the mesh's own unit-height space.
+        val upperLen = 0.14f
+        val foreLen = 0.16f
+        // Start hanging straight down from the shoulder, then apply the chain.
+        var hx = 0f; var hy = -upperLen; var hz = 0f
+        // Shoulder pitch about X.
+        var ry = hy * cos(shoulderPitch) - hz * sin(shoulderPitch)
+        var rz = hy * sin(shoulderPitch) + hz * cos(shoulderPitch)
+        hy = ry; hz = rz
+        // Shoulder roll about Z.
+        var rx = hx * cos(shoulderRoll) - hy * sin(shoulderRoll)
+        ry = hx * sin(shoulderRoll) + hy * cos(shoulderRoll)
+        hx = rx; hy = ry
+        val elbowX = shoulderX + hx; val elbowY = shoulderY + hy; val elbowZ = hz
+        // Forearm, carrying the shoulder's rotation plus the elbow's.
+        val totalPitch = shoulderPitch + elbowPitch
+        var fx2 = 0f; var fy2 = -foreLen; var fz2 = 0f
+        ry = fy2 * cos(totalPitch) - fz2 * sin(totalPitch)
+        rz = fy2 * sin(totalPitch) + fz2 * cos(totalPitch)
+        fy2 = ry; fz2 = rz
+        rx = fx2 * cos(shoulderRoll) - fy2 * sin(shoulderRoll)
+        ry = fx2 * sin(shoulderRoll) + fy2 * cos(shoulderRoll)
+        fx2 = rx; fy2 = ry
+        var handX = elbowX + fx2
+        var handY = elbowY + fy2
+        var handZ = elbowZ + fz2
+        // Crouching drops the whole upper body; the hand rides down with it.
+        handY -= 0.38f * crouch
+
+        GLES30.glUseProgram(torchProgram)
+        Matrix.setIdentityM(torchModelM, 0)
+        Matrix.translateM(torchModelM, 0, px, py, pz)
+        Matrix.rotateM(torchModelM, 0, yawDeg, 0f, 1f, 0f)
+        Matrix.scaleM(torchModelM, 0, AVATAR_SCALE, AVATAR_SCALE, AVATAR_SCALE)
+        Matrix.translateM(torchModelM, 0, handX, handY, handZ)
+        // Point the beam along the arm: level and forward when raised, angled
+        // down at her side when stowed.
+        Matrix.rotateM(torchModelM, 0, -78f + 78f * torch, 1f, 0f, 0f)
+        Matrix.multiplyMM(torchMvpM, 0, vp, 0, torchModelM, 0)
+
+        GLES30.glUniformMatrix4fv(tMVP, 1, false, torchMvpM, 0)
+        GLES30.glUniformMatrix4fv(tModel, 1, false, torchModelM, 0)
+        GLES30.glUniform1f(tOn, if (on) 1f else 0f)
+        GLES30.glUniform3f(tAmbient, 0.18f, 0.17f, 0.13f)
+
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, torchVbo)
+        val stride2 = 9 * 4
+        GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride2, 0)
+        GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride2, 3 * 4)
+        GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride2, 6 * 4)
+        GLES30.glEnableVertexAttribArray(3); GLES30.glVertexAttribPointer(3, 1, GLES30.GL_FLOAT, false, stride2, 8 * 4)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, torchIbo)
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, torchIndexCount, GLES30.GL_UNSIGNED_INT, 0)
+        GLES30.glDisableVertexAttribArray(0); GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2); GLES30.glDisableVertexAttribArray(3)
+    }
+
     /** Draws the player's own avatar. Third person only. [py] is the FEET. */
     private fun drawAvatar(
         vp: FloatArray, px: Float, py: Float, pz: Float, yawDeg: Float,
-        timeSec: Float, walk: Float
+        timeSec: Float, walk: Float,
+        crouch: Float, air: Float, headYawRad: Float, headPitchRad: Float, torch: Float
     ) {
         if (charIndexCount <= 0) return
         GLES30.glUseProgram(charProgram)
@@ -3200,6 +3538,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glUniformMatrix4fv(cModel, 1, false, avatarModelM, 0)
         GLES30.glUniform1f(cTime, timeSec)
         GLES30.glUniform1f(cWalk, walk)
+        GLES30.glUniform1f(cCrouch, crouch)
+        GLES30.glUniform1f(cAir, air)
+        GLES30.glUniform1f(cHeadYaw, headYawRad)
+        GLES30.glUniform1f(cHeadPitch, headPitchRad)
+        GLES30.glUniform1f(cTorch, torch)
 
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
         val stride = CharacterMesh.FLOATS_PER_VERTEX * 4
@@ -3314,7 +3657,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
         val cs = world.cellSize
         val hgt = world.height
-        val uvPerMetre = 0.5f
+        // UVs are emitted in world METRES. The shader scales them per texture,
+        // which is the only way three differently-sized, differently-shaped
+        // textures can end up at one texel density.
         val originX = chunk.chunkX * chunk.cells * cs
         val originZ = chunk.chunkZ * chunk.cells * cs
 
@@ -3334,9 +3679,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 val c11 = cornerLight(lx + 1, lz + 1)  // +x +z
                 val c01 = cornerLight(lx, lz + 1)      // -x +z
 
-                val u0 = x0 * uvPerMetre; val u1 = x1 * uvPerMetre
-                val v0 = z0 * uvPerMetre; val v1 = z1 * uvPerMetre
-                val wallV0 = 0f;          val wallV1 = hgt * uvPerMetre
+                val u0 = x0; val u1 = x1
+                val v0 = z0; val v1 = z1
+                val wallV0 = 0f; val wallV1 = hgt
 
                 if (feature != 4) {
                     floorB = quad(
@@ -3371,7 +3716,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     n: FloatArray, lA: Float, lB: Float, uA: Float, uB: Float
                 ) {
                     val skirtH = 0.13f
-                    val skirtV = skirtH * uvPerMetre
+                    val skirtV = skirtH
                     wallB = quad(wallV, wallI, wallB,
                         floatArrayOf(ax, 0f, az), floatArrayOf(bx, 0f, bz),
                         floatArrayOf(bx, skirtH, bz), floatArrayOf(ax, skirtH, az),
@@ -3383,7 +3728,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                         floatArrayOf(bx, hgt, bz), floatArrayOf(ax, hgt, az),
                         n,
                         lA * wallBot, lB * wallBot, lB * wallTop, lA * wallTop,
-                        uA, skirtV, uB, hgt * uvPerMetre)
+                        uA, skirtV, uB, hgt)
                 }
 
                 if (chunk.solidAt(lx - 1, lz)) {
@@ -3491,46 +3836,134 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     }
                 }
                 if (fixture != 0) {
-                    // A recessed fluorescent troffer, built the way the real
-                    // thing is: a dark housing recessed into the ceiling grid
-                    // with a row of separate tubes sitting in it. One flat panel
-                    // read as a glowing sticker; the tube separation is what
-                    // makes it register as a light fitting at a glance, and it is
-                    // the most recognisable object in the whole level.
+                    // ---- Recessed 2x4 fluorescent troffer -------------------
+                    //
+                    // Built the way the real fitting is, because it is the most
+                    // looked-at object in the level and a single glowing
+                    // rectangle read as a sticker on the ceiling. From the top
+                    // down: a steel pan recessed into the grid, parabolic side
+                    // reflectors angling light downward, solid end plates,
+                    // four tubes on their sockets, and a diffuser haze under
+                    // the whole assembly.
+                    //
+                    // Everything is emitted with an explicit downward normal so
+                    // the baked shading treats the parts as ceiling-facing even
+                    // where a face is really vertical — a light fitting reads
+                    // wrong if its own reflectors fall into shadow.
                     val midX = x0 + cs * 0.5f
                     val midZ = z0 + cs * 0.5f
-                    val halfW = cs * 0.36f          // along the tubes
-                    val housingHalfD = cs * 0.20f   // across them
+                    val halfL = cs * 0.38f          // along the tubes (the long axis)
+                    val panHalfW = cs * 0.21f       // across them, at the ceiling
+                    val mouthHalfW = cs * 0.27f     // across them, at the open face
                     val lit = fixture == 1
                     val down = floatArrayOf(0f, -1f, 0f)
 
-                    // Housing, flush with the ceiling plane.
+                    val panY = hgt - 0.005f         // steel pan, flush with the tile
+                    val mouthY = hgt - 0.105f       // the open face of the fitting
+                    val tubeY = hgt - 0.070f
+
+                    // Ballast whine varies fitting to fitting: a tiny per-cell
+                    // offset so a row of them is never uniformly bright.
+                    val jitter = ((lx * 73 + lz * 151) % 17) / 17f
+                    val emit = if (lit) 3.0f + jitter * 0.5f else 0.14f
+                    val panLight = if (lit) 0.60f else 0.09f
+                    val reflectorLight = if (lit) 1.45f else 0.12f
+
+                    // 1. Pan.
                     fixB = quadFlat(
                         fixV, fixI, fixB,
-                        floatArrayOf(midX - halfW, hgt - 0.015f, midZ - housingHalfD),
-                        floatArrayOf(midX - halfW, hgt - 0.015f, midZ + housingHalfD),
-                        floatArrayOf(midX + halfW, hgt - 0.015f, midZ + housingHalfD),
-                        floatArrayOf(midX + halfW, hgt - 0.015f, midZ - housingHalfD),
-                        down, 0.10f, 0f, 0f, 1f, 1f
+                        floatArrayOf(midX - halfL, panY, midZ - panHalfW),
+                        floatArrayOf(midX - halfL, panY, midZ + panHalfW),
+                        floatArrayOf(midX + halfL, panY, midZ + panHalfW),
+                        floatArrayOf(midX + halfL, panY, midZ - panHalfW),
+                        down, panLight, 0f, 0f, 1f, 1f
                     )
 
-                    // Three tubes, hung just below the housing so they read as
-                    // objects inside it rather than as paint on it.
-                    val tubes = 3
-                    val tubeHalfD = cs * 0.028f
-                    val tubeY = hgt - 0.075f
-                    val emit = if (lit) 3.1f else 0.16f
-                    for (t in 0 until tubes) {
-                        // Evenly spaced across the housing, inset from its rim.
-                        val f = (t + 0.5f) / tubes                     // 0..1 across
-                        val cz = midZ + (f - 0.5f) * (housingHalfD * 1.62f)
+                    // 2. Side reflectors, splaying out and down from the pan.
+                    // Bright, because in the real thing they are polished and
+                    // throwing the tubes' light back into the room.
+                    for (side in -1..1 step 2) {
+                        val s = side.toFloat()
                         fixB = quadFlat(
                             fixV, fixI, fixB,
-                            floatArrayOf(midX - halfW * 0.92f, tubeY, cz - tubeHalfD),
-                            floatArrayOf(midX - halfW * 0.92f, tubeY, cz + tubeHalfD),
-                            floatArrayOf(midX + halfW * 0.92f, tubeY, cz + tubeHalfD),
-                            floatArrayOf(midX + halfW * 0.92f, tubeY, cz - tubeHalfD),
+                            floatArrayOf(midX - halfL, panY, midZ + s * panHalfW),
+                            floatArrayOf(midX + halfL, panY, midZ + s * panHalfW),
+                            floatArrayOf(midX + halfL, mouthY, midZ + s * mouthHalfW),
+                            floatArrayOf(midX - halfL, mouthY, midZ + s * mouthHalfW),
+                            down, reflectorLight, 0f, 0f, 1f, 1f
+                        )
+                    }
+
+                    // 3. End plates, closing the fitting off at both ends.
+                    for (side in -1..1 step 2) {
+                        val s = side.toFloat()
+                        fixB = quadFlat(
+                            fixV, fixI, fixB,
+                            floatArrayOf(midX + s * halfL, panY, midZ - panHalfW),
+                            floatArrayOf(midX + s * halfL, panY, midZ + panHalfW),
+                            floatArrayOf(midX + s * halfL, mouthY, midZ + mouthHalfW),
+                            floatArrayOf(midX + s * halfL, mouthY, midZ - mouthHalfW),
+                            down, panLight * 0.75f, 0f, 0f, 1f, 1f
+                        )
+                    }
+
+                    // 4. Four T8 tubes. Each is a shallow triangular prism
+                    // rather than a flat strip: two faces angled off the
+                    // vertical give it a lit edge and a shaded one, which is
+                    // what makes a tube look round instead of painted on.
+                    val tubes = 4
+                    val tubeHalfD = cs * 0.021f
+                    val tubeDrop = 0.016f
+                    for (t in 0 until tubes) {
+                        val f = (t + 0.5f) / tubes
+                        val tz = midZ + (f - 0.5f) * (panHalfW * 1.72f)
+                        // Underside, the brightest face.
+                        fixB = quadFlat(
+                            fixV, fixI, fixB,
+                            floatArrayOf(midX - halfL * 0.90f, tubeY - tubeDrop, tz - tubeHalfD),
+                            floatArrayOf(midX - halfL * 0.90f, tubeY - tubeDrop, tz + tubeHalfD),
+                            floatArrayOf(midX + halfL * 0.90f, tubeY - tubeDrop, tz + tubeHalfD),
+                            floatArrayOf(midX + halfL * 0.90f, tubeY - tubeDrop, tz - tubeHalfD),
                             down, emit, 0f, 0f, 1f, 1f
+                        )
+                        // Two shoulders rolling up to the socket line.
+                        for (side in -1..1 step 2) {
+                            val s = side.toFloat()
+                            fixB = quadFlat(
+                                fixV, fixI, fixB,
+                                floatArrayOf(midX - halfL * 0.90f, tubeY - tubeDrop, tz + s * tubeHalfD),
+                                floatArrayOf(midX + halfL * 0.90f, tubeY - tubeDrop, tz + s * tubeHalfD),
+                                floatArrayOf(midX + halfL * 0.90f, tubeY, tz + s * tubeHalfD * 1.35f),
+                                floatArrayOf(midX - halfL * 0.90f, tubeY, tz + s * tubeHalfD * 1.35f),
+                                down, emit * 0.72f, 0f, 0f, 1f, 1f
+                            )
+                        }
+                        // Socket caps: short dark stubs at each end. Cheap, and
+                        // they are what stop the tube looking like it floats.
+                        for (side in -1..1 step 2) {
+                            val s = side.toFloat()
+                            fixB = quadFlat(
+                                fixV, fixI, fixB,
+                                floatArrayOf(midX + s * halfL * 0.90f, tubeY - tubeDrop, tz - tubeHalfD),
+                                floatArrayOf(midX + s * halfL * 0.98f, tubeY - tubeDrop, tz - tubeHalfD),
+                                floatArrayOf(midX + s * halfL * 0.98f, tubeY - tubeDrop, tz + tubeHalfD),
+                                floatArrayOf(midX + s * halfL * 0.90f, tubeY - tubeDrop, tz + tubeHalfD),
+                                down, 0.08f, 0f, 0f, 1f, 1f
+                            )
+                        }
+                    }
+
+                    // 5. Diffuser: one faint sheet across the mouth, sitting
+                    // below the tubes. Softens the gaps between them without
+                    // hiding that there are four distinct tubes up there.
+                    if (lit) {
+                        fixB = quadFlat(
+                            fixV, fixI, fixB,
+                            floatArrayOf(midX - halfL * 0.96f, mouthY, midZ - mouthHalfW * 0.94f),
+                            floatArrayOf(midX - halfL * 0.96f, mouthY, midZ + mouthHalfW * 0.94f),
+                            floatArrayOf(midX + halfL * 0.96f, mouthY, midZ + mouthHalfW * 0.94f),
+                            floatArrayOf(midX + halfL * 0.96f, mouthY, midZ - mouthHalfW * 0.94f),
+                            down, 1.15f, 0f, 0f, 1f, 1f
                         )
                     }
                 }
@@ -3550,11 +3983,79 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         mesh.fixCount = uploadMeshBuffers(mesh.fixVbo, mesh.fixIbo, fixV, fixI)
         mesh.shaftVbo = genGlBuffer(); mesh.shaftIbo = genGlBuffer()
         mesh.shaftCount = uploadMeshBuffers(mesh.shaftVbo, mesh.shaftIbo, shaftV, shaftI)
+        mesh.source = chunk
         return mesh
+    }
+
+    /**
+     * Is this world point inside solid fill?
+     *
+     * Answered from the resident chunk data rather than from the engine, because
+     * this runs on the GL thread every frame and must not reach across a JNI
+     * call to do it. Points outside the resident ring report solid, which is the
+     * conservative answer: it keeps the third-person camera pulled in rather
+     * than letting it drift into geometry that has not streamed yet.
+     */
+    private fun isSolidWorld(wx: Float, wz: Float, world: WorldInfo): Boolean {
+        if (!world.isValid) return false
+        val cs = world.cellSize
+        val cellsPerChunk = world.chunkCells
+        val cx = kotlin.math.floor(wx / cs).toInt()
+        val cz = kotlin.math.floor(wz / cs).toInt()
+        val chx = kotlin.math.floorDiv(cx, cellsPerChunk)
+        val chz = kotlin.math.floorDiv(cz, cellsPerChunk)
+        val key = (chx.toLong() shl 32) or (chz.toLong() and 0xFFFFFFFFL)
+        val chunk = chunkMeshes[key]?.source ?: return true
+        return chunk.solidAt(cx - chx * cellsPerChunk, cz - chz * cellsPerChunk)
+    }
+
+    /**
+     * Pulls the third-person camera in until it is clear of the level.
+     *
+     * Without this the camera simply sat [dist] behind the player wherever that
+     * landed — inside the wall behind them, above the suspended ceiling, under
+     * the floor. Looking up drove it through the ceiling and the shot became the
+     * room seen from inside the slab above it; looking down did the same through
+     * the floor. Marching the ray and stopping at the first obstruction is what
+     * keeps the shot inside the room the player is actually in.
+     *
+     * Returns the safe distance along the backward ray.
+     */
+    private fun resolveCameraDistance(
+        px: Float, py: Float, pz: Float,
+        bx: Float, by: Float, bz: Float,
+        dist: Float, world: WorldInfo, ceiling: Float
+    ): Float {
+        if (dist <= 0f) return 0f
+        // Keep the lens out of the surface it is about to touch.
+        val pad = 0.30f
+        val steps = 12
+        var safe = dist
+        for (i in 1..steps) {
+            val t = dist * i / steps
+            val sx = px + bx * t
+            val sy = py + by * t
+            val sz = pz + bz * t
+            val blocked = sy < pad || sy > ceiling - pad ||
+                isSolidWorld(sx, sz, world) ||
+                // Probe the lens's own girth, not just its centre, or it clips a
+                // corner before the centre point ever enters the wall.
+                isSolidWorld(sx + pad, sz, world) || isSolidWorld(sx - pad, sz, world) ||
+                isSolidWorld(sx, sz + pad, world) || isSolidWorld(sx, sz - pad, world)
+            if (blocked) {
+                safe = dist * (i - 1) / steps
+                break
+            }
+        }
+        return safe.coerceAtLeast(0f)
     }
 
     /** GL buffers for one streamed chunk. */
     private class ChunkMesh {
+        /** Kept alongside the buffers so the camera can test solidity without a
+         *  JNI round-trip on the render thread. */
+        var source: WorldChunk? = null
+
         var floorVbo = 0; var floorIbo = 0; var floorCount = 0
         var wallVbo  = 0; var wallIbo  = 0; var wallCount  = 0
         var roofVbo  = 0; var roofIbo  = 0; var roofCount  = 0
@@ -3707,13 +4208,27 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private fun genGlFramebuffer(): Int { val h = IntArray(1); GLES30.glGenFramebuffers(1, h, 0); return h[0] }
     private fun genGlRenderbuffer(): Int { val h = IntArray(1); GLES30.glGenRenderbuffers(1, h, 0); return h[0] }
 
+    /**
+     * Texel density every level surface is mapped at, in pixels per world metre.
+     *
+     * 320 is chosen so the square 1024px ceiling tile repeats exactly every
+     * 3.2 m — one cell — while the two non-square textures land at the same
+     * density on both of their axes instead of being stretched to fit a square.
+     */
+    private val TEXEL_DENSITY = 320f
+
     /** Loads a texture from assets, falling back to a small procedural tile so the
-     *  renderer never crashes if the art asset isn't present in a given build. */
-    private fun loadOmniTexture(assetPath: String, fallbackColor: Int): Int {
+     *  renderer never crashes if the art asset isn't present in a given build.
+     *  Writes the metres-to-UV scale for that texture into [uvOut]. */
+    private fun loadOmniTexture(assetPath: String, fallbackColor: Int, uvOut: FloatArray? = null): Int {
         val bmp: Bitmap = try {
             appContext.assets.open(assetPath).use { BitmapFactory.decodeStream(it) } ?: proceduralTile(fallbackColor)
         } catch (t: Throwable) {
             proceduralTile(fallbackColor)
+        }
+        if (uvOut != null) {
+            uvOut[0] = TEXEL_DENSITY / bmp.width.coerceAtLeast(1)
+            uvOut[1] = TEXEL_DENSITY / bmp.height.coerceAtLeast(1)
         }
         return uploadTexture(bmp)
     }
@@ -4493,17 +5008,95 @@ private fun DrawScope.drawFrame3D(
         )
     }
 
-    // Bloom around the emissive styles, so a glowing ring throws light into the
-    // space around it instead of stopping dead at its own outline.
+    // ---- Volumetrics and particles ----------------------------------------
+    // Everything below sits in FRONT of the solid, so it reads as light and
+    // matter in the air around the ring rather than as more of the ring. The
+    // geometry alone was correct but inert; this is what gives it presence.
+    if (frame == "default") return
+
+    // Halo. Two lobes at different radii, because a single gradient reads as a
+    // flat glow sticker while a tight core inside a wide wash reads as light
+    // falling off through air.
     val glowAmount = style.pattern(0f, t)
-    if (frame != "default") {
+    drawCircle(
+        Brush.radialGradient(
+            listOf(Color.Transparent, style.glow.copy(0.22f + glowAmount * 0.14f), Color.Transparent),
+            center = center, radius = radius * 1.42f
+        ),
+        radius = radius * 1.42f, center = center
+    )
+    drawCircle(
+        Brush.radialGradient(
+            listOf(Color.Transparent, style.glow.copy(0.09f), Color.Transparent),
+            center = center, radius = radius * 2.05f
+        ),
+        radius = radius * 2.05f, center = center
+    )
+
+    // Chromatic fringe: the ring's silhouette split into two offset arcs, one
+    // warm and one cool. A lens does this to a bright object; faking it is the
+    // cheapest thing that makes an effect look photographed rather than drawn.
+    val fringe = radius * 0.030f
+    val fringeStroke = radius * style.minorScale * 0.9f
+    drawCircle(
+        style.glow.copy(0.16f), radius = radius,
+        center = Offset(center.x - fringe, center.y - fringe * 0.5f),
+        style = Stroke(fringeStroke)
+    )
+    drawCircle(
+        style.highlight.copy(0.14f), radius = radius,
+        center = Offset(center.x + fringe, center.y + fringe * 0.5f),
+        style = Stroke(fringeStroke)
+    )
+
+    // Sparks thrown off the ring, each on its own orbit and lifetime. Seeded
+    // from its index so the swarm is deterministic and never resets.
+    val sparks = 18
+    for (i in 0 until sparks) {
+        val seed = i * 12.9898f
+        val life = ((t * (0.30f + (i % 5) * 0.055f) + i * 0.137f) % 1f)
+        // Born on the ring, drifting outward and fading as they go.
+        val a = (i / sparks.toFloat()) * 6.2831853f + t * (0.18f + (i % 3) * 0.07f)
+        val drift = radius * (1f + life * 0.55f)
+        val wobble = sin(t * 2.1f + seed) * radius * 0.05f
+        val px = center.x + cos(a) * drift + wobble
+        val py = center.y + sin(a) * drift * 0.42f + sin(t * 1.6f + seed) * radius * 0.16f
+        val fade = (1f - life) * (1f - life) * style.pattern(i / sparks.toFloat(), t).coerceAtLeast(0.25f)
+        if (fade <= 0.01f) continue
         drawCircle(
-            Brush.radialGradient(
-                listOf(Color.Transparent, style.glow.copy(0.16f + glowAmount * 0.10f), Color.Transparent),
-                center = center, radius = radius * 1.55f
-            ),
-            radius = radius * 1.55f, center = center
+            style.glow.copy((0.55f * fade).coerceIn(0f, 1f)),
+            radius = radius * (0.035f - life * 0.018f).coerceAtLeast(0.004f),
+            center = Offset(px, py)
         )
+    }
+
+    // Energy arcs jumping the ring: short chords that appear for a few frames
+    // where the pattern is brightest. Deliberately sparse — an effect that
+    // fires constantly stops registering as an event.
+    val arcs = 3
+    for (i in 0 until arcs) {
+        val gate = sin(t * (3.1f + i * 1.7f) + i * 2.2f)
+        if (gate < 0.86f) continue
+        val a0 = (t * 0.7f + i * 2.09f) % 6.2831853f
+        val span = 0.5f + (i % 2) * 0.35f
+        val steps = 7
+        var prevX = center.x + cos(a0) * radius
+        var prevY = center.y + sin(a0) * radius * 0.62f
+        for (k in 1..steps) {
+            val f = k / steps.toFloat()
+            val a1 = a0 + span * f
+            // Jitter perpendicular to the chord so the arc forks like a
+            // discharge rather than curving like a drawn line.
+            val j = sin(f * 11.3f + t * 24f + i) * radius * 0.055f * (1f - kotlin.math.abs(f * 2f - 1f))
+            val nx = center.x + cos(a1) * (radius + j)
+            val ny = center.y + sin(a1) * (radius * 0.62f + j)
+            drawLine(
+                style.glow.copy(0.85f * (gate - 0.86f) / 0.14f),
+                Offset(prevX, prevY), Offset(nx, ny),
+                strokeWidth = radius * 0.020f, cap = StrokeCap.Round
+            )
+            prevX = nx; prevY = ny
+        }
     }
 }
 
@@ -5343,6 +5936,36 @@ fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit, settingsVm: SettingsV
                         stringResource(R.string.menu_settings), color = CrtAmber, fontSize = 13.sp,
                         fontWeight = FontWeight.Bold, letterSpacing = 3.sp
                     )
+                    DividerLine()
+                    // Graphics quality, switchable mid-run. It drives bloom
+                    // passes, bump detail, entity draw range and post strength,
+                    // and the renderer reads it from a volatile snapshot every
+                    // frame — so a player who finds the game heavy can drop it
+                    // without abandoning the run they are in.
+                    Text(stringResource(R.string.graphics_quality_label), color = TextSec, fontSize = 11.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            "low"    to R.string.graphics_quality_low,
+                            "medium" to R.string.graphics_quality_medium,
+                            "high"   to R.string.graphics_quality_high
+                        ).forEach { (key, labelRes) ->
+                            val sel = s.graphicsQuality == key
+                            Box(
+                                Modifier.weight(1f).height(34.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (sel) CrtAmber.copy(0.16f) else MetalBg)
+                                    .border(1.dp, if (sel) CrtAmber else BorderCol, RoundedCornerShape(6.dp))
+                                    .clickable { settingsVm.onQuality(key) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    stringResource(labelRes),
+                                    color = if (sel) CrtAmber else TextDim, fontSize = 11.sp,
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
                     DividerLine()
                     InGameSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, 0.1f, 4f, settingsVm::onSensitivity)
                     InGameSlider(stringResource(R.string.audio_master_volume),  s.musicVolume,       0f,   1f, settingsVm::onMusic)
@@ -7430,6 +8053,15 @@ uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform float uTime;
 uniform float uWalk;
+/** 0 standing, 1 fully crouched. */
+uniform float uCrouch;
+/** 0 grounded, 1 airborne. */
+uniform float uAir;
+/** Where the head is looking relative to the body, in radians. */
+uniform float uHeadYaw;
+uniform float uHeadPitch;
+/** 0 torch stowed, 1 torch raised and pointing forward. */
+uniform float uTorch;
 out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
 
 // Rotate a point about an arbitrary pivot on the Y axis.
@@ -7482,6 +8114,12 @@ void main(){
     // The forearm lags the upper arm by a fraction of a cycle: that lag is the
     // single biggest thing separating a swinging limb from a rotating stick,
     // and its absence is most of what read as robotic.
+    //
+    // The right arm is also the torch arm. When the torch is up it stops
+    // swinging entirely and comes forward instead, which is the only way a
+    // held object can look held rather than carried past.
+    float isRight = armSide > 0.0 ? 1.0 : 0.0;
+    float torchArm = uTorch * isRight;
     if (armMask > 0.001) {
         vec3 shoulder = vec3(armSide * 0.11, 0.74, 0.0);
         float phase = stride + (armSide > 0.0 ? 3.14159 : 0.0);
@@ -7489,7 +8127,12 @@ void main(){
         // Idle arms are never quite still either — a slow, tiny sway.
         float idleSway = sin(uTime * 0.9 + armSide) * 0.055;
         float amount = (swing * (0.40 + 0.30 * run) * gait + idleSway) * armMask;
+        // Torch arm: swing suppressed, then rotated forward and up.
+        amount = mix(amount, -1.24 * armMask, torchArm);
         p = rotX(p, shoulder, amount);
+        // Tuck it toward the body centre line so the beam points where she is
+        // looking rather than off to her right.
+        p = rotZ(p, shoulder, -armSide * 0.34 * torchArm * armMask);
 
         // Elbow: same swing, delayed, applied only below the joint so the upper
         // arm keeps its own arc.
@@ -7497,7 +8140,10 @@ void main(){
         if (forearm > 0.001) {
             vec3 elbow = vec3(armSide * 0.21, 0.60, 0.0);
             float lag = sin(phase - 0.85);
-            p = rotX(p, elbow, (lag * 0.30 * gait + 0.10) * forearm);
+            float bend = (lag * 0.30 * gait + 0.10) * forearm;
+            // A raised torch is held with the elbow bent, not the arm locked.
+            bend = mix(bend, -0.52 * forearm, torchArm);
+            p = rotX(p, elbow, bend);
         }
     }
 
@@ -7512,23 +8158,56 @@ void main(){
         float shin = 1.0 - smoothstep(0.02, 0.26, p.y);
         float bend = max(0.0, -sin(legPhase - 0.6));
         p = rotX(p, vec3(sign(p.x) * 0.05, 0.24, 0.0), -bend * (0.42 + 0.30 * run) * gait * shin);
+        // Airborne: legs tuck up under the body rather than staying extended,
+        // which is what makes a jump read as a jump and not as the whole model
+        // being translated upward.
+        p = rotX(p, hip, 0.70 * uAir * legMask);
+        p = rotX(p, vec3(sign(p.x) * 0.05, 0.24, 0.0), -0.95 * uAir * shin);
     }
 
-    // --- 4. Head ------------------------------------------------------------
-    // Idle look-around: a slow yaw scan with an occasional downward glance, so
-    // she reads as alive rather than frozen. Three detuned sines rather than one,
-    // so the scan never repeats on an obvious beat.
+    // --- 4. Crouch ----------------------------------------------------------
+    // Not a scale: the hips drop, the knees fold under them and the torso
+    // pitches forward over the new centre of mass. Scaling the model down was
+    // the obvious cheat and it looks exactly like what it is.
+    if (uCrouch > 0.001) {
+        float drop = 0.38 * uCrouch;
+        // Knees fold — everything below the hip rotates about it.
+        float lower = 1.0 - smoothstep(0.10, 0.50, p.y);
+        p = rotX(p, vec3(sign(p.x) * 0.05, 0.46, 0.0), 0.85 * uCrouch * lower);
+        float shin2 = 1.0 - smoothstep(0.02, 0.28, p.y);
+        p = rotX(p, vec3(sign(p.x) * 0.05, 0.24, 0.0), -1.30 * uCrouch * shin2);
+        // Hips and everything above them come down.
+        float above = smoothstep(0.10, 0.30, p.y);
+        p.y -= drop * above;
+        // Torso pitches forward over the knees.
+        float torso = smoothstep(0.36, 0.70, p.y);
+        p = rotX(p, vec3(0.0, 0.46 - drop, 0.0), 0.34 * uCrouch * torso);
+    }
+
+    // --- 5. Head ------------------------------------------------------------
+    // The head follows where the player is aiming. uHeadYaw/uHeadPitch carry the
+    // camera's own offset from the body, so turning the view turns her head —
+    // which is the difference between a character looking around and a mannequin
+    // whose head happens to be attached.
+    //
+    // When the player is not turning, a slow idle scan takes over so she is
+    // never completely still. Three detuned sines rather than one, so the scan
+    // never repeats on an obvious beat.
     float headMask = smoothstep(0.80, 0.90, p.y);
     if (headMask > 0.001) {
         vec3 neck = vec3(0.0, 0.83, 0.0);
-        float lookYaw = sin(uTime * 0.42) * 0.34 + sin(uTime * 0.17) * 0.16 + sin(uTime * 0.83) * 0.06;
-        float lookPitch = sin(uTime * 0.31 + 2.1) * 0.14 - 0.04;
+        float idleYaw = sin(uTime * 0.42) * 0.34 + sin(uTime * 0.17) * 0.16 + sin(uTime * 0.83) * 0.06;
+        float idlePitch = sin(uTime * 0.31 + 2.1) * 0.14 - 0.04;
         // Walking, she mostly faces forward — but the head counter-rotates
         // slightly against the shoulders, keeping the gaze level as the torso
         // twists underneath it.
         float walkBlend = clamp(gait, 0.0, 1.0);
-        lookYaw = mix(lookYaw, -sin(stride) * 0.13 + sin(stride * 0.5) * 0.07, walkBlend);
-        lookPitch = mix(lookPitch, -0.05 - 0.10 * run, walkBlend);
+        idleYaw = mix(idleYaw, -sin(stride) * 0.13 + sin(stride * 0.5) * 0.07, walkBlend);
+        idlePitch = mix(idlePitch, -0.05 - 0.10 * run, walkBlend);
+        // The player's aim wins wherever there is any; the idle fills the rest.
+        float aimWeight = clamp(abs(uHeadYaw) * 2.2, 0.0, 1.0);
+        float lookYaw = mix(idleYaw, uHeadYaw, aimWeight);
+        float lookPitch = idlePitch + uHeadPitch;
         p = rotY(p, neck, lookYaw * headMask);
         p = rotX(p, neck, lookPitch * headMask);
         // A small vertical bob out of phase with the stride, so the head floats
@@ -7536,7 +8215,7 @@ void main(){
         p.y += sin(stride * 2.0 + 1.1) * 0.008 * gait * headMask;
     }
 
-    // --- 5. Whole-body motion ----------------------------------------------
+    // --- 6. Whole-body motion ----------------------------------------------
     float upper = smoothstep(0.25, 1.0, h);
     // Torso counter-twist: shoulders rotate against the hips every stride.
     p = rotY(p, vec3(0.0, 0.50, 0.0), sin(stride) * 0.10 * gait * upper);
@@ -7545,6 +8224,14 @@ void main(){
     p.x += sin(uTime * 0.7 + 1.2) * 0.006 * upper;            // idle drift
     p = rotZ(p, vec3(0.0, 0.0, 0.0), sin(stride) * 0.035 * gait);        // hip sway
     p = rotX(p, vec3(0.0, 0.0, 0.0), 0.05 * gait + 0.09 * run);          // forward lean
+    // Airborne lean, and arms coming up for balance.
+    p = rotX(p, vec3(0.0, 0.30, 0.0), -0.18 * uAir);
+
+    // Floor contact. Every rotation above can swing a foot below the model's
+    // own origin, and the origin is the ground plane — so without this the toes
+    // sink into the carpet on the down phase of every stride. Clamped rather
+    // than folded, so only the vertices that would have broken through move.
+    p.y = max(p.y, 0.0);
 
     vec4 world = uModel * vec4(p, 1.0);
     vWorldPos = world.xyz;

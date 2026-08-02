@@ -37,8 +37,13 @@ namespace {
 // Rooms are capped well below sector size so the one-ring scan above is
 // guaranteed to find every room that could overlap a given cell.
 constexpr int kSectorSize     = 24;
-constexpr int kRoomsPerSector = 4;
-constexpr int kMaxRoomHalf    = 9;   // must stay < kSectorSize / 2
+constexpr int kRoomsPerSector = 5;
+// Rooms used to run to half-extent 9 — nineteen cells across, most of a sector.
+// Four of those per sector overlapped into one continuous plate, and the level
+// measured two-thirds open floor: a hall you walk across, not a place you get
+// lost in. Capped at 5 they stay distinct, which is what puts walls between
+// them and turns the plan back into rooms joined by corridors.
+constexpr int kMaxRoomHalf    = 5;   // must stay < kSectorSize / 2
 
 // Troffers every three cells — 9.6 m. Wider than a real office grid, but this
 // is a 3.2 m cell world and it is close enough that adjacent lights overlap,
@@ -125,9 +130,9 @@ inline void sectorRooms(int sx, int sz, uint64_t seed, Room out[kRoomsPerSector]
         // is a small back room, which breaks up the rhythm of same-sized halls
         // and gives the layout somewhere that feels tucked away.
         const bool wideOnX  = (h2 & 1ULL) != 0;
-        const bool backRoom = (i == kRoomsPerSector - 1) && ((h3 >> 9) & 3ULL) != 0;
-        const int  longHalf  = backRoom ? hashRange(h2 >> 1, 3, 5) : hashRange(h2 >> 1, 5, kMaxRoomHalf);
-        const int  shortHalf = backRoom ? hashRange(h3, 2, 3)      : hashRange(h3, 3, 6);
+        const bool backRoom = (i >= kRoomsPerSector - 2) && ((h3 >> 9) & 3ULL) != 0;
+        const int  longHalf  = backRoom ? hashRange(h2 >> 1, 2, 3) : hashRange(h2 >> 1, 3, kMaxRoomHalf);
+        const int  shortHalf = backRoom ? hashRange(h3, 1, 2)      : hashRange(h3, 2, 3);
         out[i].halfW = wideOnX ? longHalf : shortHalf;
         out[i].halfD = wideOnX ? shortHalf : longHalf;
     }
@@ -149,13 +154,43 @@ inline bool onCorridor(int cx, int cz, int ax, int az, int bx, int bz, int halfW
 } // namespace
 
 bool Level0Field::isPillar(int cx, int cz) const noexcept {
-    // Regular lattice with deterministic dropout, so columns read as building
-    // structure rather than as scattered obstacles.
-    if (cx % 7 != 0 || cz % 7 != 0) return false;
-    return hashFloat(hashCell(cx, cz, seed_, kSaltPillar)) < 0.70f;
+    // A building's columns sit on a structural bay, not wherever a hash says so.
+    // Locking them to a 7-cell lattice is what makes a long sightline read as a
+    // colonnade receding into the haze rather than as scattered obstacles.
+    const int mx = ((cx % 7) + 7) % 7;
+    const int mz = ((cz % 7) + 7) % 7;
+    if (mx != 0 || mz != 0) return false;
+    if (hashFloat(hashCell(cx, cz, seed_, kSaltPillar)) >= 0.70f) return false;
+
+    // A column may only stand where there is floor all round it.
+    //
+    // This is a correctness guard, not a styling one. Pillars punch holes back
+    // into open floor, and a corridor is as narrow as three cells — so a column
+    // landing in one could seal it, and sealing the wrong corridor can cut the
+    // exit off from the player entirely with no way for them to know. Requiring
+    // eight open neighbours means a column can only ever appear in the middle of
+    // a room, where going round it is trivial.
+    //
+    // Only reached for lattice cells that already passed the hash, so this costs
+    // about a tenth of a percent on top of an ordinary query.
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dz == 0) continue;
+            if (!isOpenBase(cx + dx, cz + dz)) return false;
+        }
+    }
+    return true;
 }
 
 bool Level0Field::isOpen(int cx, int cz) const noexcept {
+    // Pillars punch back into otherwise open floor.
+    return isOpenBase(cx, cz) && !isPillar(cx, cz);
+}
+
+/** The floor plan before columns are subtracted from it. Kept separate so
+ *  isPillar() can ask whether a cell has floor all round it without
+ *  recursing back through itself. */
+bool Level0Field::isOpenBase(int cx, int cz) const noexcept {
     const int sx = floorDiv(cx, kSectorSize);
     const int sz = floorDiv(cz, kSectorSize);
 
@@ -180,7 +215,9 @@ bool Level0Field::isOpen(int cx, int cz) const noexcept {
             }
             if (inside) break;
 
-            const int halfWidth = hashRange(hashCell(nx, nz, seed_, kSaltCorrW), 1, 2);
+            // Corridors of width 1 or 3 cells. Wider than this and they stop reading
+            // as corridors at all — they merge with the rooms they connect.
+            const int halfWidth = hashRange(hashCell(nx, nz, seed_, kSaltCorrW), 0, 1);
 
             // Internal circulation: the sector's own rooms are chained together
             // rather than all hanging off one hub. Real floor plates have halls
@@ -213,15 +250,14 @@ bool Level0Field::isOpen(int cx, int cz) const noexcept {
             // parallel service corridor gives the maze real alternatives, which
             // is most of what makes it feel navigable rather than arbitrary.
             if ((hashCell(nx, nz, seed_, kSaltCorrW + 1ULL) & 3ULL) == 0 &&
-                onCorridor(cx, cz, rooms[1].cx, rooms[1].cz, east[1].cx, east[1].cz, 1)) {
+                onCorridor(cx, cz, rooms[1].cx, rooms[1].cz, east[1].cx, east[1].cz, 0)) {
                 inside = true;
                 break;
             }
         }
     }
 
-    // Pillars punch back into otherwise open floor.
-    return inside && !isPillar(cx, cz);
+    return inside;
 }
 
 float Level0Field::powerAt(int cx, int cz) const noexcept {

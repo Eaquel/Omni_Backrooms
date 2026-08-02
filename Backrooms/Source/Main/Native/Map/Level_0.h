@@ -70,6 +70,8 @@ public:
     /** Walkable floor. The single source of truth for collision and meshing. */
     bool isOpen(int cx, int cz) const noexcept;
     bool isSolid(int cx, int cz) const noexcept { return !isOpen(cx, cz); }
+    /** The floor plan with columns still in it. Only isPillar needs this. */
+    bool isOpenBase(int cx, int cz) const noexcept;
 
     bool    isPillar(int cx, int cz) const noexcept;
     uint8_t zoneAt(int cx, int cz) const noexcept;
