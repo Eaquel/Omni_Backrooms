@@ -2632,6 +2632,20 @@ data class RenderSettings(
 /** Fittings are a flat colour, so their UVs pass through unscaled. */
 private val LAMP_UV = floatArrayOf(1f, 1f)
 
+/**
+ * Floor division that behaves for negative numerators.
+ *
+ * The world runs in every direction, so cell -1 has to land in chunk -1, not
+ * chunk 0 — Kotlin's `/` truncates toward zero and would put it in 0, which
+ * mirrors a whole quadrant of chunk lookups onto the wrong chunk. Written out
+ * rather than taken from the stdlib because `floorDiv` there is an extension
+ * added in a later version than this module's language level guarantees.
+ */
+private fun floorDivInt(a: Int, b: Int): Int {
+    val q = a / b
+    return if (a % b != 0 && (a < 0) != (b < 0)) q - 1 else q
+}
+
 class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
     @Volatile var latestState: GameState = GameState()
@@ -4002,8 +4016,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         val cellsPerChunk = world.chunkCells
         val cx = kotlin.math.floor(wx / cs).toInt()
         val cz = kotlin.math.floor(wz / cs).toInt()
-        val chx = kotlin.math.floorDiv(cx, cellsPerChunk)
-        val chz = kotlin.math.floorDiv(cz, cellsPerChunk)
+        val chx = floorDivInt(cx, cellsPerChunk)
+        val chz = floorDivInt(cz, cellsPerChunk)
         val key = (chx.toLong() shl 32) or (chz.toLong() and 0xFFFFFFFFL)
         val chunk = chunkMeshes[key]?.source ?: return true
         return chunk.solidAt(cx - chx * cellsPerChunk, cz - chz * cellsPerChunk)
