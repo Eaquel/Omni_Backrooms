@@ -1,8 +1,13 @@
 name: Omni Backrooms CI
 
 on:
+  # Every branch, not just main. Pushing work somewhere and getting nothing back
+  # until it is merged defeats the point — and with the build gated to main,
+  # a branch push produced no run at all, so there was never anything to
+  # download from it.
   push:
-    branches: [ main ]
+    branches: [ '**' ]
+    tags-ignore: [ '**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -50,10 +55,15 @@ jobs:
             -o /tmp/level0_probe
           /tmp/level0_probe 40
 
+  # Runs on every branch and every pull request, not just main.
+  #
+  # It used to be gated to main and release/*, which meant a feature branch got
+  # a green tick and no build to install — the run was there, the job said
+  # "skipped", and the Artifacts section was simply absent. The whole point of
+  # CI on a branch is being able to put the thing on a phone before merging it.
   build-release:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
 
     steps:
       - uses: actions/checkout@v4
@@ -119,15 +129,54 @@ jobs:
           com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true
           EOF
 
+      # Secrets are not readable from a fork's pull request. Rather than fail
+      # there, fall back so the run still produces something installable — a
+      # build you cannot download is no more useful than no build at all.
       - name: Inject google-services.json
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > Backrooms/google-services.json
+            echo "Using the real Firebase configuration."
+          else
+            # The Google Services plugin refuses to configure without this file.
+            # A well-formed placeholder lets the build proceed; Firebase is
+            # simply inert against it.
+            echo "::notice::No GOOGLE_SERVICES_JSON secret; using a placeholder. Firebase will be inert in this build."
+            cat > Backrooms/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "omni-backrooms-placeholder",
+              "storage_bucket": "omni-backrooms-placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": { "package_name": "com.omni.backrooms" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyPlaceholderPlaceholderPlaceholder0" } ],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+          fi
 
-      - name: Decode Keystore
+      - name: Decode keystore
+        id: keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No signing keystore available; building a debug-signed APK so the run is still installable."
+            exit 0
+          fi
           echo "$KEYSTORE_BASE64" | base64 --decode > Eaquel.Keystore.jks
           {
             echo "storeFile=Eaquel.Keystore.jks"
@@ -135,15 +184,20 @@ jobs:
             echo "keyAlias=${{ secrets.KEY_ALIAS }}"
             echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
           } > keystore.properties
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
       - name: Clean
         run: ./gradlew clean
 
-      - name: Build Release APK + AAB
+      - name: Build
         run: |
-          ./gradlew \
-            :Backrooms:assembleRelease \
-            :Backrooms:bundleRelease
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+            ./gradlew :Backrooms:assembleRelease :Backrooms:bundleRelease
+          else
+            # An unsigned release APK will not install on a device, so without a
+            # keystore the debug variant is the useful thing to hand back.
+            ./gradlew :Backrooms:assembleDebug
+          fi
 
       - name: Verify libil2cpp.so
         run: |
@@ -151,13 +205,50 @@ jobs:
             echo "Found: $f  ($(du -sh "$f" | cut -f1))"
           done
 
+      # Names the branch and the commit, so several runs' downloads stay apart
+      # in the Artifacts list instead of all reading "release-build".
+      - name: Name the artifact
+        id: naming
+        run: |
+          SAFE_REF="$(echo "${GITHUB_REF_NAME}" | tr '/' '-' | tr -cd '[:alnum:]._-')"
+          echo "name=omni-backrooms-${SAFE_REF}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: release-build
+          name: ${{ steps.naming.outputs.name }}
           retention-days: 90
+          # Fail loudly on a path that matches nothing. The default is a warning,
+          # which is how a run can go green while quietly uploading no APK at
+          # all — the failure mode looks identical to a skipped job.
+          if-no-files-found: error
           path: |
-            Backrooms/build/outputs/apk/release/*.apk
-            Backrooms/build/outputs/bundle/release/*.aab
+            Backrooms/build/outputs/apk/**/*.apk
+            Backrooms/build/outputs/bundle/**/*.aab
 
-      - name: Upload Crashlytics NDK Symbols
+      # Puts the download and its checksums on the run's summary page, so the
+      # build is one click from the run rather than something to go hunting for.
+      - name: Summarise the build
+        if: always()
+        run: |
+          {
+            echo "## Download"
+            echo
+            echo "Artifact: **${{ steps.naming.outputs.name }}** — on this run's page, under *Artifacts*."
+            if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+              echo "Signed with the release key."
+            else
+              echo "Debug-signed (no release keystore available on this run)."
+            fi
+            echo
+            echo "| File | Size | SHA-256 |"
+            echo "|---|---:|---|"
+            find Backrooms/build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) | sort | while read -r f; do
+              echo "| \`$(basename "$f")\` | $(du -h "$f" | cut -f1) | \`$(sha256sum "$f" | cut -c1-16)…\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only meaningful with real Firebase credentials, and the task only exists
+      # when native symbol upload is configured for the variant.
+      - name: Upload Crashlytics NDK symbols
+        if: steps.keystore.outputs.signed == 'true'
         run: ./gradlew :Backrooms:uploadCrashlyticsSymbolFileRelease || true
