@@ -131,3 +131,24 @@ The probe floods the map from the spawn and proves the exit is actually
 reachable, checks that a relocated exit is reachable from wherever the player
 wandered to, and asserts the floor plan's density, its lighting coverage and
 that no column ever stands somewhere it could seal a corridor.
+
+### Kotlin, without the Android SDK
+
+```bash
+OMNI_KOTLINC=/path/to/kotlinc python3 Tools/check_kotlin.py --baseline origin/main
+```
+
+A full type-check needs `android.jar`, which only ships through dl.google.com.
+Running `kotlinc` without it reports every Android and Compose symbol as
+unresolved, so the raw output is useless as a pass/fail signal — and filtering it
+by hand is how an `Unresolved reference 'floorDiv'` reached CI.
+
+The noise is identical on both sides of a change, so this compiles a known-good
+baseline and the working tree with the same compiler and the same missing
+classpath, then diffs the two sets of diagnostics. Anything new belongs to the
+change. References written through an explicit `kotlin.` or `java.` path are
+reported as hard failures, because those packages *are* on the classpath: if one
+of them will not resolve, the symbol genuinely does not exist.
+
+Not wired into CI — CI compiles for real, which is strictly better. This is for
+catching the same class of error before pushing.

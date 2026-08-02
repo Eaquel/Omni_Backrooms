@@ -19,6 +19,37 @@ env:
 
 jobs:
 
+  # Cheap checks that need neither the Android SDK nor the NDK, so they report
+  # in a minute or two instead of waiting on a full release build. Both cover
+  # things the Gradle build genuinely cannot see: GLSL lives inside Kotlin raw
+  # strings, and the level generator is an infinite pure function with no
+  # authored data to inspect.
+  static-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install glslang
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq glslang-tools
+
+      # A shader that fails to compile throws on the GL thread the first time
+      # its screen is opened, and the only symptom is a black screen.
+      - name: Compile every embedded shader
+        run: python3 Tools/check_shaders.py
+
+      # Floods the map from the spawn and proves the exit is actually reachable,
+      # over many seeds. An unreachable exit is unwinnable and silent.
+      - name: Probe the level generator
+        run: |
+          g++ -std=c++20 -O2 -I Backrooms/Source/Main/Native \
+            Tools/level0_probe.cpp Backrooms/Source/Main/Native/Map/Level_0.cpp \
+            -o /tmp/level0_probe
+          /tmp/level0_probe 40
+
   build-release:
     runs-on: ubuntu-latest
     timeout-minutes: 90
