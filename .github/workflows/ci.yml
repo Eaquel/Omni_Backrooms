@@ -1,8 +1,13 @@
 name: Omni Backrooms CI
 
 on:
+  # Every branch, not just main. Pushing work somewhere and getting nothing back
+  # until it is merged defeats the point — and with the build gated to main,
+  # a branch push produced no run at all, so there was never anything to
+  # download from it.
   push:
-    branches: [ main ]
+    branches: [ '**' ]
+    tags-ignore: [ '**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
