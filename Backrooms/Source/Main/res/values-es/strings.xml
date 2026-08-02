@@ -233,4 +233,10 @@
     <string name="settings_hud_editor">Abrir diseño de interfaz</string>
     <string name="daily_resets_in">Se renueva en %1$s</string>
     <string name="daily_free_trial">1 hora gratis</string>
+    <string name="game_survival_label">TIEMPO SOBREVIVIDO</string>
+    <string name="game_next_levels_soon">NUEVOS NIVELES LLEGARÁN MUY PRONTO</string>
+    <string name="game_return_lobby">Volver al vestíbulo</string>
+    <string name="game_omnium_earned">Omnium ganado</string>
+    <string name="game_madness_title">TU CORDURA TE HA DEVORADO</string>
+    <string name="game_madness_sub">Los pasillos empezaron a hablarte, y escuchaste.</string>
 </resources>

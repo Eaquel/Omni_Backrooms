@@ -65,6 +65,11 @@ public:
     void findSpawn(int& outCx, int& outCz) const noexcept;
     /** A run's authored distance away from spawn, in a seed-chosen direction. */
     void findExit(int spawnCx, int spawnCz, int& outCx, int& outCz) const noexcept;
+    /** Anchors an exit [distance] cells from [fromCx,fromCz] in a direction
+     *  derived from that cell, snapped to the nearest open floor. An endless
+     *  world has no furthest point to walk to, so the door has to come to the
+     *  player once they have wandered away from the one they were given. */
+    void findExitNear(int fromCx, int fromCz, int distance, int& outCx, int& outCz) const noexcept;
 
     static float worldX(int cx) noexcept { return cx * kCell; }
     static float worldZ(int cz) noexcept { return cz * kCell; }

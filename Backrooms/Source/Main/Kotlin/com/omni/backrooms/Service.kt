@@ -96,6 +96,10 @@ class NativeBridge @Inject constructor() {
     external fun setPlayerState(x: Float, y: Float, z: Float, yaw: Float, pitch: Float)
     external fun physicsTick(dt: Float)
     external fun applyMovement(fx: Float, fy: Float, fz: Float)
+    external fun setCrouch(crouched: Boolean)
+    /** Returns [exitX, exitZ, relocated] in world metres; re-anchors the exit when
+     *  the player has strayed further than [maxDistM] from it. */
+    external fun relocateExit(px: Float, pz: Float, maxDistM: Float): FloatArray?
     external fun cameraLook(dx: Float, dy: Float, sensitivity: Float)
     external fun getCameraState(): FloatArray?
     external fun destroyCore()
@@ -331,7 +335,19 @@ data class GameState(
     val pingMs            : Int     = 0,
     /** Vertical camera offset in metres, used by the arrival sequence to drop
      *  the view to the floor on impact and raise it back to standing. */
-    val eyeOffset         : Float   = 0f
+    val eyeOffset         : Float   = 0f,
+    val isCrouching       : Boolean = false,
+    val isSprinting       : Boolean = false,
+    /** 0..1. Drives the hallucination post-process; ramps up as sanity bottoms
+     *  out and is pinned at 1 once the mind has gone. */
+    val madness           : Float   = 0f,
+    /** Set when sanity has taken the player: the body is on the floor, the
+     *  camera is on its side, and the run is over. */
+    val isMadnessOver     : Boolean = false,
+    /** Camera roll in degrees, used by the collapse. */
+    val cameraTilt        : Float   = 0f,
+    /** Omnium awarded for the run, by how long the player stayed alive. */
+    val omniumEarned      : Long    = 0L
 )
 
 data class LeaderboardEntry(
@@ -376,12 +392,18 @@ data class CameraSnapshot(
     val roll     : Float,
     val fov      : Float,
     val bobAmount: Float,
-    val bobPhase : Float
+    val bobPhase : Float,
+    /** Eye above the feet. Varies with crouch, so the renderer subtracts this
+     *  rather than a constant when it needs the player's ground position. */
+    val eyeHeight: Float = 1.7f
 ) {
     companion object {
         fun fromFloatArray(data: FloatArray?): CameraSnapshot? {
             if (data == null || data.size < 9) return null
-            return CameraSnapshot(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8])
+            return CameraSnapshot(
+                data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8],
+                if (data.size > 9) data[9] else 1.7f
+            )
         }
     }
 }
@@ -1593,11 +1615,25 @@ class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Co
         val FRAME        = stringPreferencesKey("frame")
         val OWNED_FRAMES = stringPreferencesKey("owned_frames")
         val BEST_SURVIVAL= longPreferencesKey("best_survival_ms")
+        val OMNIUM       = longPreferencesKey("omnium_balance")
     }
 
     fun observeAvatarUri(): Flow<String?> = ctx.identityStore.data.map { it[Keys.AVATAR_URI] }
     fun observeFrame(): Flow<String> = ctx.identityStore.data.map { it[Keys.FRAME] ?: "default" }
     fun observeBestSurvival(): Flow<Long> = ctx.identityStore.data.map { it[Keys.BEST_SURVIVAL] ?: 0L }
+
+    /** The local Omnium wallet. Runs pay into this directly so surviving is worth
+     *  something with no server in the loop. */
+    fun observeOmnium(): Flow<Long> = ctx.identityStore.data.map { it[Keys.OMNIUM] ?: 0L }
+
+    suspend fun addOmnium(amount: Long) {
+        if (amount <= 0L) return
+        runCatching {
+            ctx.identityStore.edit { prefs ->
+                prefs[Keys.OMNIUM] = (prefs[Keys.OMNIUM] ?: 0L) + amount
+            }
+        }
+    }
 
     fun observeOwnedFrames(): Flow<List<String>> = ctx.identityStore.data.map { prefs ->
         prefs[Keys.OWNED_FRAMES]?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
@@ -1767,27 +1803,40 @@ class WorldChunk(
     private val feature: ByteArray,
     private val fixture: ByteArray
 ) {
-    // Local (in-chunk) queries. Out-of-range reads report solid, which is the
-    // safe answer for meshing: a wall is emitted at the chunk edge only if the
-    // neighbour is genuinely solid, and the neighbour chunk emits its own.
+    /**
+     * Queries are in chunk-local cells, but the arrays carry a one-cell apron on
+     * every side, so -1 and [cells] are real answers read from the neighbouring
+     * chunk rather than assumptions.
+     *
+     * That apron is what removed the phantom walls at chunk joins: the mesher used
+     * to treat everything past the edge as solid and emit a wall there, while
+     * collision (which queries the field directly) knew the corridor carried on —
+     * so you saw a wall and walked through it.
+     */
+    private val stride = cells + 2
+
+    private fun index(x: Int, z: Int): Int = (z + 1) * stride + (x + 1)
+    private fun inRange(x: Int, z: Int): Boolean = x >= -1 && z >= -1 && x <= cells && z <= cells
+
     fun solidAt(x: Int, z: Int): Boolean =
-        if (x < 0 || z < 0 || x >= cells || z >= cells) true else solid[z * cells + x] != 0.toByte()
+        if (!inRange(x, z)) true else solid[index(x, z)] != 0.toByte()
 
     fun zoneAt(x: Int, z: Int): Int =
-        if (x < 0 || z < 0 || x >= cells || z >= cells) 2 else zone[z * cells + x].toInt()
+        if (!inRange(x, z)) 2 else zone[index(x, z)].toInt()
 
     fun featureAt(x: Int, z: Int): Int =
-        if (x < 0 || z < 0 || x >= cells || z >= cells) 0 else feature[z * cells + x].toInt()
+        if (!inRange(x, z)) 0 else feature[index(x, z)].toInt()
 
     fun fixtureAt(x: Int, z: Int): Int =
-        if (x < 0 || z < 0 || x >= cells || z >= cells) 0 else fixture[z * cells + x].toInt()
+        if (!inRange(x, z)) 0 else fixture[index(x, z)].toInt()
 
     companion object {
         const val FLOATS_PER_CELL = 4
 
         fun parse(chunkX: Int, chunkZ: Int, cells: Int, data: FloatArray?): WorldChunk? {
             if (data == null || cells <= 0) return null
-            val n = cells * cells
+            val padded = cells + 2
+            val n = padded * padded
             if (data.size < n * FLOATS_PER_CELL) return null
             val solid = ByteArray(n); val zone = ByteArray(n)
             val feature = ByteArray(n); val fixture = ByteArray(n)

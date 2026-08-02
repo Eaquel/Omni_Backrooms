@@ -263,4 +263,10 @@
     <string name="settings_hud_editor">HUD Düzenini Aç</string>
     <string name="daily_resets_in">Yenilenmesine: %1$s</string>
     <string name="daily_free_trial">1 Saat Ücretsiz</string>
+    <string name="game_survival_label">HAYATTA KALMA SÜRESİ</string>
+    <string name="game_next_levels_soon">YENİ LEVELLER ÇOK YAKINDA EKLENECEK</string>
+    <string name="game_return_lobby">Lobiye Dön</string>
+    <string name="game_omnium_earned">Kazanılan Omnium</string>
+    <string name="game_madness_title">AKIL SAĞLIĞIN SENİ YUTTU</string>
+    <string name="game_madness_sub">Koridorlar seninle konuşmaya başladı ve sen dinledin.</string>
 </resources>
