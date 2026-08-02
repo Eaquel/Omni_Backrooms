@@ -260,4 +260,10 @@
     <string name="settings_hud_editor">Open HUD Layout</string>
     <string name="daily_resets_in">Resets in %1$s</string>
     <string name="daily_free_trial">1 Hour Free</string>
+    <string name="game_survival_label">SURVIVAL TIME</string>
+    <string name="game_next_levels_soon">NEW LEVELS ARE COMING VERY SOON</string>
+    <string name="game_return_lobby">Return to Lobby</string>
+    <string name="game_omnium_earned">Omnium earned</string>
+    <string name="game_madness_title">YOUR SANITY SWALLOWED YOU</string>
+    <string name="game_madness_sub">The corridors started talking to you, and you listened.</string>
 </resources>

@@ -233,4 +233,10 @@
     <string name="settings_hud_editor">Открыть настройку интерфейса</string>
     <string name="daily_resets_in">Обновление через %1$s</string>
     <string name="daily_free_trial">1 час бесплатно</string>
+    <string name="game_survival_label">ВРЕМЯ ВЫЖИВАНИЯ</string>
+    <string name="game_next_levels_soon">НОВЫЕ УРОВНИ ПОЯВЯТСЯ СОВСЕМ СКОРО</string>
+    <string name="game_return_lobby">Вернуться в лобби</string>
+    <string name="game_omnium_earned">Заработано Omnium</string>
+    <string name="game_madness_title">РАССУДОК ПОГЛОТИЛ ТЕБЯ</string>
+    <string name="game_madness_sub">Коридоры заговорили с тобой, и ты стал слушать.</string>
 </resources>

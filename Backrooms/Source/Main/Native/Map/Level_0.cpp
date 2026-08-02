@@ -260,13 +260,18 @@ void Level0Field::findSpawn(int& outCx, int& outCz) const noexcept {
 void Level0Field::findExit(int spawnCx, int spawnCz, int& outCx, int& outCz) const noexcept {
     // With an endless world there is no "furthest cell" to discover, so the run
     // length is authored: a fixed distance in a seed-chosen direction.
-    const float angle = hashFloat(hashCell(spawnCx, spawnCz, seed_, kSaltExitDir)) * 6.2831853f;
     const int distance = 110 + static_cast<int>(
         hashFloat(hashCell(spawnCx, spawnCz, seed_, kSaltExitLen)) * 60.0f);
+    findExitNear(spawnCx, spawnCz, distance, outCx, outCz);
+}
 
-    const int targetX = spawnCx + static_cast<int>(std::cos(angle) * distance);
-    const int targetZ = spawnCz + static_cast<int>(std::sin(angle) * distance);
+void Level0Field::findExitNear(int fromCx, int fromCz, int distance, int& outCx, int& outCz) const noexcept {
+    const float angle = hashFloat(hashCell(fromCx, fromCz, seed_, kSaltExitDir)) * 6.2831853f;
+    const int targetX = fromCx + static_cast<int>(std::cos(angle) * distance);
+    const int targetZ = fromCz + static_cast<int>(std::sin(angle) * distance);
 
+    // Snap onto real floor. A door embedded in solid fill would be unreachable,
+    // which for the only way out of the level is the worst possible failure.
     for (int radius = 0; radius < 64; ++radius) {
         for (int dz = -radius; dz <= radius; ++dz) {
             for (int dx = -radius; dx <= radius; ++dx) {

@@ -995,7 +995,8 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
             HudElement("interact",   R.string.editor_btn_interact,   0.90f, 0.80f, 62f,  62f),
             HudElement("flashlight", R.string.editor_btn_flashlight, 0.78f, 0.80f, 52f,  52f),
             HudElement("jump",       R.string.editor_btn_jump,       0.90f, 0.63f, 46f,  46f),
-            HudElement("crouch",     R.string.editor_btn_crouch,     0.78f, 0.63f, 46f,  46f)
+            HudElement("crouch",     R.string.editor_btn_crouch,     0.72f, 0.63f, 46f,  46f),
+            HudElement("sprint",     R.string.editor_btn_sprint,     0.81f, 0.71f, 50f,  50f)
         )
     }
 
@@ -1059,9 +1060,11 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        androidx.compose.foundation.Canvas(
+                        EditorGlyph(
+                            el.id,
+                            if (selected) Yellow else YellowDim,
                             Modifier.size((w * 0.42f).coerceIn(16f, 44f).dp)
-                        ) { editorGlyph(el.id, if (selected) Yellow else YellowDim) }
+                        )
                         if (h > 34f) {
                             Text(
                                 stringResource(el.labelRes),
@@ -1136,7 +1139,8 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
                             Triple("interact", 0.90f to 0.80f, 1f),
                             Triple("flashlight", 0.78f to 0.80f, 1f),
                             Triple("jump", 0.90f to 0.63f, 1f),
-                            Triple("crouch", 0.78f to 0.63f, 1f)
+                            Triple("crouch", 0.72f to 0.63f, 1f),
+                            Triple("sprint", 0.81f to 0.71f, 1f)
                         )
                         defaults.forEach { (id, pos, sc) ->
                             elements.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { i ->
@@ -1177,23 +1181,25 @@ private data class HudElement(
 
 
 /**
- * Delegates straight to the game's own HUD glyphs — the exact same drawing code
- * the player will see and touch. The editor previously kept its own simplified
- * copies, which meant you were arranging icons that did not match the real
- * ones. For a layout tool that is a correctness problem, not a cosmetic one.
+ * Every action control resolves through [hudIconRes] — the same vector asset the
+ * in-game button renders — so what you arrange here is literally the icon you
+ * will press in the corridor. The editor used to carry its own hand-drawn
+ * lookalikes, and they had drifted from the real ones; for a layout tool that is
+ * a correctness problem, not a cosmetic one.
+ *
+ * The non-button elements (status bars, readouts, the stick) have no icon asset,
+ * so those keep their code-drawn miniatures.
  */
-private fun DrawScope.editorGlyph(id: String, c: Color) {
+@Composable
+private fun EditorGlyph(id: String, c: Color, modifier: Modifier = Modifier) {
     when (id) {
-        "bar_sanity", "bar_stamina", "bar_battery" -> drawStatusBarGlyph(c)
-        "readouts"   -> drawReadoutsGlyph(c)
-        "pause"      -> drawPauseGlyph(c)
-        "joystick"   -> drawJoystickGlyph(c)
-        "interact"   -> drawInteractGlyph(c)
-        "flashlight" -> drawFlashlightGlyph(c)
-        "jump"       -> drawJumpGlyph(c)
-        "crouch"     -> drawCrouchGlyph(c)
-        else -> drawCircle(c.copy(0.5f), radius = size.minDimension * 0.30f,
-                           center = center, style = Stroke(size.minDimension * 0.10f))
+        "bar_sanity", "bar_stamina", "bar_battery" ->
+            androidx.compose.foundation.Canvas(modifier) { drawStatusBarGlyph(c) }
+        "readouts" ->
+            androidx.compose.foundation.Canvas(modifier) { drawReadoutsGlyph(c) }
+        "joystick" ->
+            androidx.compose.foundation.Canvas(modifier) { drawJoystickGlyph(c) }
+        else -> HudGlyph(id, c, modifier)
     }
 }
 

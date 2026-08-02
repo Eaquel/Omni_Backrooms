@@ -108,7 +108,13 @@ struct CollisionResult { bool hit; Vec3f normal; float penetration; };
 struct CameraState {
     Vec3f pos;
     float yaw=0,pitch=0,fov=70,bobPhase=0,bobAmount=0,rollAngle=0,targetPitch=0,targetYaw=0;
+    /** Eye above the feet, in metres. Crouching drives this down; the camera and
+     *  the ceiling clamp both read it so the two can never disagree. */
+    float eyeHeight=1.7f,targetEyeHeight=1.7f;
 };
+
+constexpr float kStandEye  = 1.7f;
+constexpr float kCrouchEye = 1.02f;
 
 class PerlinNoise {
 public:
@@ -143,7 +149,7 @@ private:
 /** Grid collision. Because cells are axis-aligned there are no seams to slip
  *  through: we resolve each axis independently against the cell the player is
  *  trying to enter, which also gives clean sliding along walls. */
-inline void resolveGridCollision(const omni::map::Level0Field& g,PhysicsBody& body,Vec3f prev,bool skipCeiling=false) noexcept {
+inline void resolveGridCollision(const omni::map::Level0Field& g,PhysicsBody& body,Vec3f prev,bool skipCeiling=false,float eyeHeight=1.7f) noexcept {
     const float r=body.radius;
 
     // X axis
@@ -169,8 +175,8 @@ inline void resolveGridCollision(const omni::map::Level0Field& g,PhysicsBody& bo
         if(blocked){ body.pos.z=prev.z; body.vel.z=0.0f; }
     }
     if(!skipCeiling){
-        constexpr float kEye=1.7f, kHead=0.15f;
-        float maxY=std::max(omni::map::Level0Field::kHeight-kEye-kHead,0.0f);
+        constexpr float kHead=0.15f;
+        float maxY=std::max(omni::map::Level0Field::kHeight-eyeHeight-kHead,0.0f);
         if(body.pos.y>maxY){ body.pos.y=maxY; if(body.vel.y>0.0f) body.vel.y=0.0f; }
     }
 }
@@ -306,13 +312,16 @@ public:
         cam.yaw  +=(cam.targetYaw  -cam.yaw)  *std::min(1.0f,20.0f*dt);
         cam.pitch+=(cam.targetPitch-cam.pitch) *std::min(1.0f,20.0f*dt);
         cam.pitch=std::clamp(cam.pitch,-89.0f,89.0f);
+        // Crouching drops the eye over ~0.2 s rather than snapping, which is
+        // what makes the button feel like a body moving instead of a teleport.
+        cam.eyeHeight+=(cam.targetEyeHeight-cam.eyeHeight)*std::min(1.0f,12.0f*dt);
         float speed=std::hypot(body.vel.x,body.vel.z);
         float targetBob=body.onGround?speed*0.04f:0.0f;
         cam.bobAmount+=(targetBob-cam.bobAmount)*8.0f*dt;
         cam.bobPhase +=speed*2.5f*dt;
         float bobY=std::sin(cam.bobPhase)*cam.bobAmount;
         float bobX=std::sin(cam.bobPhase*0.5f)*cam.bobAmount*0.5f;
-        cam.pos={body.pos.x+bobX,body.pos.y+1.7f+bobY,body.pos.z};
+        cam.pos={body.pos.x+bobX,body.pos.y+cam.eyeHeight+bobY,body.pos.z};
         float targetRoll=std::sin(cam.bobPhase*0.5f)*cam.bobAmount*0.8f;
         cam.rollAngle+=(targetRoll-cam.rollAngle)*6.0f*dt;
     }
@@ -1262,18 +1271,24 @@ Java_com_omni_backrooms_NativeBridge_generateChunk(JNIEnv* env, jobject, jint ch
     // One chunk of cells, queried straight from the field. Nothing is cached
     // here: the field is cheap and stateless, and caching on this side would
     // just duplicate the mesh cache Kotlin already keeps.
+    //
+    // The chunk ships with a one-cell apron on every side. Without it the mesher
+    // has to guess what lies past the edge, and guessing "solid" walled off every
+    // chunk boundary with a wall the collision field knew nothing about — the
+    // walls you could walk straight through where two chunks met.
     constexpr int N = OMNI_CHUNK_CELLS;
+    constexpr int NP = N + 2;
     const int baseX = chunkX * N;
     const int baseZ = chunkZ * N;
 
-    const jsize total = N * N * 4;
+    const jsize total = NP * NP * 4;
     auto arr = env->NewFloatArray(total);
     if (!arr) return nullptr;
 
     std::vector<float> flat;
     flat.reserve(total);
-    for (int z = 0; z < N; ++z) {
-        for (int x = 0; x < N; ++x) {
+    for (int z = -1; z <= N; ++z) {
+        for (int x = -1; x <= N; ++x) {
             const int cx = baseX + x, cz = baseZ + z;
             flat.push_back(gField.isSolid(cx, cz) ? 1.0f : 0.0f);
             flat.push_back(static_cast<float>(gField.zoneAt(cx, cz)));
@@ -1283,6 +1298,41 @@ Java_com_omni_backrooms_NativeBridge_generateChunk(JNIEnv* env, jobject, jint ch
     }
     env->SetFloatArrayRegion(arr, 0, total, flat.data());
     return arr;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_relocateExit(JNIEnv* env, jobject, jfloat px, jfloat pz, jfloat maxDistM) {
+    // The world never ends, so an exit fixed at generation time can be walked
+    // away from forever. Once the player is further than [maxDistM] from it the
+    // door is re-anchored ahead of them: still a hike, but always findable.
+    const float cell = omni::map::Level0Field::kCell;
+    const float exitWx = omni::map::Level0Field::worldX(gExitCx) + cell * 0.5f;
+    const float exitWz = omni::map::Level0Field::worldZ(gExitCz) + cell * 0.5f;
+    const float dx = px - exitWx, dz = pz - exitWz;
+    const bool tooFar = (dx * dx + dz * dz) > (maxDistM * maxDistM);
+
+    if (tooFar) {
+        const int pcx = omni::map::Level0Field::cellX(px);
+        const int pcz = omni::map::Level0Field::cellZ(pz);
+        // Far enough that it is still a run, close enough to be reachable.
+        gField.findExitNear(pcx, pcz, 46, gExitCx, gExitCz);
+        LOGI_C("Exit relocated to (%d,%d)", gExitCx, gExitCz);
+    }
+
+    auto arr = env->NewFloatArray(3);
+    if (!arr) return nullptr;
+    float out[3] = {
+        omni::map::Level0Field::worldX(gExitCx) + cell * 0.5f,
+        omni::map::Level0Field::worldZ(gExitCz) + cell * 0.5f,
+        tooFar ? 1.0f : 0.0f
+    };
+    env->SetFloatArrayRegion(arr, 0, 3, out);
+    return arr;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_omni_backrooms_NativeBridge_setCrouch(JNIEnv*, jobject, jboolean crouched) {
+    gCamState.targetEyeHeight = crouched ? omni::core::kCrouchEye : omni::core::kStandEye;
 }
 
 JNIEXPORT jfloat JNICALL
@@ -1319,7 +1369,7 @@ Java_com_omni_backrooms_NativeBridge_physicsTick(JNIEnv*, jobject, jfloat dt) {
     if(!gPhysics) return;
     omni::core::Vec3f before=gPlayerBody.pos;
     gPhysics->update(gPlayerBody,dt);
-    omni::core::resolveGridCollision(gField,gPlayerBody,before,gSpawnFalling);
+    omni::core::resolveGridCollision(gField,gPlayerBody,before,gSpawnFalling,gCamState.eyeHeight);
     gPrevPos=gPlayerBody.pos;
     if(gSpawnFalling&&gPlayerBody.onGround) gSpawnFalling=false;
     if(gCamera) gCamera->update(gCamState,gPlayerBody,dt,1.0f);
@@ -1347,11 +1397,14 @@ Java_com_omni_backrooms_NativeBridge_cameraLook(JNIEnv*, jobject, jfloat dx, jfl
 
 JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_getCameraState(JNIEnv* env, jobject) {
-    auto arr=env->NewFloatArray(9); if(!arr) return nullptr;
-    float d[9]={gCamState.pos.x,gCamState.pos.y,gCamState.pos.z,
-                gCamState.yaw,gCamState.pitch,gCamState.rollAngle,
-                gCamState.fov,gCamState.bobAmount,gCamState.bobPhase};
-    env->SetFloatArrayRegion(arr,0,9,d);
+    // Slot 9 carries the live eye height so the renderer can place the avatar's
+    // feet on the floor; guessing 1.7 there is what left her hovering.
+    auto arr=env->NewFloatArray(10); if(!arr) return nullptr;
+    float d[10]={gCamState.pos.x,gCamState.pos.y,gCamState.pos.z,
+                 gCamState.yaw,gCamState.pitch,gCamState.rollAngle,
+                 gCamState.fov,gCamState.bobAmount,gCamState.bobPhase,
+                 gCamState.eyeHeight};
+    env->SetFloatArrayRegion(arr,0,10,d);
     return arr;
 }
 
