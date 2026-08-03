@@ -13,7 +13,11 @@
 //   * open space is neither so sparse the level is a maze of dead ends nor so
 //     dense it is one undifferentiated hall;
 //   * every open cell has some light, so nowhere is pitch black;
-//   * columns never seal a corridor.
+//   * the light is not FLAT — there are pools under the fittings and gloom
+//     between them, rather than one uniformly lit box;
+//   * enough of the plan is corridor that it reads as a maze rather than as one
+//     continuous open floor;
+//   * columns concentrate in the unlit halls, and never seal a corridor.
 //
 // Build and run:
 //     g++ -std=c++20 -O2 -I Backrooms/Source/Main/Native \
