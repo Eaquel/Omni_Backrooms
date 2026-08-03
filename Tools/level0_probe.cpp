@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
     const int seedCount = argc > 1 ? std::atoi(argv[1]) : 40;
     std::printf("Level 0 probe over %d seeds\n\n", seedCount);
 
-    double openSum = 0, litSum = 0, darkestSum = 0;
+    double openSum = 0, litSum = 0, darkestSum = 0, contrastSum = 0;
     int    worstReachDepth = 1 << 30;
 
     for (int s = 0; s < seedCount; ++s) {
@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
         // Density and light, sampled over a window around the spawn.
         const int half = 60;
         int open = 0, total = 0, unlit = 0;
-        float darkest = 1e9f;
+        float darkest = 1e9f, brightest = 0.0f;
         std::vector<omni::map::CellSample> samples(26 * 26);
         for (int cz = -half; cz < half; cz += 24) {
             for (int cx = -half; cx < half; cx += 24) {
@@ -154,6 +154,7 @@ int main(int argc, char** argv) {
                     open++;
                     if (cell.light < 0.02f) unlit++;
                     darkest = std::min(darkest, cell.light);
+                    brightest = std::max(brightest, cell.light);
                 }
             }
         }
@@ -169,6 +170,15 @@ int main(int argc, char** argv) {
         check(openFrac > 0.25, "floor plan too sparse (a warren of dead ends)", seed);
         check(openFrac < 0.55, "floor plan too open (one undifferentiated hall)", seed);
         check(unlit == 0, "some open cells are pitch black", seed);
+
+        // Light has to come from the fittings, which means bright directly under
+        // one and gloomy between them. A previous tuning overlapped the falloff
+        // so heavily that every open cell measured the same value to two decimal
+        // places — 1.00x contrast, a uniformly lit light box with no pools at
+        // all. Nothing in the build could see that; this can.
+        const float contrast = darkest > 0.0001f ? brightest / darkest : 0.0f;
+        contrastSum += contrast;
+        check(contrast > 3.0f, "lighting is too flat — no pools under the fittings", seed);
 
         // Columns must never seal anything: every pillar needs floor all round.
         for (int cz = spawnZ - 70; cz < spawnZ + 70; ++cz) {
@@ -189,6 +199,7 @@ int main(int argc, char** argv) {
     std::printf("\nopen fraction    avg %.3f\n", openSum / seedCount);
     std::printf("lit open cells   avg %.4f\n", litSum / seedCount);
     std::printf("darkest cell     avg %.3f\n", darkestSum / seedCount);
+    std::printf("light contrast   avg %.2fx\n", contrastSum / seedCount);
     std::printf("shortest route to exit (cells): %d\n", worstReachDepth);
     std::printf("\n%s (%d failure%s)\n",
                 failures ? "FAILED" : "PASSED", failures, failures == 1 ? "" : "s");

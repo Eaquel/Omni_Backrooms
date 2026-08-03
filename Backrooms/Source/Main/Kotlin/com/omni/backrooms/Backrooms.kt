@@ -2332,23 +2332,102 @@ void main(){
 }
 """
 
+/**
+ * The things in the corridors.
+ *
+ * A dark, roiling silhouette with two large eyes and a wide grin — the Smiler
+ * read, which is the one image this place is known for. The previous version
+ * drew a soft blob with a single dot in it and had nothing to say; the point of
+ * a creature glimpsed at the end of a corridor is that you recognise the face
+ * before you recognise anything else.
+ *
+ * Everything is animated off uTime: the body edge boils, the grin widens as it
+ * closes in, and the eyes blink on their own irregular schedule.
+ */
 private const val OMNI_BILLBOARD_FRAG = """#version 300 es
 precision mediump float;
 in vec2 vUV;
 uniform vec3 uColor; uniform float uAlert; uniform float uAlpha; uniform float uColorBlind;
+uniform float uTime; uniform float uSeed;
 out vec4 fragColor;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+float noise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
 void main(){
-    vec2 d = (vUV - vec2(0.5, 0.42)) * vec2(1.0, 1.35);
-    float body = smoothstep(0.5, 0.28, length(d));
-    vec2 eyeD = (vUV - vec2(0.5, 0.62)) * vec2(1.0, 1.6);
-    float core = smoothstep(0.16, 0.02, length(eyeD));
-    vec3 normalRamp = mix(vec3(0.85,0.78,0.25), vec3(1.0,0.05,0.05), uAlert);
-    vec3 safeRamp   = mix(vec3(0.25,0.55,0.95), vec3(1.0,0.55,0.05), uAlert);
-    vec3 eyeColor = mix(normalRamp, safeRamp, uColorBlind);
-    vec3 col = mix(uColor*0.12, eyeColor, core);
-    float alpha = body*uAlpha;
-    if (alpha < 0.02) discard;
-    fragColor = vec4(col, alpha);
+    float t = uTime + uSeed * 37.0;
+
+    // --- Body -------------------------------------------------------------
+    // An upright ovoid whose edge is displaced by drifting noise, so the
+    // silhouette never holds still. A shape that boils reads as alive; a
+    // smooth ellipse reads as a decal.
+    vec2 d = (vUV - vec2(0.5, 0.46)) * vec2(1.25, 1.0);
+    float r = length(d);
+    float ang = atan(d.y, d.x);
+    float boil = noise(vec2(ang * 1.6, t * 0.9 + uSeed * 5.0)) - 0.5;
+    float edge = 0.40 + boil * 0.055;
+    float body = smoothstep(edge, edge - 0.13, r);
+
+    // Wisps trailing off the bottom, densest at the hem.
+    float hem = smoothstep(0.30, 0.85, vUV.y);
+    float wisp = noise(vec2(vUV.x * 9.0, vUV.y * 4.0 - t * 1.4));
+    body = max(body, smoothstep(0.62, 0.95, wisp) * (1.0 - hem) * 0.55);
+
+    if (body < 0.02) discard;
+
+    // Near-black, with a faint tint so different creatures stay tellable apart.
+    vec3 col = uColor * 0.055;
+
+    // --- Eyes -------------------------------------------------------------
+    // Two of them, large and set wide. Mirrored by folding x about the centre,
+    // so one expression drives both.
+    vec2 e = vec2(abs(vUV.x - 0.5), vUV.y);
+    vec2 eyeC = vec2(0.115, 0.60);
+    // Blink: a rare, quick squash. Irregular, because a metronome blink is
+    // worse than none at all.
+    float blinkPhase = fract(t * 0.21 + uSeed);
+    float blink = 1.0 - smoothstep(0.0, 0.045, abs(blinkPhase - 0.5)) * 0.94;
+    vec2 eyeD = (e - eyeC) / vec2(0.085, 0.062 * max(blink, 0.06));
+    float eye = smoothstep(1.0, 0.72, length(eyeD));
+
+    // --- Grin -------------------------------------------------------------
+    // A crescent that widens and lifts as it takes an interest in you, with a
+    // row of teeth cut into it.
+    float grin = 0.0;
+    {
+        vec2 m = (vUV - vec2(0.5, 0.365)) / vec2(0.20 + uAlert * 0.045, 0.115);
+        // Upper edge is a parabola, lower edge a wider one: the gap between is
+        // the mouth.
+        float curve = m.x * m.x;
+        float lip = 1.0 - smoothstep(0.0, 0.30, abs(m.y + curve * 0.85 - 0.30));
+        grin = lip * smoothstep(1.25, 1.0, abs(m.x));
+        // Teeth: vertical cuts across the opening.
+        float teeth = smoothstep(0.42, 0.62, abs(fract(m.x * 5.5) - 0.5) * 2.0);
+        grin *= mix(1.0, teeth, 0.55);
+    }
+
+    vec3 normalRamp = mix(vec3(0.92, 0.86, 0.35), vec3(1.0, 0.06, 0.04), uAlert);
+    vec3 safeRamp   = mix(vec3(0.30, 0.62, 1.0),  vec3(1.0, 0.62, 0.05), uAlert);
+    vec3 lit = mix(normalRamp, safeRamp, uColorBlind);
+
+    // Pupils sit inside the eye and track very slightly, which is the detail
+    // that makes it feel watched rather than merely looked at.
+    vec2 pupilOff = vec2(sin(t * 0.7) * 0.012, sin(t * 0.53) * 0.008);
+    float pupil = smoothstep(1.0, 0.55, length((e - eyeC - pupilOff) / vec2(0.034, 0.034)));
+
+    col = mix(col, lit, eye);
+    col = mix(col, vec3(0.02, 0.01, 0.01), pupil * 0.85);
+    col = mix(col, lit * 0.92, grin);
+
+    // Glow bleeding out of the features into the body around them.
+    col += lit * (eye + grin) * 0.30;
+
+    fragColor = vec4(col, body * uAlpha);
 }
 """
 
@@ -2366,11 +2445,31 @@ void main(){
 private const val OMNI_SHADOW_FRAG = """#version 300 es
 precision mediump float;
 in vec2 vUV;
-uniform float uAlpha;
+uniform float uAlpha; uniform float uTime; uniform float uSeed;
 out vec4 fragColor;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+float noise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
 void main(){
-    float d = length(vUV - vec2(0.5));
-    float a = smoothstep(0.5, 0.08, d) * uAlpha;
+    // The pool of dark a creature drags along the floor with it. Not a static
+    // ellipse: the rim crawls, and a second, wider stain breathes underneath —
+    // so the thing looks like it is displacing the light rather than having a
+    // sprite pasted beneath it.
+    vec2 d = vUV - vec2(0.5);
+    float r = length(d);
+    float ang = atan(d.y, d.x);
+    float t = uTime + uSeed * 23.0;
+
+    float crawl = noise(vec2(ang * 2.2, t * 0.65 + uSeed * 3.0)) - 0.5;
+    float core = smoothstep(0.42 + crawl * 0.07, 0.05, r);
+    float breath = 0.80 + 0.20 * sin(t * 1.3 + uSeed);
+    float halo = smoothstep(0.50, 0.16, r) * 0.45 * breath;
+
+    float a = clamp(core + halo, 0.0, 1.0) * uAlpha;
     if (a < 0.01) discard;
     fragColor = vec4(0.0, 0.0, 0.0, a);
 }
@@ -2699,6 +2798,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var uUvScale = 0
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
+    private var bTime = 0; private var bSeed = 0
     private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
     private var pCbMix = 0; private var pCbAxis = 0; private var pFlashOn = 0; private var pMadness = 0
     private var pBloomTex = 0; private var pBloomStrength = 0; private var pExposure = 0
@@ -2709,6 +2809,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var bloomFbo = IntArray(2); private var bloomTex = IntArray(2)
     private var bloomW = 1; private var bloomH = 1
     private var sVP = 0; private var sCenter = 0; private var sSize = 0; private var sAlpha = 0
+    private var sTime = 0; private var sSeed = 0
     private var exitProgram = 0
     private var xVP = 0; private var xCenter = 0; private var xRight = 0
     private var xWidth = 0; private var xHeight = 0; private var xTime = 0; private var xNear = 0
@@ -2813,6 +2914,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         bAlert = GLES30.glGetUniformLocation(billboardProgram, "uAlert")
         bAlpha = GLES30.glGetUniformLocation(billboardProgram, "uAlpha")
         bColorBlind = GLES30.glGetUniformLocation(billboardProgram, "uColorBlind")
+        bTime = GLES30.glGetUniformLocation(billboardProgram, "uTime")
+        bSeed = GLES30.glGetUniformLocation(billboardProgram, "uSeed")
 
         postProgram = linkGlProgram(OMNI_POST_VERT, OMNI_POST_FRAG)
         pScene = GLES30.glGetUniformLocation(postProgram, "uScene")
@@ -2856,6 +2959,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         sCenter = GLES30.glGetUniformLocation(shadowProgram, "uCenter")
         sSize = GLES30.glGetUniformLocation(shadowProgram, "uSize")
         sAlpha = GLES30.glGetUniformLocation(shadowProgram, "uAlpha")
+        sTime = GLES30.glGetUniformLocation(shadowProgram, "uTime")
+        sSeed = GLES30.glGetUniformLocation(shadowProgram, "uSeed")
 
         // Avatar: shares the preview's shader, which already implements the
         // joint rotation that breaks the source mesh's T-pose.
@@ -2992,14 +3097,21 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             // it, so the avatar sits in the lower third of frame — but only as
             // far back as the room allows.
             val thirdPerson = cameraView == "third" && charIndexCount > 0
-            val camLift = if (thirdPerson) 0.42f else 0f
-            val wantDist = if (thirdPerson) 2.9f else 0f
             val ceiling = if (state.world.isValid) state.world.height else 2.6f
+            // Orbit her chest, not her eyes.
+            //
+            // The boom used to pivot on the eye and then add 0.42 m on top, which
+            // in a 2.6 m room put the lens at 2.12 m — a hand's width under the
+            // ceiling, scraping every doorway, and looking down at her steeply
+            // enough that she filled the frame and read as far taller than the
+            // 1.70 m she is. Pivoting lower keeps the lens in the middle of the
+            // corridor where there is actually room for it.
+            val pivotY = if (thirdPerson) (eyeY - 0.45f) else eyeY
+            val camLift = if (thirdPerson) 0.12f else 0f
+            val wantDist = if (thirdPerson) 2.6f else 0f
             val camDist = if (thirdPerson) {
-                // The pivot is the lifted eye, so the ray tested is the one the
-                // lens actually travels.
                 smoothCamDist += (resolveCameraDistance(
-                    smoothX, eyeY + camLift, smoothZ,
+                    smoothX, pivotY + camLift, smoothZ,
                     -fx, -fy, -fz, wantDist, state.world, ceiling
                 ) - smoothCamDist) * (1f - kotlin.math.exp(-dt * 14f))
                 smoothCamDist
@@ -3011,7 +3123,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             val eyeZ = smoothZ - fz * camDist
             // Even at zero distance the lens must stay inside the room: the lift
             // alone can push it into the ceiling in a low corridor.
-            val camY = (eyeY - fy * camDist + camLift).coerceIn(0.30f, ceiling - 0.22f)
+            val camY = (pivotY - fy * camDist + camLift).coerceIn(0.30f, ceiling - 0.30f)
             Matrix.setLookAtM(
                 viewM, 0,
                 eyeX, camY, eyeZ,
@@ -3097,7 +3209,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             }
             smoothEntities.keys.retainAll(activeIds)
 
-            if (shadowsOn) drawShadows(vpM, state.entities, smoothX, smoothZ, entityRange)
+            if (shadowsOn) drawShadows(vpM, state.entities, smoothX, smoothZ, entityRange, timeSec)
             // Entities are the Backrooms creatures — they stay billboards. The
             // character model is the player's own avatar and belongs to the
             // preview screen, not to the corridors.
@@ -3237,6 +3349,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glUniform3f(bRight, -cos(yawRad), 0f, sin(yawRad))
         GLES30.glUniform3f(bUp, 0f, 1f, 0f)
         GLES30.glUniform1f(bColorBlind, cbMix)
+        GLES30.glUniform1f(bTime, timeSec)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, billboardVbo)
         GLES30.glEnableVertexAttribArray(0)
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
@@ -3257,16 +3370,20 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             GLES30.glUniform3f(bColor, tint.first, tint.second, tint.third)
             GLES30.glUniform1f(bAlert, (e.alertLevel + (if (e.aiState >= 3) 0.5f else 0f)).coerceIn(0f, 1f))
             GLES30.glUniform1f(bAlpha, if (e.playerInSight) 1f else 0.82f)
+            // Per-creature offset, so a row of them never boils or blinks in
+            // unison — nothing gives away a shared shader faster than that.
+            GLES30.glUniform1f(bSeed, (e.id * 0.618f) % 1f)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
         GLES30.glDisableVertexAttribArray(0)
     }
 
 
-    private fun drawShadows(vp: FloatArray, entities: List<EntityState>, camX: Float, camZ: Float, range: Float) {
+    private fun drawShadows(vp: FloatArray, entities: List<EntityState>, camX: Float, camZ: Float, range: Float, timeSec: Float) {
         if (entities.isEmpty()) return
         GLES30.glUseProgram(shadowProgram)
         GLES30.glUniformMatrix4fv(sVP, 1, false, vp, 0)
+        GLES30.glUniform1f(sTime, timeSec)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, billboardVbo)
         GLES30.glEnableVertexAttribArray(0)
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
@@ -3279,8 +3396,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             if (d2 > rangeSq) continue
             val fade = 1f - (d2 / rangeSq)
             GLES30.glUniform3f(sCenter, sp[0], 0f, sp[2])
-            GLES30.glUniform1f(sSize, 0.85f)
-            GLES30.glUniform1f(sAlpha, 0.45f * fade)
+            GLES30.glUniform1f(sSize, 0.95f)
+            GLES30.glUniform1f(sAlpha, 0.55f * fade)
+            GLES30.glUniform1f(sSeed, (e.id * 0.618f) % 1f)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
         GLES30.glDisableVertexAttribArray(0)
@@ -3872,7 +3990,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     val lit = fixture == 1
                     val down = floatArrayOf(0f, -1f, 0f)
 
-                    val panY = hgt - 0.005f         // steel pan, flush with the tile
+                    // Recessed a clear 4 cm into the ceiling rather than 5 mm.
+                    // Coplanar-ish surfaces are what let the depth buffer flip
+                    // between them at distance; the gap has to be bigger than
+                    // the buffer's resolution at the far end of a corridor.
+                    val panY = hgt - 0.04f          // steel pan, recessed into the tile
                     val mouthY = hgt - 0.105f       // the open face of the fitting
                     val tubeY = hgt - 0.070f
 
@@ -4111,7 +4233,13 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
         fboDepth = genGlRenderbuffer()
         GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, fboDepth)
-        GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT16, w, h)
+        // 24-bit, not 16. The light fittings sit millimetres under the ceiling
+        // plane, and at 16 bits the depth buffer cannot separate them past about
+        // twenty metres — so down a long corridor the ceiling tile and the
+        // troffer under it swapped back and forth, which is the ceiling texture
+        // that appeared to slide onto a middle layer. GLES3 guarantees this
+        // format, so there is no fallback to write.
+        GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT24, w, h)
 
         fbo = genGlFramebuffer()
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
@@ -4718,7 +4846,6 @@ private fun XpBar(progress: Float, xp: Long, xpToNext: Long) {
 /** Avatar with an equippable decorative frame drawn in code. */
 @Composable
 private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: () -> Unit) {
-    val clock = rememberFrameClock()
     Box(Modifier.size(size).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val r = this.size.minDimension * 0.36f
@@ -4735,7 +4862,9 @@ private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: ()
                 close()
             }
             drawPath(body, Yellow.copy(0.8f))
-            drawFrame3D(frame, r * 1.16f, clock)
+            // No frame ring here. It read as clutter around a small avatar and
+            // fought the portrait for attention; frames live in the market,
+            // where looking at them is the point.
         }
         // Decoded directly rather than via an image-loading library: it's one
         // small avatar, so pulling in a whole dependency for it isn't warranted.
@@ -4798,23 +4927,64 @@ private class TorusVertex(val x: Float, val y: Float, val z: Float,
                           val u: Float)
 
 /**
- * Unit torus: major radius 1, tube radius [minorRatio]. Dimensionless so the
- * draw can scale the whole thing by one number, and built once per style
- * because the geometry never changes — only the transform applied to it does.
+ * The path the frame's tube is swept along, as a radius at angle [a].
+ *
+ * This is what actually distinguishes the styles. They used to share one circle
+ * and differ only in colour and in which lights ran round it, so all three read
+ * as the same object in three finishes. A different silhouette is recognisable
+ * across a grid of cards at thumbnail size; a different hue is not.
  */
-private fun buildTorus(minorRatio: Float): Array<TorusVertex> {
+private fun frameRadius(form: Int, a: Float): Float = when (form) {
+    // Rounded square. A superellipse rather than a real square: the corners
+    // still take a highlight, which a hard corner cannot.
+    FRAME_FORM_SQUARE -> {
+        val n = 5f
+        val c = kotlin.math.abs(cos(a)); val s = kotlin.math.abs(sin(a))
+        1f / Math.pow((Math.pow(c.toDouble(), n.toDouble()) +
+                       Math.pow(s.toDouble(), n.toDouble())), 1.0 / n).toFloat()
+    }
+    // Hexagon, flat-topped. Straight runs with hard vertices between them.
+    FRAME_FORM_HEX -> {
+        val sector = Math.PI.toFloat() / 3f
+        val local = a - sector * kotlin.math.floor(a / sector) - sector * 0.5f
+        cos(sector * 0.5f) / cos(local)
+    }
+    else -> 1f
+}
+
+/** How thick the tube is at [a]. Beading the profile gives a third silhouette
+ *  without touching the outline at all. */
+private fun frameThickness(form: Int, minorRatio: Float, a: Float): Float = when (form) {
+    // A string of beads: the tube swells and pinches as it goes round.
+    FRAME_FORM_BEADED -> minorRatio * (1f + 0.85f * cos(a * 11f))
+    else -> minorRatio
+}
+
+private const val FRAME_FORM_ROUND  = 0
+private const val FRAME_FORM_SQUARE = 1
+private const val FRAME_FORM_BEADED = 2
+private const val FRAME_FORM_HEX    = 3
+
+/**
+ * Sweeps the tube along the style's own path. Dimensionless — major radius 1 —
+ * so the draw can scale the whole solid by one number. Built once per style
+ * because the geometry never changes; only the transform applied to it does.
+ */
+private fun buildFrameSolid(form: Int, minorRatio: Float): Array<TorusVertex> {
     val out = ArrayList<TorusVertex>(FRAME3D_MAJOR * FRAME3D_MINOR)
     for (i in 0 until FRAME3D_MAJOR) {
         val u = i / FRAME3D_MAJOR.toFloat()
         val a = u * 2f * Math.PI.toFloat()
         val ca = cos(a); val sa = sin(a)
+        val pathR = frameRadius(form, a)
+        val minor = frameThickness(form, minorRatio, a)
         for (j in 0 until FRAME3D_MINOR) {
             val b = (j / FRAME3D_MINOR.toFloat()) * 2f * Math.PI.toFloat()
             val cb = cos(b); val sb = sin(b)
-            val ringR = 1f + minorRatio * cb
+            val ringR = pathR + minor * cb
             out.add(
                 TorusVertex(
-                    ringR * ca, ringR * sa, minorRatio * sb,
+                    ringR * ca, ringR * sa, minor * sb,
                     cb * ca, cb * sa, sb,
                     u
                 )
@@ -4828,7 +4998,10 @@ private fun buildTorus(minorRatio: Float): Array<TorusVertex> {
 private val frameGeometryCache = HashMap<String, Array<TorusVertex>>()
 
 private fun frameGeometry(key: String): Array<TorusVertex> = synchronized(frameGeometryCache) {
-    frameGeometryCache.getOrPut(key) { buildTorus(frameStyleFor(key).minorScale) }
+    frameGeometryCache.getOrPut(key) {
+        val style = frameStyleFor(key)
+        buildFrameSolid(style.form, style.minorScale)
+    }
 }
 
 /** Palette and behaviour for one frame style. */
@@ -4839,6 +5012,8 @@ private class FrameStyle(
     val glow: Color,
     val minorScale: Float,
     val shininess: Float,
+    /** Which silhouette this style is swept along. */
+    val form: Int,
     /** Extra brightness at a given ring position and time, 0..1. */
     val pattern: (u: Float, t: Float) -> Float
 )
@@ -4848,7 +5023,7 @@ private fun frameStyleFor(key: String): FrameStyle = when (key) {
     // same stutter the level's own fixtures have.
     "halogen" -> FrameStyle(
         base = Color(0xFF3A3222), highlight = CrtAmber, glow = Color(0xFFFFE9A8),
-        minorScale = 0.26f, shininess = 22f
+        minorScale = 0.19f, shininess = 22f, form = FRAME_FORM_SQUARE
     ) { u, t ->
         val ballast = if (sin(t * 11f) * sin(t * 3.7f) > -0.72f) 1f else 0.30f
         // Four tubes with dark end caps, so it reads as a fitting, not a hoop.
@@ -4859,7 +5034,7 @@ private fun frameStyleFor(key: String): FrameStyle = when (key) {
     // A radar return: a bright sweep head dragging a decaying tail.
     "signal" -> FrameStyle(
         base = Color(0xFF15303A), highlight = OmniumCol, glow = Color(0xFFB6F4FF),
-        minorScale = 0.22f, shininess = 42f
+        minorScale = 0.10f, shininess = 42f, form = FRAME_FORM_BEADED
     ) { u, t ->
         val head = (t * 0.36f) % 1f
         var d = u - head
@@ -4871,7 +5046,7 @@ private fun frameStyleFor(key: String): FrameStyle = when (key) {
     // Two counter-rotating arcs of a door that never quite shuts.
     "threshold" -> FrameStyle(
         base = Color(0xFF241B3A), highlight = SouliumCol, glow = Color(0xFFD9C9FF),
-        minorScale = 0.30f, shininess = 30f
+        minorScale = 0.16f, shininess = 30f, form = FRAME_FORM_HEX
     ) { u, t ->
         fun arc(centre: Float): Float {
             var d = kotlin.math.abs(u - ((centre % 1f) + 1f) % 1f)
@@ -4887,7 +5062,7 @@ private fun frameStyleFor(key: String): FrameStyle = when (key) {
     // specular travelling round the tube as it turns.
     else -> FrameStyle(
         base = Color(0xFF4A4A4E), highlight = Color(0xFFCFD2D8), glow = Color(0xFFF2F4F8),
-        minorScale = 0.19f, shininess = 60f
+        minorScale = 0.19f, shininess = 60f, form = FRAME_FORM_ROUND
     ) { _, _ -> 0f }
 }
 
@@ -7170,7 +7345,6 @@ fun NotificationPermissionGate() {
  *  screen so the two can't drift apart. */
 @Composable
 private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: () -> Unit) {
-    val clock = rememberFrameClock()
     Box(Modifier.size(50.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val r = size.minDimension * 0.36f
@@ -7186,7 +7360,9 @@ private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: (
                 close()
             }
             drawPath(body, Yellow.copy(0.8f))
-            drawFrame3D(frame, r * 1.16f, clock)
+            // No frame ring here. It read as clutter around a small avatar and
+            // fought the portrait for attention; frames live in the market,
+            // where looking at them is the point.
         }
         val ctx = LocalContext.current
         val bmp by produceState<ImageBitmap?>(null, localUri) {
@@ -8117,8 +8293,14 @@ void main(){
     float armMask = armReach * armBand;
     if (armMask > 0.001) {
         vec3 shoulder = vec3(armSide * 0.11, 0.74, 0.0);
-        // ~78 degrees down, so the arms hang close to the body.
-        p = rotZ(p, shoulder, armSide * 1.36 * armMask);
+        // ~78 degrees DOWN, so the arms hang close to the body.
+        //
+        // The sign matters and it was wrong. rotZ turns anticlockwise, so for a
+        // hand sitting at +x from the shoulder a positive angle lifts it: both
+        // arms were being rotated up by 78 degrees and the hands ended up level
+        // with the top of her head, one either side. Negating per side sends
+        // each arm down the way a shoulder actually works.
+        p = rotZ(p, shoulder, -armSide * 1.36 * armMask);
         // Slight inward tuck so the hands sit beside the hips, not splayed.
         p = rotY(p, shoulder, -armSide * 0.20 * armMask);
     }
@@ -8184,18 +8366,50 @@ void main(){
     // pitches forward over the new centre of mass. Scaling the model down was
     // the obvious cheat and it looks exactly like what it is.
     if (uCrouch > 0.001) {
-        float drop = 0.38 * uCrouch;
-        // Knees fold — everything below the hip rotates about it.
-        float lower = 1.0 - smoothstep(0.10, 0.50, p.y);
-        p = rotX(p, vec3(sign(p.x) * 0.05, 0.46, 0.0), 0.85 * uCrouch * lower);
-        float shin2 = 1.0 - smoothstep(0.02, 0.28, p.y);
-        p = rotX(p, vec3(sign(p.x) * 0.05, 0.24, 0.0), -1.30 * uCrouch * shin2);
-        // Hips and everything above them come down.
-        float above = smoothstep(0.10, 0.30, p.y);
-        p.y -= drop * above;
-        // Torso pitches forward over the knees.
-        float torso = smoothstep(0.36, 0.70, p.y);
-        p = rotX(p, vec3(0.0, 0.46 - drop, 0.0), 0.34 * uCrouch * torso);
+        // Two-link solve, not hand-picked angles.
+        //
+        // The hip has to come down and the FOOT has to stay on the floor, and
+        // those two constraints fix the knee and ankle angles exactly. Guessing
+        // them (0.85 at the hip, -1.30 at the knee) drove the shins straight
+        // through the carpet, and the y >= 0 clamp further down then flattened
+        // whatever had gone under into a smear at floor level — which is what
+        // "the knees and feet go into the ground" was.
+        //
+        // Masks read yPre, the leg's height BEFORE any of this ran; using the
+        // live p.y would make each step's mask depend on the previous step's
+        // rotation and the joints would drift apart.
+        float yPre = p.y;
+        const float La = 0.22;                 // hip -> knee
+        const float Lb = 0.24;                 // knee -> ankle
+        const float standH = La + Lb;          // hip height standing
+        float drop = 0.30 * uCrouch;
+        float hipY = standH - drop;            // hip height crouched
+
+        // Triangle (La, Lb, hipY): the knee angle and the thigh's lean off
+        // vertical that put the ankle exactly on the floor.
+        float thigh = acos(clamp((La*La + hipY*hipY - Lb*Lb) / (2.0 * La * max(hipY, 0.001)), -1.0, 1.0));
+        // Shin angle measured from vertical at the planted ankle.
+        float shinAng = atan(La * sin(thigh), max(hipY - La * cos(thigh), 0.001));
+
+        float side = sign(p.x) * 0.05;
+        vec3 ankle = vec3(side, 0.0, 0.0);
+        vec3 hipAfter = vec3(side, hipY, 0.0);
+
+        float shinMask  = 1.0 - smoothstep(Lb - 0.03, Lb + 0.07, yPre);
+        float thighMask = smoothstep(Lb - 0.03, Lb + 0.07, yPre) *
+                          (1.0 - smoothstep(standH - 0.03, standH + 0.09, yPre));
+        float upperMask = smoothstep(standH - 0.03, standH + 0.09, yPre);
+
+        // Shin pivots on the planted foot, so the sole never leaves the floor.
+        p = rotX(p, ankle, shinAng * shinMask);
+        // Thigh sinks with the pelvis, then swings forward off the lowered hip.
+        p.y -= drop * thighMask;
+        p = rotX(p, hipAfter, -thigh * thighMask);
+        // Pelvis and everything above simply come down with it.
+        p.y -= drop * upperMask;
+        // Torso pitches forward over the knees to keep her balanced.
+        float torso = smoothstep(standH, 0.72, yPre);
+        p = rotX(p, vec3(0.0, hipY, 0.0), 0.30 * uCrouch * torso);
     }
 
     // --- 5. Head ------------------------------------------------------------

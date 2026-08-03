@@ -45,24 +45,32 @@ constexpr int kRoomsPerSector = 5;
 // them and turns the plan back into rooms joined by corridors.
 constexpr int kMaxRoomHalf    = 5;   // must stay < kSectorSize / 2
 
-// Troffers every three cells — 9.6 m. Wider than a real office grid, but this
-// is a 3.2 m cell world and it is close enough that adjacent lights overlap,
-// which is what produces continuous illumination rather than pools of light
-// with dark gaps between them.
-constexpr int kFixtureSpacing = 3;
+// Troffers every four cells — 12.8 m.
+//
+// The previous 3-cell spacing paired with a 1.9-cell falloff made the level
+// measure 1.00x contrast: every open cell received 1.73, to two decimal places,
+// everywhere. The lights overlapped so heavily that the floor plan was lit like
+// a photographic light box, which is why it read as "bright wherever there is a
+// fluorescent" — there was no wherever, it was uniformly bright.
+//
+// Spacing 4 with sigma 0.95 measures 8.5x: 1.16 directly under a fitting,
+// falling to 0.14 midway between two. That is a pool of light under each
+// troffer with genuine gloom in between, which is what the lobby actually
+// looks like.
+constexpr int kFixtureSpacing = 4;
 
 // How far one tube meaningfully reaches, in cells. Sets the working margin
 // sampleChunk needs around the chunk it is asked for.
 constexpr int   kLightRadius = 4;
-// Gaussian falloff width. 1.9 cells (~6 m) against a 9.6 m spacing puts the
-// half-power point just past the midpoint between two fixtures, so the seam
-// between them is a gentle dip rather than a shadow.
-constexpr float kLightSigma  = 1.9f;
+// Gaussian falloff width, in cells. Tight enough that the light belongs to the
+// fitting above it rather than to the room in general.
+constexpr float kLightSigma  = 0.95f;
 constexpr float kLitOutput   = 1.05f;
 constexpr float kDeadOutput  = 0.05f;
 /** Floor under everything. Even an unpowered corridor is not pitch black: light
- *  bleeds in from the powered ones and off every surface. */
-constexpr float kAmbient     = 0.11f;
+ *  bleeds in from the powered ones and off every surface. Deliberately low —
+ *  it is the gloom between the pools, not a second light source. */
+constexpr float kAmbient     = 0.055f;
 
 // Salts keep the different attribute layers from correlating with each other.
 constexpr uint64_t kSaltRoom    = 0x1000ULL;
