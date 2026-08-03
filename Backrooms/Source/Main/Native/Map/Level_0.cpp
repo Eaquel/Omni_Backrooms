@@ -37,7 +37,7 @@ namespace {
 // Rooms are capped well below sector size so the one-ring scan above is
 // guaranteed to find every room that could overlap a given cell.
 constexpr int kSectorSize     = 24;
-constexpr int kRoomsPerSector = 5;
+constexpr int kRoomsPerSector = 4;
 // Rooms used to run to half-extent 9 — nineteen cells across, most of a sector.
 // Four of those per sector overlapped into one continuous plate, and the level
 // measured two-thirds open floor: a hall you walk across, not a place you get
@@ -80,6 +80,7 @@ constexpr uint64_t kSaltFixture = 0xF17DULL;
 constexpr uint64_t kSaltFeature = 0xFEA7ULL;
 constexpr uint64_t kSaltBroad   = 0xB0DAULL;
 constexpr uint64_t kSaltFine    = 0xF1E5ULL;
+constexpr uint64_t kSaltSpine   = 0x5B10EULL;
 constexpr uint64_t kSaltExitDir = 0xE217ULL;
 constexpr uint64_t kSaltExitLen = 0xD157ULL;
 
@@ -133,16 +134,29 @@ inline void sectorRooms(int sx, int sz, uint64_t seed, Room out[kRoomsPerSector]
         out[i].cx = baseX + hashRange(h0, 4, kSectorSize - 5);
         out[i].cz = baseZ + hashRange(h1, 4, kSectorSize - 5);
 
-        // Wide and shallow, alternating the long axis, so the plan reads as an
-        // office floor plate rather than a warren of cubes. Every fourth plate
-        // is a small back room, which breaks up the rhythm of same-sized halls
-        // and gives the layout somewhere that feels tucked away.
-        const bool wideOnX  = (h2 & 1ULL) != 0;
-        const bool backRoom = (i >= kRoomsPerSector - 2) && ((h3 >> 9) & 3ULL) != 0;
-        const int  longHalf  = backRoom ? hashRange(h2 >> 1, 2, 3) : hashRange(h2 >> 1, 3, kMaxRoomHalf);
-        const int  shortHalf = backRoom ? hashRange(h3, 1, 2)      : hashRange(h3, 2, 3);
-        out[i].halfW = wideOnX ? longHalf : shortHalf;
-        out[i].halfD = wideOnX ? shortHalf : longHalf;
+        // Rooms come from a fixed catalogue rather than from a fresh random
+        // size each time.
+        //
+        // This is the déjà vu. Continuous randomness makes every room subtly
+        // unlike every other, and the eye reads that as "somewhere new" no
+        // matter how similar it is. Drawing from eight archetypes means you
+        // genuinely walk into the *same room* again half a mile away — same
+        // proportions, same column placement — and cannot tell whether you have
+        // looped back. That doubt is the whole feeling this place trades on,
+        // and it is what actual Level 0 does: identical rooms, forever.
+        static const int kArchetype[8][2] = {
+            {3, 2},   // long hall
+            {2, 3},   // long hall, turned
+            {2, 2},   // square bay
+            {1, 2},   // small office
+            {3, 1},   // narrow run
+            {1, 3},   // narrow run, turned
+            {2, 1},   // stub
+            {1, 1}    // closet
+        };
+        const int arch = static_cast<int>((h2 >> 3) & 7ULL);
+        out[i].halfW = kArchetype[arch][0];
+        out[i].halfD = kArchetype[arch][1];
     }
 }
 
@@ -168,7 +182,22 @@ bool Level0Field::isPillar(int cx, int cz) const noexcept {
     const int mx = ((cx % 7) + 7) % 7;
     const int mz = ((cz % 7) + 7) % 7;
     if (mx != 0 || mz != 0) return false;
-    if (hashFloat(hashCell(cx, cz, seed_, kSaltPillar)) >= 0.70f) return false;
+
+    // Columns belong to the dark halls.
+    //
+    // They used to be scattered at a flat 70% wherever the lattice fell, and
+    // measurement said as much: the average mains health at a column was 0.567
+    // against 0.548 over open floor — statistically no relationship at all. So
+    // the pillared bays and the dead-lighting regions were two unrelated
+    // things sprinkled over the same map.
+    //
+    // Tying the two together gives the level a place with a character: the
+    // parts where the power has failed are also the parts that open out into
+    // deep colonnaded halls, and the lit parts are ordinary offices. That is
+    // the reading of "the dark sections are the ones with the columns".
+    const float power = powerAt(cx, cz);
+    const float chance = 0.06f + (1.0f - power) * 0.88f;
+    if (hashFloat(hashCell(cx, cz, seed_, kSaltPillar)) >= chance) return false;
 
     // A column may only stand where there is floor all round it.
     //
@@ -223,9 +252,15 @@ bool Level0Field::isOpenBase(int cx, int cz) const noexcept {
             }
             if (inside) break;
 
-            // Corridors of width 1 or 3 cells. Wider than this and they stop reading
-            // as corridors at all — they merge with the rooms they connect.
-            const int halfWidth = hashRange(hashCell(nx, nz, seed_, kSaltCorrW), 0, 1);
+            // Mostly single-cell corridors — 3.2 m, one lane.
+            //
+            // Width is what decides whether a run reads as a corridor at all. A
+            // three-wide run has open floor on every side of its centre line, so
+            // it is indistinguishable from a room; measured, the level was 90%
+            // junction cells and only 10% corridor. Biasing hard toward width 1
+            // is what puts walls back on either side of you.
+            const uint64_t wHash = hashCell(nx, nz, seed_, kSaltCorrW);
+            const int halfWidth = (wHash % 10ULL < 8ULL) ? 0 : 1;
 
             // Internal circulation: the sector's own rooms are chained together
             // rather than all hanging off one hub. Real floor plates have halls
@@ -253,14 +288,36 @@ bool Level0Field::isOpenBase(int cx, int cz) const noexcept {
                 break;
             }
 
-            // A second, narrower link on some boundaries. One trunk per sector
-            // edge made every route a forced march down the same hallway; a
-            // parallel service corridor gives the maze real alternatives, which
-            // is most of what makes it feel navigable rather than arbitrary.
-            if ((hashCell(nx, nz, seed_, kSaltCorrW + 1ULL) & 3ULL) == 0 &&
-                onCorridor(cx, cz, rooms[1].cx, rooms[1].cz, east[1].cx, east[1].cz, 0)) {
-                inside = true;
-                break;
+            // Further links across the same boundaries, from the sector's other
+            // rooms. One trunk per edge made every route a forced march down the
+            // same hallway; several parallel runs give the maze real
+            // alternatives, and alternatives are what let you come back on
+            // yourself without realising it.
+            bool onExtra = false;
+            for (int i = 1; i < kRoomsPerSector && !onExtra; ++i) {
+                const uint64_t linkHash = hashCell(nx, nz, seed_, kSaltCorrW + static_cast<uint64_t>(i) * 31ULL);
+                if ((linkHash & 3ULL) != 0) continue;      // roughly one in four
+                onExtra = onCorridor(cx, cz, rooms[i].cx, rooms[i].cz, east[i].cx, east[i].cz, 0) ||
+                          onCorridor(cx, cz, rooms[i].cx, rooms[i].cz, south[i].cx, south[i].cz, 0);
+            }
+            if (onExtra) { inside = true; break; }
+
+            // A spine: one straight run the full width of the sector, on a line
+            // the sector chooses for itself. Long uninterrupted sightlines are
+            // most of what makes this place feel enormous, and a plan built only
+            // from room-to-room hops never produces one.
+            {
+                const uint64_t spineHash = hashCell(nx, nz, seed_, kSaltSpine);
+                const int baseX = nx * kSectorSize;
+                const int baseZ = nz * kSectorSize;
+                // One lane on each axis, so the spines of neighbouring sectors
+                // form a lattice. A lattice is what makes it possible to walk a
+                // full circle and arrive somewhere you have already been —
+                // a tree of dead ends never does.
+                const int laneZ = baseZ + hashRange(spineHash >> 4,  2, kSectorSize - 3);
+                const int laneX = baseX + hashRange(spineHash >> 20, 2, kSectorSize - 3);
+                if (cz == laneZ && cx >= baseX && cx < baseX + kSectorSize) { inside = true; break; }
+                if (cx == laneX && cz >= baseZ && cz < baseZ + kSectorSize) { inside = true; break; }
             }
         }
     }

@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
     std::printf("Level 0 probe over %d seeds\n\n", seedCount);
 
     double openSum = 0, litSum = 0, darkestSum = 0, contrastSum = 0;
+    double corridorSum = 0, pillarDarkSum = 0, floorPowerSum = 0;
     int    worstReachDepth = 1 << 30;
 
     for (int s = 0; s < seedCount; ++s) {
@@ -180,6 +181,54 @@ int main(int argc, char** argv) {
         contrastSum += contrast;
         check(contrast > 3.0f, "lighting is too flat — no pools under the fittings", seed);
 
+        // Corridor share and column placement, over a window around the spawn.
+        //
+        // Both were things the plan silently lacked and nothing could see. The
+        // level measured 90% junction cells — open floor with floor on every
+        // side, i.e. one continuous room rather than a maze — and columns landed
+        // at a flat probability with no relationship to the lighting at all
+        // (0.567 average mains health at a column against 0.548 over open
+        // floor). A corridor you can walk down with walls either side, and
+        // colonnades that belong to the dark halls, are both structural
+        // properties, so they get structural assertions.
+        // Sampled over +-110 cells. At +-70 the window held as few as fifteen
+        // columns, and fifteen samples cannot support a claim about where
+        // columns tend to be — three seeds tripped the check while the
+        // relationship was in fact present on every one of them.
+        long corridorCells = 0, junctionCells = 0, deadEnds = 0;
+        double pillarPower = 0.0, floorPower = 0.0;
+        long pillarCount = 0, floorCount = 0;
+        for (int cz = spawnZ - 110; cz < spawnZ + 110; ++cz) {
+            for (int cx = spawnX - 110; cx < spawnX + 110; ++cx) {
+                if (field.isPillar(cx, cz)) { pillarPower += field.powerAt(cx, cz); pillarCount++; }
+                if (!field.isOpen(cx, cz)) continue;
+                floorPower += field.powerAt(cx, cz); floorCount++;
+                int n = 0;
+                if (field.isOpen(cx + 1, cz)) n++;
+                if (field.isOpen(cx - 1, cz)) n++;
+                if (field.isOpen(cx, cz + 1)) n++;
+                if (field.isOpen(cx, cz - 1)) n++;
+                if (n <= 1) deadEnds++; else if (n == 2) corridorCells++; else junctionCells++;
+            }
+        }
+        const long walkable = corridorCells + junctionCells + deadEnds;
+        const double corridorFrac = walkable ? double(corridorCells) / walkable : 0.0;
+        corridorSum += corridorFrac;
+        check(corridorFrac > 0.20,
+              "hardly any corridors — the plan is one open floor, not a maze", seed);
+
+        if (pillarCount >= 20 && floorCount > 0) {
+            const double pAvg = pillarPower / pillarCount;
+            const double fAvg = floorPower / floorCount;
+            pillarDarkSum += pAvg; floorPowerSum += fAvg;
+            // A ratio, not an absolute gap. Where a whole neighbourhood has
+            // lost power both figures collapse toward zero and any fixed
+            // margin between them stops being meaningful, even though the
+            // columns are still sitting in the darkest part of it.
+            check(pAvg < fAvg * 0.75,
+                  "columns are not concentrated in the unlit halls", seed);
+        }
+
         // Columns must never seal anything: every pillar needs floor all round.
         for (int cz = spawnZ - 70; cz < spawnZ + 70; ++cz) {
             for (int cx = spawnX - 70; cx < spawnX + 70; ++cx) {
@@ -200,6 +249,9 @@ int main(int argc, char** argv) {
     std::printf("lit open cells   avg %.4f\n", litSum / seedCount);
     std::printf("darkest cell     avg %.3f\n", darkestSum / seedCount);
     std::printf("light contrast   avg %.2fx\n", contrastSum / seedCount);
+    std::printf("corridor cells   avg %.1f%%\n", 100.0 * corridorSum / seedCount);
+    std::printf("mains at columns avg %.3f  (open floor %.3f)\n",
+                pillarDarkSum / seedCount, floorPowerSum / seedCount);
     std::printf("shortest route to exit (cells): %d\n", worstReachDepth);
     std::printf("\n%s (%d failure%s)\n",
                 failures ? "FAILED" : "PASSED", failures, failures == 1 ? "" : "s");
