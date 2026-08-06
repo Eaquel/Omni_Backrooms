@@ -53,6 +53,12 @@ jobs:
       - name: Check the inspection camera envelope
         run: python3 Tools/preview_cam.py
 
+      # Every icon in the project is hand-written vector XML. A typo in a path
+      # does not fail the build — aapt2 accepts it and the icon renders as a
+      # garbled shape, or as nothing.
+      - name: Check the vector drawables
+        run: python3 Tools/drawable_check.py
+
       # Level 0's textures are world-anchored, so a vertex's UV must equal its
       # own world position. The ceiling silently violated that for a long time
       # and every tile came out mirrored across its diagonal.

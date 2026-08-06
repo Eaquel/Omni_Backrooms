@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Open book — story tab
-    Tinted at use site via Compose's ColorFilter, so a single asset serves every
-    accent colour. 24dp canvas on a 24-unit viewport keeps path coordinates
-    readable and matches the platform icon grid.
+    Redacted file — story tab
+
+    Was an open book. A bound novel is the wrong object: nothing in here is
+    published, and what the player is reading are documents somebody left
+    behind. A sheet with its lines blacked out says both "there is a record"
+    and "you are not being told all of it", which is the whole premise.
+
+    Tinted at the use site via Compose's ColorFilter, so one asset serves
+    every accent colour.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -11,15 +16,32 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
+    <!-- Sheet behind, offset, so it reads as a file rather than one page. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.5"
+        android:strokeWidth="1.2"
+        android:strokeAlpha="0.45"
         android:strokeLineJoin="round"
-        android:pathData="M12,6.6 C10.1,5.1 7.9,4.6 4.8,5.2 L4.8,18.4 C7.9,17.8 10.1,18.3 12,19.8 C13.9,18.3 16.1,17.8 19.2,18.4 L19.2,5.2 C16.1,4.6 13.9,5.1 12,6.6 Z" />
+        android:pathData="M7.6,2.6 L17.0,2.6 L19.4,5.0 L19.4,18.4 L7.6,18.4 Z" />
+    <!-- Front sheet with a folded corner. -->
     <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M5.0,5.0 L13.2,5.0 L16.4,8.2 L16.4,21.4 L5.0,21.4 Z" />
+    <path
+        android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.2"
-        android:strokeAlpha="0.7"
-        android:pathData="M12,6.6 L12,19.8" />
+        android:strokeLineJoin="round"
+        android:pathData="M13.2,5.0 L13.2,8.2 L16.4,8.2" />
+    <!-- Redaction bars. Solid, and of unequal length, so they read as struck
+         out text and not as ruled lines. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M7.0,11.0 L14.4,11.0 L14.4,12.4 L7.0,12.4 Z
+                          M7.0,14.0 L11.8,14.0 L11.8,15.4 L7.0,15.4 Z
+                          M7.0,17.0 L13.2,17.0 L13.2,18.4 L7.0,18.4 Z" />
 </vector>

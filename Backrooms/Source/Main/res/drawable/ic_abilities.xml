@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Skill node graph — abilities tab
-    Tinted at use site via Compose's ColorFilter, so a single asset serves every
-    accent colour. 24dp canvas on a 24-unit viewport keeps path coordinates
-    readable and matches the platform icon grid.
+    Breaker panel — abilities tab
+
+    Was a skill-node graph: three circles joined by lines, the same diagram
+    every game uses and one that means nothing on its own. A fuse box says the
+    same thing in this building's own vocabulary — these are switches, some are
+    thrown and some are not — and it ties the tab to the level's own conceit
+    that the lights are on a failing supply.
+
+    One breaker is flipped, which is what stops the icon reading as a plain
+    grid. Tinted at the use site via Compose's ColorFilter.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -11,18 +17,32 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.2"
-        android:strokeAlpha="0.55"
-        android:strokeLineCap="round"
-        android:pathData="M12,12 L12,5.4 M12,12 L18.2,15.4 M12,12 L5.8,15.4" />
-    <path android:fillColor="#FFFFFF" android:pathData="M12,12 m-2.2,0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0" />
+    <!-- Panel box. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.4"
-        android:pathData="M12,5.4 m-1.9,0 a1.9,1.9 0 1,0 3.8,0 a1.9,1.9 0 1,0 -3.8,0
-                          M18.2,15.4 m-1.9,0 a1.9,1.9 0 1,0 3.8,0 a1.9,1.9 0 1,0 -3.8,0
-                          M5.8,15.4 m-1.9,0 a1.9,1.9 0 1,0 3.8,0 a1.9,1.9 0 1,0 -3.8,0" />
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M4.2,3.6 L19.8,3.6 L19.8,20.4 L4.2,20.4 Z" />
+    <!-- Busbar down the middle. -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeAlpha="0.5"
+        android:pathData="M12,5.6 L12,18.4" />
+    <!-- Breakers: left column up, right column down, and one on the left
+         thrown the other way. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6.2,6.2 L10.6,6.2 L10.6,8.4 L6.2,8.4 Z
+                          M6.2,15.6 L10.6,15.6 L10.6,17.8 L6.2,17.8 Z
+                          M13.4,6.2 L17.8,6.2 L17.8,8.4 L13.4,8.4 Z
+                          M13.4,10.9 L17.8,10.9 L17.8,13.1 L13.4,13.1 Z
+                          M13.4,15.6 L17.8,15.6 L17.8,17.8 L13.4,17.8 Z" />
+    <!-- The thrown one, drawn hollow so it is visibly in the other state. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.3"
+        android:pathData="M6.2,10.9 L10.6,10.9 L10.6,13.1 L6.2,13.1 Z" />
 </vector>
