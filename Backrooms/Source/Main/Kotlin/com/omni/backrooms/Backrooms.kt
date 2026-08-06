@@ -1822,6 +1822,17 @@ class GameVM @Inject constructor(
         _state.update { it.copy(kills = kills, score = score) }
     }
 
+    /** The live footstep marks. Called from the GL thread once a frame; the
+     *  native side hands back a fresh array, so nothing is shared. */
+    fun collectTrail(): FloatArray? = runCatching { bridge.trailCollect() }.getOrNull()
+
+    /** The equipped trail's own entry from Native/Trail — tint, size, mark. */
+    fun trailStyleSpec(): FloatArray? = runCatching {
+        val equipped = runBlocking { cosmetics.observeTrail().first() }
+        val idx = (0 until bridge.trailCount()).firstOrNull { bridge.trailId(it) == equipped } ?: 0
+        bridge.trailSpec(idx)
+    }.getOrNull()
+
     /** Fetches one chunk from the native field. Called from the GL thread, which
      *  is safe: the field is stateless and the JNI call only reads. */
     fun fetchChunk(chunkX: Int, chunkZ: Int): WorldChunk? {
@@ -2616,6 +2627,100 @@ void main(){
  * the buffer conventions, but it has its own program because the shading is
  * metal-and-lens rather than baked room light.
  */
+/**
+ * Footstep decals.
+ *
+ * One quad per mark, laid flat on the carpet. The mark itself is drawn
+ * procedurally in the fragment shader rather than sampled from an atlas: at
+ * three mark kinds and a few dozen marks on screen, a texture would be more
+ * bytes and more plumbing than the arithmetic it replaces, and a procedural
+ * sole can spread and soften with age instead of just fading.
+ *
+ * aUv is the position within the mark, -1..1 on both axes. aLight carries the
+ * mark's age, 0 at birth and 1 when it is gone.
+ */
+private const val OMNI_DECAL_VERT = """#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUv;
+layout(location=3) in float aAge;
+uniform mat4 uMVP;
+out vec2 vUv; out float vAge; out float vLit;
+void main(){
+    vUv = aUv; vAge = aAge; vLit = aNormal.x;
+    gl_Position = uMVP * vec4(aPos, 1.0);
+}
+"""
+
+private const val OMNI_DECAL_FRAG = """#version 300 es
+precision mediump float;
+in vec2 vUv; in float vAge; in float vLit;
+/** Tint from the trail's own entry in Native/Trail. */
+uniform vec3 uTint;
+/** 0 sole, 1 static glyph, 2 grain. */
+uniform float uMark;
+uniform float uTime;
+out vec4 fragColor;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+
+/** A shoe print: ball of the foot and a separate heel. */
+float sole(vec2 p){
+    vec2 ball = p - vec2(0.0, 0.26);
+    ball.x /= 0.52; ball.y /= 0.60;
+    float b = 1.0 - smoothstep(0.55, 1.0, length(ball));
+    vec2 heel = p - vec2(0.0, -0.42);
+    heel.x /= 0.40; heel.y /= 0.34;
+    float h = 1.0 - smoothstep(0.55, 1.0, length(heel));
+    // Tread: bands across the sole, so it reads as a shoe and not a blob.
+    float tread = 0.72 + 0.28 * step(0.0, sin(p.y * 34.0));
+    return max(b, h) * tread;
+}
+
+/** A torn block of interference. */
+float glyph(vec2 p, float t){
+    float rows = floor((p.y * 0.5 + 0.5) * 7.0);
+    float jitter = (hash(vec2(rows, floor(t * 9.0))) - 0.5) * 0.5;
+    float band = step(abs(p.x + jitter), 0.72) * step(abs(p.y), 0.85);
+    float noise = step(0.42, hash(vec2(floor(p.x * 14.0) + jitter * 20.0, rows)));
+    return band * noise;
+}
+
+/** A scatter of crystalline grains. */
+float grain(vec2 p){
+    float acc = 0.0;
+    for (int i = 0; i < 7; ++i) {
+        float fi = float(i);
+        vec2 c = vec2(hash(vec2(fi, 1.7)) - 0.5, hash(vec2(fi, 4.2)) - 0.5) * 1.4;
+        acc = max(acc, 1.0 - smoothstep(0.06, 0.20, length(p - c)));
+    }
+    return acc;
+}
+
+void main(){
+    // Outside the stamp entirely: nothing to blend.
+    if (dot(vUv, vUv) > 1.6) discard;
+
+    float shape;
+    if (uMark < 0.5)      shape = sole(vUv);
+    else if (uMark < 1.5) shape = glyph(vUv, uTime);
+    else                  shape = grain(vUv);
+
+    // Fade out over the mark's life, and soften the edge as it goes — an old
+    // print has spread into the pile rather than merely gone faint.
+    float soften = mix(1.0, 0.35, vAge);
+    shape *= soften;
+    float fade = 1.0 - vAge;
+    fade *= fade;
+
+    float a = shape * fade * 0.85;
+    if (a < 0.004) discard;
+    // Modulated by the floor's own baked light, so a print in a dark hall is
+    // dark. A decal that ignores the lighting reads as a sticker.
+    fragColor = vec4(uTint * clamp(vLit, 0.05, 1.6), a);
+}
+"""
+
 private const val OMNI_TORCH_VERT = """#version 300 es
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNormal;
@@ -2847,6 +2952,34 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var torchProgram = 0
     private var torchVbo = 0; private var torchIbo = 0; private var torchIndexCount = 0
     private var tMVP = 0; private var tModel = 0; private var tOn = 0; private var tAmbient = 0
+
+    // Footstep decals. The mesh is rebuilt every frame from the native trail,
+    // so it lives in one preallocated buffer rather than being reallocated.
+    private var decalProgram = 0
+    private var dMVP = 0; private var dTint = 0; private var dMark = 0; private var dTime = 0
+    private var decalVbo = 0
+    /** 4 verts * 9 floats per stamp, capped at the native ring's capacity. */
+    private val decalVerts = FloatArray(TRAIL_CAPACITY * 4 * 9)
+    private var decalQuads = 0
+    private val decalBuf = ByteBuffer.allocateDirect(decalVerts.size * 4)
+        .order(ByteOrder.nativeOrder()).asFloatBuffer()
+    private var decalIbo = 0
+    private var decalTint = floatArrayOf(0.72f, 0.66f, 0.50f)
+    private var decalMark = 0f
+    private var decalScale = 0.30f
+    private var decalSpread = 1.9f
+
+    /** Supplies the live stamps. Set by the game screen; null before a run. */
+    @Volatile var trailSource: (() -> FloatArray?)? = null
+
+    /** Applies a trail's own entry from Native/Trail: tint, size and mark kind. */
+    fun setTrailStyle(spec: FloatArray?) {
+        if (spec == null || spec.size < 7) return
+        decalTint = floatArrayOf(spec[0], spec[1], spec[2])
+        decalScale = spec[4]
+        decalSpread = spec[5]
+        decalMark = spec[6]
+    }
     private val torchModelM = FloatArray(16)
     private val torchMvpM = FloatArray(16)
     /** Eased 0..1 raise of the torch arm, so switching it on is a movement. */
@@ -3065,6 +3198,25 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             tModel = GLES30.glGetUniformLocation(torchProgram, "uModel")
             tOn = GLES30.glGetUniformLocation(torchProgram, "uOn")
             tAmbient = GLES30.glGetUniformLocation(torchProgram, "uAmbient")
+            decalProgram = linkGlProgram(OMNI_DECAL_VERT, OMNI_DECAL_FRAG)
+            dMVP  = GLES30.glGetUniformLocation(decalProgram, "uMVP")
+            dTint = GLES30.glGetUniformLocation(decalProgram, "uTint")
+            dMark = GLES30.glGetUniformLocation(decalProgram, "uMark")
+            dTime = GLES30.glGetUniformLocation(decalProgram, "uTime")
+            decalVbo = genGlBuffer()
+            // Index buffer is fixed: two triangles per stamp, forever.
+            decalIbo = genGlBuffer()
+            val di = IntArray(TRAIL_CAPACITY * 6)
+            for (q in 0 until TRAIL_CAPACITY) {
+                val b = q * 4
+                di[q * 6] = b; di[q * 6 + 1] = b + 1; di[q * 6 + 2] = b + 2
+                di[q * 6 + 3] = b; di[q * 6 + 4] = b + 2; di[q * 6 + 5] = b + 3
+            }
+            val dib = ByteBuffer.allocateDirect(di.size * 4).order(ByteOrder.nativeOrder()).asIntBuffer()
+            dib.put(di); dib.position(0)
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, decalIbo)
+            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, di.size * 4, dib, GLES30.GL_STATIC_DRAW)
+
             val (tv, ti) = buildTorchMesh()
             torchVbo = genGlBuffer(); torchIbo = genGlBuffer()
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, torchVbo)
@@ -3379,6 +3531,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // Fixtures last: their high baked light makes them read as emitters.
         // Flat colour, so its UVs need no scaling at all.
         for (m in chunkMeshes.values) drawMeshGroup(m.fixVbo, m.fixIbo, m.fixCount, lampTex, LAMP_UV)
+
+        // Footsteps go down after the floor and before anything translucent, so
+        // they blend against the carpet they are lying on rather than against
+        // whatever a light shaft has already added over it.
+        drawTrailDecals(vp, timeSec) { wx, wz -> lightAtWorld(wx, wz, world) }
 
         // Light shafts, additive and depth-tested but not depth-written, so
         // several overlapping cones accumulate instead of culling each other.
@@ -3725,6 +3882,89 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glDisableVertexAttribArray(2); GLES30.glDisableVertexAttribArray(3)
     }
 
+    /**
+     * Rebuilds and draws the footstep decals.
+     *
+     * The stamps come straight out of Native/Trail — the ring buffer there is
+     * the only record of what is on the floor, and it keeps ageing whether or
+     * not the player is still walking. This is the read side: one quad per live
+     * stamp, laid flat just above the carpet, oriented to the direction of
+     * travel and grown by its own age.
+     *
+     * Depth WRITES are off. A decal that writes depth fights the floor it is
+     * lying on and z-fights along every edge; testing against the floor while
+     * not writing is what lets a print sit on the carpet and still be occluded
+     * by a wall in front of it.
+     */
+    private fun drawTrailDecals(vp: FloatArray, timeSec: Float, lightAt: (Float, Float) -> Float) {
+        if (decalProgram == 0) return
+        val flat = runCatching { trailSource?.invoke() }.getOrNull() ?: return
+        val n = flat.size / 5
+        if (n <= 0) return
+
+        var v = 0
+        var quads = 0
+        for (i in 0 until minOf(n, TRAIL_CAPACITY)) {
+            val sx = flat[i * 5]
+            val sz = flat[i * 5 + 1]
+            val yaw = flat[i * 5 + 2]
+            val age = flat[i * 5 + 3]
+            if (age >= 1f) continue
+            // Marks spread as they age, by the amount the style asks for.
+            val half = decalScale * 0.5f * (1f + (decalSpread - 1f) * age)
+            // The print's own axes: forward along the walk, right across it.
+            val fx = cos(yaw); val fz = -sin(yaw)
+            val rx = -fz;      val rz = fx
+            val lit = lightAt(sx, sz)
+            // Slightly proud of the floor. Any less and the depth buffer cannot
+            // separate them at range; any more and the mark visibly floats.
+            val y = 0.012f
+            // Corner order matches the fixed index buffer: (-r,-f) (+r,-f)
+            // (+r,+f) (-r,+f), with UV -1..1 across the mark.
+            val cx = floatArrayOf(-1f, 1f, 1f, -1f)
+            val cz2 = floatArrayOf(-1f, -1f, 1f, 1f)
+            for (k in 0 until 4) {
+                val ox = (rx * cx[k] + fx * cz2[k]) * half
+                val oz = (rz * cx[k] + fz * cz2[k]) * half
+                decalVerts[v++] = sx + ox; decalVerts[v++] = y; decalVerts[v++] = sz + oz
+                // aNormal.x carries the baked light; the rest is unused here.
+                decalVerts[v++] = lit; decalVerts[v++] = 1f; decalVerts[v++] = 0f
+                decalVerts[v++] = cx[k]; decalVerts[v++] = cz2[k]
+                decalVerts[v++] = age
+            }
+            quads++
+        }
+        decalQuads = quads
+        if (quads == 0) return
+
+        decalBuf.position(0); decalBuf.put(decalVerts, 0, v); decalBuf.position(0)
+        GLES30.glUseProgram(decalProgram)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, decalVbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, v * 4, decalBuf, GLES30.GL_DYNAMIC_DRAW)
+
+        GLES30.glUniformMatrix4fv(dMVP, 1, false, vp, 0)
+        GLES30.glUniform3f(dTint, decalTint[0], decalTint[1], decalTint[2])
+        GLES30.glUniform1f(dMark, decalMark)
+        GLES30.glUniform1f(dTime, timeSec)
+
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glDepthMask(false)
+
+        val stride = 9 * 4
+        GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
+        GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
+        GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+        GLES30.glEnableVertexAttribArray(3); GLES30.glVertexAttribPointer(3, 1, GLES30.GL_FLOAT, false, stride, 8 * 4)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, decalIbo)
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, quads * 6, GLES30.GL_UNSIGNED_INT, 0)
+        GLES30.glDisableVertexAttribArray(0); GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2); GLES30.glDisableVertexAttribArray(3)
+
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_BLEND)
+    }
+
     /** Draws the player's own avatar. Third person only. [py] is the FEET. */
     private fun drawAvatar(
         vp: FloatArray, px: Float, py: Float, pz: Float, yawDeg: Float,
@@ -3839,6 +4079,37 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             return base + 4
         }
 
+        /**
+         * Same, but with a UV given explicitly per corner.
+         *
+         * [quad] hands out UVs in a fixed corner order — p0 gets (u0,v0), p1
+         * gets (u1,v0), and so on — which is only correct for a quad whose
+         * vertices are wound in that same order. The ceiling's are not: it is
+         * wound the other way round so it faces down, so p1 sits at (x0,z1)
+         * while being handed the UV for (x1,z0). The result was a ceiling
+         * texture mirrored across its own diagonal, on every single tile, which
+         * meant the pattern could not run continuously from one tile into the
+         * next no matter what the texel density was.
+         */
+        fun quadUv(
+            verts: ArrayList<Float>, idx: ArrayList<Int>, base: Int,
+            p0: FloatArray, p1: FloatArray, p2: FloatArray, p3: FloatArray,
+            n: FloatArray, l0: Float, l1: Float, l2: Float, l3: Float,
+            uv: FloatArray
+        ): Int {
+            val pts = arrayOf(p0, p1, p2, p3)
+            val lights = floatArrayOf(l0, l1, l2, l3)
+            for (k in 0 until 4) {
+                verts.add(pts[k][0]); verts.add(pts[k][1]); verts.add(pts[k][2])
+                verts.add(n[0]); verts.add(n[1]); verts.add(n[2])
+                verts.add(uv[k * 2]); verts.add(uv[k * 2 + 1])
+                verts.add(lights[k])
+            }
+            idx.add(base); idx.add(base + 1); idx.add(base + 2)
+            idx.add(base); idx.add(base + 2); idx.add(base + 3)
+            return base + 4
+        }
+
         /** Same, for surfaces that are genuinely uniform (fixtures, shafts). */
         fun quadFlat(
             verts: ArrayList<Float>, idx: ArrayList<Int>, base: Int,
@@ -3901,23 +4172,43 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 val v0 = z0; val v1 = z1
                 val wallV0 = 0f; val wallV1 = hgt
 
-                if (feature != 4) {
-                    floorB = quad(
-                        floorV, floorI, floorB,
-                        floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
-                        floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
-                        floatArrayOf(0f, 1f, 0f), c00, c10, c11, c01, u0, v0, u1, v1
-                    )
-                }
-                if (feature != 1) {
-                    roofB = quad(
-                        roofV, roofI, roofB,
-                        floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
-                        floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
-                        floatArrayOf(0f, -1f, 0f),
-                        c00 * 1.12f, c01 * 1.12f, c11 * 1.12f, c10 * 1.12f, u0, v0, u1, v1
-                    )
-                }
+                // Floor and ceiling are emitted for EVERY open cell, always.
+                //
+                // They used to be skipped on two features, and each skip left a
+                // one-cell hole with nothing behind it — the player saw straight
+                // through the world and read it as a corrupted tile. Both were
+                // single cells, and both were common enough to meet regularly:
+                // kFeatureHole lands on 0.8% of fully-open floor, scattered one
+                // at a time in the middle of a room, and kFeatureDoorway on 28%
+                // of corridor cells.
+                //
+                // A hole in the floor was never coherent anyway: the cell is
+                // walkable as far as collision is concerned, so the player
+                // strolled across a gap they could see the void through. It is
+                // now a damaged patch — same floor, sunk into shadow — which is
+                // the reading the feature was always after.
+                val floorDim = if (feature == 4) 0.34f else 1f
+                floorB = quad(
+                    floorV, floorI, floorB,
+                    floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
+                    floatArrayOf(x1, 0f, z1), floatArrayOf(x0, 0f, z1),
+                    floatArrayOf(0f, 1f, 0f),
+                    c00 * floorDim, c10 * floorDim, c11 * floorDim, c01 * floorDim,
+                    u0, v0, u1, v1
+                )
+                // A doorway still has a ceiling over it — the lintel below is a
+                // soffit under the tile, not a replacement for it.
+                roofB = quadUv(
+                    roofV, roofI, roofB,
+                    floatArrayOf(x0, hgt, z0), floatArrayOf(x0, hgt, z1),
+                    floatArrayOf(x1, hgt, z1), floatArrayOf(x1, hgt, z0),
+                    floatArrayOf(0f, -1f, 0f),
+                    c00 * 1.12f, c01 * 1.12f, c11 * 1.12f, c10 * 1.12f,
+                    // One UV per corner, in the ceiling's OWN winding order, so
+                    // each vertex gets the texture coordinate for where it
+                    // actually is in the world.
+                    floatArrayOf(u0, v0,  u0, v1,  u1, v1,  u1, v0)
+                )
 
                 // Walls fall off toward the skirting because the emitters are all
                 // overhead — a vertical gradient, not one flat tone per panel.
@@ -4218,6 +4509,21 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
      * conservative answer: it keeps the third-person camera pulled in rather
      * than letting it drift into geometry that has not streamed yet.
      */
+    /** Baked illuminance at a world position, for decals that must obey the
+     *  room's own lighting instead of glowing in a dark hall. */
+    private fun lightAtWorld(wx: Float, wz: Float, world: WorldInfo): Float {
+        if (!world.isValid) return 1f
+        val cs = world.cellSize
+        val cellsPerChunk = world.chunkCells
+        val cx = kotlin.math.floor(wx / cs).toInt()
+        val cz = kotlin.math.floor(wz / cs).toInt()
+        val chx = floorDivInt(cx, cellsPerChunk)
+        val chz = floorDivInt(cz, cellsPerChunk)
+        val key = (chx.toLong() shl 32) or (chz.toLong() and 0xFFFFFFFFL)
+        val chunk = chunkMeshes[key]?.source ?: return 1f
+        return chunk.lightAt(cx - chx * cellsPerChunk, cz - chz * cellsPerChunk)
+    }
+
     private fun isSolidWorld(wx: Float, wz: Float, world: WorldInfo): Boolean {
         if (!world.isValid) return false
         val cs = world.cellSize
@@ -4528,6 +4834,13 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
     // The renderer pulls chunks on its own thread as the player moves; the VM
     // owns the native bridge, so it supplies the fetch.
     LaunchedEffect(renderer) { renderer.chunkProvider = vm::fetchChunk }
+    // Footsteps. The stamps live in Native/Trail and the renderer reads them
+    // straight off the GL thread — the buffer is a plain fixed ring with no
+    // allocation, so there is nothing to marshal and nothing to lock.
+    LaunchedEffect(renderer) {
+        renderer.trailSource = vm::collectTrail
+        renderer.setTrailStyle(vm.trailStyleSpec())
+    }
     LaunchedEffect(state) { renderer.latestState = state }
     // Sampled twice a second: often enough to feel live, rare enough not to
     // trigger a recomposition storm.
@@ -4610,12 +4923,17 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
 fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
     val s by vm.state.collectAsState()
     var inspecting by remember { mutableStateOf(false) }
+    // Which item is being inspected. Null means the character, which was the
+    // only inspectable thing before trails had a screen of their own.
+    var inspectTrail by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(s.successMsg) { if (s.successMsg != null) { delay(2000); vm.clearSuccess() } }
 
     // The inspection scene takes over the whole screen; it needs the space and
     // shouldn't fight the store chrome for attention.
     if (inspecting) {
-        CharacterPreviewSheet(onClose = { inspecting = false })
+        val trail = inspectTrail
+        if (trail != null) TrailPreviewSheet(trail) { inspecting = false; inspectTrail = null }
+        else CharacterPreviewSheet(onClose = { inspecting = false })
         return
     }
 
@@ -4686,7 +5004,11 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                             itemsIndexed(s.items) { index, item ->
                                 MarketCard(
                                     item, s.purchasing == item.id, item.id in s.ownedIds, index,
-                                    onInspect = { inspecting = true }
+                                    onInspect = {
+                                        inspectTrail = item.id.takeIf { id -> id.startsWith("trail_") }
+                                            ?.removePrefix("trail_")
+                                        inspecting = true
+                                    }
                                 ) { vm.confirmBuy(item) }
                             }
                         }
@@ -4704,7 +5026,11 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                                 itemsIndexed(s.dailyDeals) { index, item ->
                                     MarketCard(
                                         item, s.purchasing == item.id, item.id in s.ownedIds, index,
-                                        onInspect = { inspecting = true }
+                                        onInspect = {
+                                            inspectTrail = item.id.takeIf { id -> id.startsWith("trail_") }
+                                                ?.removePrefix("trail_")
+                                            inspecting = true
+                                        }
                                     ) { vm.confirmBuy(item) }
                                 }
                             }
@@ -4724,7 +5050,11 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
                                 itemsIndexed(s.items) { index, item ->
                                     MarketCard(
                                         item, s.purchasing == item.id, item.id in s.ownedIds, index,
-                                        onInspect = { inspecting = true }
+                                        onInspect = {
+                                            inspectTrail = item.id.takeIf { id -> id.startsWith("trail_") }
+                                                ?.removePrefix("trail_")
+                                            inspecting = true
+                                        }
                                     ) { vm.confirmBuy(item) }
                                 }
                             }
@@ -6108,6 +6438,11 @@ private fun HudBadge(text: String, color: Color) {
 /** Fraction of the stick's travel that registers as "not moving". */
 private const val JOYSTICK_DEADZONE = 0.12f
 
+/** Must match TrailField::kCapacity in Native/Trail/Trail.h — the native ring
+ *  never hands back more stamps than this, so the decal buffers are sized once
+ *  and never grow. */
+internal const val TRAIL_CAPACITY = 48
+
 /** How far the ring itself may slide from home to chase the thumb, as a
  *  multiple of the knob's travel. Enough to stay under a thumb that has run off
  *  the control, not so much that the stick wanders across the HUD. */
@@ -6804,7 +7139,11 @@ private fun MarketCard(
             infiniteRepeatable(tween(2100, easing = EaseInOut), RepeatMode.Reverse),
             "cardArt"
         )
-        val inspectable = item.category == "characters"
+        // Trails get an inspection screen of their own: a footprint on a store
+        // card is a few pixels of smudge, and the whole point of buying one is
+        // what it does behind you as you walk.
+        val inspectable = item.category == "characters" ||
+            item.category == "trails" || item.id.startsWith("trail_")
         // A frame is a moving object, so its card gives it room to move in and
         // skips the pulse — the ring already has its own rhythm and stacking a
         // second one on top just reads as jitter.
@@ -8977,6 +9316,188 @@ private class PreviewTurntable {
 }
 
 /** Full-screen character inspection sheet, opened by tapping the market art. */
+/**
+ * Trail inspection.
+ *
+ * A walker crossing a lit floor, laying the trail the player is looking at. It
+ * is shown from above rather than from the player's own eyeline for a plain
+ * reason: from eye level a footprint is a smear a few pixels tall, and the
+ * whole point of an inspection screen is that you can actually see the thing.
+ *
+ * Everything that decides how the trail LOOKS — tint, lifetime, size, how much
+ * it spreads, which mark it stamps — is read from Native/Trail, the same table
+ * the in-game decals use. The ageing is done here rather than by driving the
+ * native TrailField, because that field is the live player's trail and a store
+ * preview has no business writing to it.
+ */
+@Composable
+fun TrailPreviewSheet(trailId: String, onClose: () -> Unit) {
+    val spec = remember(trailId) {
+        runCatching {
+            val b = NativeBridge()
+            val idx = (0 until b.trailCount()).firstOrNull { b.trailId(it) == trailId } ?: 0
+            b.trailSpec(idx)
+        }.getOrNull()
+    }
+    val tint = spec?.let { Color(it[0], it[1], it[2], 1f) } ?: Yellow
+    val lifetime = spec?.get(3) ?: 7f
+    val markScale = spec?.get(4) ?: 0.30f
+    val spread = spec?.get(5) ?: 1.6f
+    val mark = spec?.get(6)?.toInt() ?: 0
+
+    // One stamp: where it landed, which way it was facing, which foot, and when.
+    class Stamp(val x: Float, val y: Float, val ang: Float, val side: Float, val born: Float)
+
+    val stamps = remember(trailId) { mutableStateListOf<Stamp>() }
+    var clock by remember(trailId) { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(trailId) {
+        stamps.clear()
+        var last = withFrameNanos { it }
+        var nextStep = 0f
+        var side = 1f
+        while (true) {
+            val now = withFrameNanos { it }
+            val dt = ((now - last) / 1_000_000_000.0).toFloat().coerceIn(0f, 0.1f)
+            last = now
+            clock += dt
+            // The walker follows a slow lissajous, so the path curves back over
+            // itself and you can see how an old mark differs from a new one
+            // without waiting for a lap.
+            if (clock >= nextStep) {
+                nextStep = clock + 0.42f
+                side = -side
+                val t = clock * 0.32f
+                val px = sin(t) * 0.34f
+                val py = sin(t * 1.7f) * 0.26f
+                // Facing is the path's own tangent.
+                val ang = kotlin.math.atan2(
+                    (kotlin.math.cos(t * 1.7f) * 1.7f * 0.26f),
+                    (kotlin.math.cos(t) * 0.34f)
+                )
+                stamps.add(Stamp(px, py, ang, side, clock))
+            }
+            // Retire what has aged out, oldest first.
+            while (stamps.isNotEmpty() && (clock - stamps[0].born) > lifetime) stamps.removeAt(0)
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            // The floor: a pool of light with the room falling away around it,
+            // so the marks are read against something rather than against black.
+            val r = size.minDimension * 0.62f
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(Color(0xFF2A2618), Color(0xFF14120C), Color.Black),
+                    center = center, radius = r
+                ),
+                radius = r, center = center
+            )
+            val unit = size.minDimension
+            stamps.forEach { st ->
+                val age = ((clock - st.born) / lifetime).coerceIn(0f, 1f)
+                val half = unit * markScale * 0.10f * (1f + (spread - 1f) * age)
+                val fade = (1f - age) * (1f - age)
+                if (fade <= 0.01f) return@forEach
+                val cx = center.x + st.x * unit
+                val cy = center.y + st.y * unit
+                // Offset to the correct side of the line of travel, exactly as
+                // TrailField::step does in world space.
+                val ox = cos(st.ang) * unit * 0.035f * st.side
+                val oy = -sin(st.ang) * unit * 0.035f * st.side
+                drawTrailMark(
+                    mark, Offset(cx + ox, cy + oy), half,
+                    st.ang, tint.copy(alpha = (fade * 0.9f).coerceIn(0f, 1f)), clock
+                )
+            }
+        }
+        // Vignette, matching the character studio.
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.radialGradient(
+                    listOf(Color.Transparent, Color.Black.copy(0.55f)), radius = 1200f
+                )
+            )
+        )
+        Row(
+            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconGlyphButton(36.dp, Yellow, onClick = onClose) { c ->
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) { drawCloseGlyph(c) }
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.trail_preview_title),
+                color = Yellow, fontSize = 13.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 2.sp
+            )
+        }
+        Column(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(trailDisplayName(trailId), color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(
+                stringResource(R.string.trail_preview_hint),
+                color = TextDim, fontSize = 10.sp, letterSpacing = 1.sp
+            )
+        }
+    }
+}
+
+/**
+ * One trail mark, in 2D. Mirrors the shapes OMNI_DECAL_FRAG draws in the world
+ * so the preview and the corridor agree about what a trail looks like.
+ */
+private fun DrawScope.drawTrailMark(
+    mark: Int, at: Offset, half: Float, ang: Float, colour: Color, t: Float
+) {
+    when (mark) {
+        // Sole: ball of the foot and a separate heel, along the walk.
+        0 -> {
+            val fx = cos(ang); val fy = -sin(ang)
+            fun along(d: Float, w: Float, h: Float) {
+                drawOval(
+                    colour,
+                    topLeft = Offset(at.x + fx * d - w, at.y + fy * d - h),
+                    size = Size(w * 2f, h * 2f)
+                )
+            }
+            along(half * 0.30f, half * 0.52f, half * 0.60f)
+            along(-half * 0.44f, half * 0.40f, half * 0.34f)
+        }
+        // Static: a torn block that reshuffles on its own beat.
+        1 -> {
+            val rows = 6
+            for (i in 0 until rows) {
+                val fy = (i / (rows - 1f)) * 2f - 1f
+                val j = (sin(t * 9f + i * 2.3f) * 0.35f)
+                if (sin(t * 13f + i * 5.1f) < -0.2f) continue
+                drawRect(
+                    colour,
+                    topLeft = Offset(at.x - half * 0.7f + j * half, at.y + fy * half * 0.8f),
+                    size = Size(half * 1.4f, half * 0.22f)
+                )
+            }
+        }
+        // Grain: a fixed scatter, so a mark does not shimmer as it ages.
+        else -> {
+            for (i in 0 until 7) {
+                val a = i * 2.399f
+                val d = half * (0.15f + 0.55f * ((i * 37 % 11) / 11f))
+                drawCircle(
+                    colour,
+                    radius = half * 0.16f,
+                    center = Offset(at.x + cos(a) * d, at.y + sin(a) * d)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun CharacterPreviewSheet(onClose: () -> Unit) {
     val ctx = LocalContext.current

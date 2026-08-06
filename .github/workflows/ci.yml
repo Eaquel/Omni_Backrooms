@@ -53,6 +53,12 @@ jobs:
       - name: Check the inspection camera envelope
         run: python3 Tools/preview_cam.py
 
+      # Level 0's textures are world-anchored, so a vertex's UV must equal its
+      # own world position. The ceiling silently violated that for a long time
+      # and every tile came out mirrored across its diagonal.
+      - name: Check the chunk mesher's UVs
+        run: python3 Tools/mesh_uv_check.py
+
       # Frames and trails are content, and content that only ever runs on a
       # phone is content nobody checks. This asserts the properties the UI
       # depends on — including that no frame's tube can close in over the
