@@ -3034,11 +3034,13 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var charTex = 0
     private var shaftProgram = 0
     private var sMVP = 0; private var sFlicker = 0; private var sTint = 0
-    private var cMVP = 0; private var cModel = 0; private var cTime = 0; private var cWalk = 0
+    private var cBones = 0
+    /** Pose is built on the CPU now; see PoseBuilder. */
+    private val charPose = PoseBuilder()
+    private var cMVP = 0; private var cModel = 0
     private var cTexU = 0; private var cIsChar = 0
-    private var cCrouch = 0; private var cAir = 0; private var cAnimate = 0
+    private var cAnimate = 0
     private var cSubject = 0
-    private var cHeadYaw = 0; private var cHeadPitch = 0; private var cTorch = 0
 
     // The torch she carries in third person.
     private var torchProgram = 0
@@ -3276,17 +3278,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             charProgram = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG)
             cMVP = GLES30.glGetUniformLocation(charProgram, "uMVP")
             cModel = GLES30.glGetUniformLocation(charProgram, "uModel")
-            cTime = GLES30.glGetUniformLocation(charProgram, "uTime")
-            cWalk = GLES30.glGetUniformLocation(charProgram, "uWalk")
             cTexU = GLES30.glGetUniformLocation(charProgram, "uTex")
             cIsChar = GLES30.glGetUniformLocation(charProgram, "uIsCharacter")
             cAnimate = GLES30.glGetUniformLocation(charProgram, "uAnimate")
             cSubject = GLES30.glGetUniformLocation(charProgram, "uSubject")
-            cCrouch = GLES30.glGetUniformLocation(charProgram, "uCrouch")
-            cAir = GLES30.glGetUniformLocation(charProgram, "uAir")
-            cHeadYaw = GLES30.glGetUniformLocation(charProgram, "uHeadYaw")
-            cHeadPitch = GLES30.glGetUniformLocation(charProgram, "uHeadPitch")
-            cTorch = GLES30.glGetUniformLocation(charProgram, "uTorch")
+            cBones = GLES30.glGetUniformLocation(charProgram, "uBones")
 
             torchProgram = linkGlProgram(OMNI_TORCH_VERT, OMNI_TORCH_FRAG)
             tMVP = GLES30.glGetUniformLocation(torchProgram, "uMVP")
@@ -4098,24 +4094,20 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
         GLES30.glUniformMatrix4fv(cMVP, 1, false, avatarMvpM, 0)
         GLES30.glUniformMatrix4fv(cModel, 1, false, avatarModelM, 0)
-        GLES30.glUniform1f(cTime, timeSec)
-        GLES30.glUniform1f(cWalk, walk)
-        GLES30.glUniform1f(cCrouch, crouch)
-        GLES30.glUniform1f(cAir, air)
-        GLES30.glUniform1f(cHeadYaw, headYawRad)
-        GLES30.glUniform1f(cHeadPitch, headPitchRad)
-        GLES30.glUniform1f(cTorch, torch)
+        charPose.build(timeSec, walk, crouch, air, headYawRad, headPitchRad, torch)
+        GLES30.glUniformMatrix4fv(cBones, Skeleton.BONES, false, charPose.matrices, 0)
 
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
         val stride = CharacterMesh.FLOATS_PER_VERTEX * 4
         GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
         GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
         GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+        // Skinning: four bone indices then four weights, both derived at load.
+        GLES30.glEnableVertexAttribArray(3); GLES30.glVertexAttribPointer(3, 4, GLES30.GL_FLOAT, false, stride, 8 * 4)
+        GLES30.glEnableVertexAttribArray(4); GLES30.glVertexAttribPointer(4, 4, GLES30.GL_FLOAT, false, stride, 12 * 4)
         GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, charIbo)
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, charIndexCount, GLES30.GL_UNSIGNED_SHORT, 0)
-        GLES30.glDisableVertexAttribArray(0)
-        GLES30.glDisableVertexAttribArray(1)
-        GLES30.glDisableVertexAttribArray(2)
+        for (a in 0..4) GLES30.glDisableVertexAttribArray(a)
     }
 
     private fun streamChunks(world: WorldInfo, camX: Float, camZ: Float) {
@@ -8750,13 +8742,302 @@ private fun CodexEntry(
 // skeleton.
 // ============================================================================
 
+// ============================================================================
+// The skeleton.
+//
+// The mesh carries no skin data — the .omesh format has never had any and the
+// source .fbx is not in the repository — so the binding is derived here, once,
+// from the rest pose. Each bone is a capsule; a vertex belongs to the bones
+// whose capsule it is nearest, with a smooth falloff, and the four strongest
+// are kept and normalised.
+//
+// The rest pose was measured off the shipped mesh rather than guessed:
+//
+//     |x| 0.26-0.30   344 verts   y 0.740 .. 0.799   arms, straight out
+//     |x| 0.18-0.22    92 verts   y 0.429 .. 0.784   shoulder + skirt
+//     outer quartile |x| by height: 0.40->0.176  0.45->0.170  0.50->0.156
+//                                   0.70->0.194  0.75->0.278  0.80->0.056
+//
+// Two wide structures, not one: a skirt hem around y 0.40-0.50, and the arms
+// held out horizontally at y 0.74-0.80. That is what the previous rig got
+// wrong. It multiplied the arm's rotation ANGLE by a mask that ran 0 at the
+// torso to 1 at the hand, so the shoulder end rotated by nothing and the hand
+// end by 78 degrees: the arm was not rotated, it was fanned. The hand dropped
+// to y 0.56 while the upper arm stayed stretched out at y 0.78, leaving a V
+// per side — which is what read on screen as four arms.
+//
+// A bone rotation applies to every vertex bound to that bone equally. That is
+// the whole difference, and it is why the fix is a skeleton rather than a
+// better mask.
+// ============================================================================
+
+internal object Skeleton {
+    const val BONES = 12
+
+    const val HIPS = 0; const val SPINE = 1; const val CHEST = 2; const val HEAD = 3
+    const val UPPER_ARM_L = 4; const val FORE_ARM_L = 5
+    const val UPPER_ARM_R = 6; const val FORE_ARM_R = 7
+    const val THIGH_L = 8; const val SHIN_L = 9
+    const val THIGH_R = 10; const val SHIN_R = 11
+
+    /** Parent of each bone; HIPS is the root. */
+    val parent = intArrayOf(-1, HIPS, SPINE, CHEST,
+                            CHEST, UPPER_ARM_L, CHEST, UPPER_ARM_R,
+                            HIPS, THIGH_L, HIPS, THIGH_R)
+
+    /** Head of each bone, in rest space (mesh is unit height). */
+    val head = arrayOf(
+        floatArrayOf(0f, 0.480f, 0f),        // hips
+        floatArrayOf(0f, 0.480f, 0f),        // spine
+        floatArrayOf(0f, 0.630f, 0f),        // chest
+        floatArrayOf(0f, 0.820f, 0f),        // head
+        floatArrayOf(-0.105f, 0.775f, 0f),   // upper arm L
+        floatArrayOf(-0.200f, 0.775f, 0f),   // fore arm L
+        floatArrayOf(0.105f, 0.775f, 0f),    // upper arm R
+        floatArrayOf(0.200f, 0.775f, 0f),    // fore arm R
+        floatArrayOf(-0.052f, 0.460f, 0f),   // thigh L
+        floatArrayOf(-0.052f, 0.245f, 0f),   // shin L
+        floatArrayOf(0.052f, 0.460f, 0f),    // thigh R
+        floatArrayOf(0.052f, 0.245f, 0f)     // shin R
+    )
+
+    /** Tail of each bone, in rest space. */
+    val tail = arrayOf(
+        floatArrayOf(0f, 0.560f, 0f),
+        floatArrayOf(0f, 0.630f, 0f),
+        floatArrayOf(0f, 0.800f, 0f),
+        floatArrayOf(0f, 1.000f, 0f),
+        floatArrayOf(-0.200f, 0.775f, 0f),
+        floatArrayOf(-0.300f, 0.775f, 0f),
+        floatArrayOf(0.200f, 0.775f, 0f),
+        floatArrayOf(0.300f, 0.775f, 0f),
+        floatArrayOf(-0.052f, 0.245f, 0f),
+        floatArrayOf(-0.052f, 0.010f, 0f),
+        floatArrayOf(0.052f, 0.245f, 0f),
+        floatArrayOf(0.052f, 0.010f, 0f)
+    )
+
+    /**
+     * Falloff radius per bone. Wider on the trunk, because the torso and the
+     * skirt are broad and must not tear; tight on the limbs, so an arm does not
+     * drag the ribcage with it.
+     */
+    val radius = floatArrayOf(
+        0.230f, 0.190f, 0.175f, 0.115f,
+        0.070f, 0.062f, 0.070f, 0.062f,
+        0.090f, 0.075f, 0.090f, 0.075f
+    )
+
+    /** Squared distance from [p] to the capsule segment of [bone]. */
+    private fun distSq(bone: Int, px: Float, py: Float, pz: Float): Float {
+        val a = head[bone]; val b = tail[bone]
+        val abx = b[0] - a[0]; val aby = b[1] - a[1]; val abz = b[2] - a[2]
+        val apx = px - a[0];   val apy = py - a[1];   val apz = pz - a[2]
+        val denom = abx * abx + aby * aby + abz * abz
+        val t = if (denom <= 1e-8f) 0f
+                else ((apx * abx + apy * aby + apz * abz) / denom).coerceIn(0f, 1f)
+        val dx = apx - abx * t; val dy = apy - aby * t; val dz = apz - abz * t
+        return dx * dx + dy * dy + dz * dz
+    }
+
+    /**
+     * Bone indices and weights for one rest-pose vertex: four of each, the
+     * weights summing to 1.
+     *
+     * The falloff is 1/(d/r)^4 rather than a linear ramp because a limb needs
+     * to win decisively over the trunk a short way down its length, while
+     * still blending across the joint itself.
+     */
+    fun bind(px: Float, py: Float, pz: Float, outIdx: IntArray, outWt: FloatArray) {
+        var i0 = 0; var i1 = 0; var i2 = 0; var i3 = 0
+        var w0 = -1f; var w1 = -1f; var w2 = -1f; var w3 = -1f
+        for (b in 0 until BONES) {
+            val d = kotlin.math.sqrt(distSq(b, px, py, pz))
+            val r = radius[b]
+            val q = (d / r).coerceAtLeast(1e-3f)
+            val w = 1f / (q * q * q * q)
+            when {
+                w > w0 -> { i3=i2; w3=w2; i2=i1; w2=w1; i1=i0; w1=w0; i0=b; w0=w }
+                w > w1 -> { i3=i2; w3=w2; i2=i1; w2=w1; i1=b;  w1=w }
+                w > w2 -> { i3=i2; w3=w2; i2=b;  w2=w }
+                w > w3 -> { i3=b;  w3=w }
+            }
+        }
+        val sum = w0 + w1 + w2 + w3
+        val inv = if (sum > 1e-8f) 1f / sum else 0f
+        outIdx[0]=i0; outIdx[1]=i1; outIdx[2]=i2; outIdx[3]=i3
+        outWt[0]=w0*inv; outWt[1]=w1*inv; outWt[2]=w2*inv; outWt[3]=w3*inv
+        if (inv == 0f) { outIdx[0]=HIPS; outWt[0]=1f }
+    }
+}
+
+/**
+ * Turns animation state into the twelve matrices the skinning shader wants.
+ *
+ * This lives on the CPU deliberately. The pose is a dozen matrix multiplies per
+ * frame — nothing next to the per-vertex work — and having it here means it can
+ * be reasoned about, printed and asserted on, which a rig buried in GLSL never
+ * could be. That is most of why the old one stayed broken for so long.
+ *
+ * Every bone's matrix is  parent * T(head) * R * T(-head)  : rotate about the
+ * bone's own head, then inherit everything the parent did. The bind pose is the
+ * rest pose itself, so no inverse-bind matrix is needed.
+ */
+internal class PoseBuilder {
+    /** Column-major 4x4 per bone, ready for glUniformMatrix4fv. */
+    val matrices = FloatArray(Skeleton.BONES * 16)
+
+    private val local = FloatArray(16)
+    private val tmp = FloatArray(16)
+    private val work = FloatArray(16)
+
+    private fun composeBone(b: Int, rx: Float, ry: Float, rz: Float) {
+        val h = Skeleton.head[b]
+        Matrix.setIdentityM(local, 0)
+        Matrix.translateM(local, 0, h[0], h[1], h[2])
+        if (rz != 0f) Matrix.rotateM(local, 0, rz, 0f, 0f, 1f)
+        if (ry != 0f) Matrix.rotateM(local, 0, ry, 0f, 1f, 0f)
+        if (rx != 0f) Matrix.rotateM(local, 0, rx, 1f, 0f, 0f)
+        Matrix.translateM(local, 0, -h[0], -h[1], -h[2])
+
+        val p = Skeleton.parent[b]
+        if (p < 0) {
+            System.arraycopy(local, 0, matrices, b * 16, 16)
+        } else {
+            System.arraycopy(matrices, p * 16, tmp, 0, 16)
+            Matrix.multiplyMM(work, 0, tmp, 0, local, 0)
+            System.arraycopy(work, 0, matrices, b * 16, 16)
+        }
+    }
+
+    /** Extra translation on the root, for crouch drop and jump lift. */
+    private fun rootOffset(dy: Float) {
+        Matrix.setIdentityM(local, 0)
+        Matrix.translateM(local, 0, 0f, dy, 0f)
+        System.arraycopy(matrices, Skeleton.HIPS * 16, tmp, 0, 16)
+        Matrix.multiplyMM(work, 0, local, 0, tmp, 0)
+        System.arraycopy(work, 0, matrices, Skeleton.HIPS * 16, 16)
+    }
+
+    /**
+     * [walk] is a continuous gait blend: 0 idle, 1 walk, up to 1.6 running.
+     * [crouch], [air] and [torch] are 0..1. [headYaw]/[headPitch] are radians.
+     * [death] 0..1 collapses her; [getUp] 0..1 is the reverse, used on spawn.
+     */
+    fun build(
+        time: Float, walk: Float, crouch: Float, air: Float,
+        headYaw: Float, headPitch: Float, torch: Float,
+        death: Float = 0f, getUp: Float = 0f
+    ) {
+        val gait = walk.coerceIn(0f, 1.6f)
+        val run = ((gait - 1f) / 0.6f).coerceIn(0f, 1f)
+        val stride = time * 6.4f
+        val deg = 57.29578f
+
+        // Down is the collapse; getUp runs it backwards, so one set of poses
+        // serves both and they cannot drift apart.
+        val down = (death + getUp * 0f).coerceIn(0f, 1f).let {
+            if (getUp > 0f) (1f - getUp).coerceIn(0f, 1f) else it
+        }
+
+        // --- Root -----------------------------------------------------------
+        // Breathing, the vertical bob of a stride, and the crouch drop.
+        val bob = sin(stride * 2f) * 0.012f * gait
+        val breath = sin(time * 1.6f) * 0.004f
+        composeBone(Skeleton.HIPS,
+            rx = (-8f * crouch - 62f * down) ,
+            ry = sin(time * 0.5f) * 1.5f * (1f - down),
+            rz = sin(stride) * 2.2f * gait)
+        rootOffset(bob + breath - 0.30f * crouch - 0.52f * down + 0.10f * air)
+
+        composeBone(Skeleton.SPINE,
+            rx = 6f * crouch + 14f * down,
+            ry = sin(stride + 0.4f) * 2.5f * gait,
+            rz = 0f)
+        composeBone(Skeleton.CHEST,
+            rx = 4f * crouch + 10f * down - 6f * torch,
+            ry = -sin(stride) * 4.5f * gait,
+            rz = 0f)
+
+        // --- Head -------------------------------------------------------------
+        // A rigid skull on a blending neck: the whole reason the head used to
+        // shear was a wide gradient rotating the crown further than the jaw.
+        composeBone(Skeleton.HEAD,
+            rx = (-headPitch * deg).coerceIn(-38f, 38f) + 26f * down,
+            ry = (headYaw * deg).coerceIn(-58f, 58f) * (1f - down),
+            rz = sin(time * 0.7f) * 1.6f * (1f - down))
+
+        // --- Arms -------------------------------------------------------------
+        // The mesh holds them straight out, so the rest angle is a rigid -76
+        // degrees about Z per side. Rigid is the point: every vertex bound to
+        // the bone takes the same rotation, which is what stops the limb fanning
+        // into the shape that read as a second pair of arms.
+        for (side in 0..1) {
+            val s = if (side == 0) -1f else 1f          // -1 left, +1 right
+            val upper = if (side == 0) Skeleton.UPPER_ARM_L else Skeleton.UPPER_ARM_R
+            val fore = if (side == 0) Skeleton.FORE_ARM_L else Skeleton.FORE_ARM_R
+            val isRight = if (side == 1) 1f else 0f
+            val torchArm = torch * isRight
+
+            val rest = -76f * s                          // arms down at the sides
+            val phase = stride + if (side == 1) Math.PI.toFloat() else 0f
+            val swing = sin(phase) * (23f + 17f * run) * gait
+            val idle = sin(time * 0.9f + s) * 3.0f
+
+            // A raised torch stops the swing and brings the arm forward instead.
+            val swingX = mix(swing + idle, -71f, torchArm)
+            val tuck = -11f * s + mix(0f, -19f * s, torchArm)
+            composeBone(upper,
+                rx = swingX - 26f * down,
+                ry = tuck,
+                rz = rest + 8f * s * crouch + 30f * s * down)
+
+            // Elbow lags the shoulder — that lag is most of what separates a
+            // swinging limb from a rotating stick.
+            val lag = sin(phase - 0.85f)
+            val bend = mix(lag * 17f * gait + 6f, -30f, torchArm)
+            composeBone(fore, rx = bend + 34f * down, ry = 0f, rz = 0f)
+        }
+
+        // --- Legs -------------------------------------------------------------
+        for (side in 0..1) {
+            val s = if (side == 0) -1f else 1f
+            val thigh = if (side == 0) Skeleton.THIGH_L else Skeleton.THIGH_R
+            val shin = if (side == 0) Skeleton.SHIN_L else Skeleton.SHIN_R
+            val phase = stride + if (side == 1) Math.PI.toFloat() else 0f
+
+            // Crouch: hip folds and knee closes, and the two are matched so the
+            // foot stays on the floor rather than sinking through it.
+            val hipFold = 52f * crouch
+            val kneeFold = -96f * crouch
+
+            val swing = sin(phase) * (30f + 19f * run) * gait
+            val lift = max(0f, -sin(phase - 0.6f)) * (24f + 17f * run) * gait
+
+            composeBone(thigh,
+                rx = swing + hipFold + 40f * air + 64f * down,
+                ry = 0f,
+                rz = 3f * s * gait)
+            composeBone(shin,
+                rx = -lift + kneeFold - 54f * air - 78f * down,
+                ry = 0f, rz = 0f)
+        }
+    }
+
+    private fun mix(a: Float, b: Float, t: Float) = a + (b - a) * t.coerceIn(0f, 1f)
+}
+
 class CharacterMesh(
     val vertexBuffer: FloatArray,
     val indices: ShortArray
 ) {
     companion object {
         private const val MAGIC = 0x48534D4F   // "OMSH" little-endian
-        const val FLOATS_PER_VERTEX = 8        // pos3 + normal3 + uv2
+        /** pos3 + normal3 + uv2 + boneIdx4 + boneWeight4. The last eight are
+         *  derived at load from the rest pose; the file carries only the first
+         *  eight. */
+        const val FLOATS_PER_VERTEX = 16
+        private const val FILE_FLOATS_PER_VERTEX = 8
 
         /** Returns null rather than throwing: a missing or malformed model must
          *  degrade to "no character drawn", never take the game down. */
@@ -8771,12 +9052,30 @@ class CharacterMesh(
             require(vertexCount in 1..500_000 && indexCount in 3..2_000_000) {
                 "implausible counts v=$vertexCount i=$indexCount"
             }
-            val verts = FloatArray(vertexCount * FLOATS_PER_VERTEX)
-            bb.asFloatBuffer().get(verts)
-            bb.position(bb.position() + verts.size * 4)
+            val fileVerts = FloatArray(vertexCount * FILE_FLOATS_PER_VERTEX)
+            bb.asFloatBuffer().get(fileVerts)
+            bb.position(bb.position() + fileVerts.size * 4)
             val idx = ShortArray(indexCount)
             bb.asShortBuffer().get(idx)
-            OmniLog.i("Model", "loaded $assetPath: $vertexCount verts, ${indexCount / 3} tris")
+
+            // Bind to the skeleton. Once, here, off the rest pose — 7886
+            // vertices against 12 capsules is a few hundred thousand distance
+            // tests, which is nothing at load and lets the shader do nothing
+            // but a weighted sum of four matrices per vertex.
+            val verts = FloatArray(vertexCount * FLOATS_PER_VERTEX)
+            val bi = IntArray(4)
+            val bw = FloatArray(4)
+            for (v in 0 until vertexCount) {
+                val src = v * FILE_FLOATS_PER_VERTEX
+                val dst = v * FLOATS_PER_VERTEX
+                System.arraycopy(fileVerts, src, verts, dst, FILE_FLOATS_PER_VERTEX)
+                Skeleton.bind(fileVerts[src], fileVerts[src + 1], fileVerts[src + 2], bi, bw)
+                for (k in 0 until 4) {
+                    verts[dst + 8 + k] = bi[k].toFloat()
+                    verts[dst + 12 + k] = bw[k]
+                }
+            }
+            OmniLog.i("Model", "loaded $assetPath: $vertexCount verts, ${indexCount / 3} tris, skinned to ${Skeleton.BONES} bones")
             CharacterMesh(verts, idx)
         }.onFailure { OmniLog.e("Model", "failed to load $assetPath", it) }.getOrNull()
     }
@@ -9148,251 +9447,56 @@ private const val OMNI_PREVIEW_VERT = """#version 300 es
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNormal;
 layout(location=2) in vec2 aUV;
+/** Four bone indices, and the weights that go with them. Derived at load from
+ *  the rest pose — see Skeleton in the Kotlin. */
+layout(location=3) in vec4 aBoneIdx;
+layout(location=4) in vec4 aBoneWt;
+
 uniform mat4 uMVP;
 uniform mat4 uModel;
-uniform float uTime;
-uniform float uWalk;
-/** 0 standing, 1 fully crouched. */
-uniform float uCrouch;
-/** 0 grounded, 1 airborne. */
-uniform float uAir;
-/** Where the head is looking relative to the body, in radians. */
-uniform float uHeadYaw;
-uniform float uHeadPitch;
-/** 0 torch stowed, 1 torch raised and pointing forward. */
-uniform float uTorch;
 /**
- * 1 for the character, 0 for scenery.
+ * The pose, built on the CPU by PoseBuilder.
  *
- * This program is shared with the preview's backdrop, and the whole rig below
- * used to run on ANY geometry fed through it. The studio's floor and back wall
- * were being given the character's breathing, her idle drift and — for every
- * vertex above 0.9 — her head's look-around: the backdrop visibly swayed. The
- * fragment shader had a uIsCharacter flag but that is a fragment uniform and
- * could not gate a single line of this.
+ * Everything this shader used to do itself — arms, legs, head, crouch, torch —
+ * is gone, and that is the fix rather than a tidy-up. It computed each joint's
+ * rotation ANGLE by multiplying a fixed angle by a mask that varied with the
+ * vertex's own position, so a limb was never rotated: it was fanned, the
+ * shoulder end by nothing and the hand end by the full amount. On this mesh
+ * that dropped the hand to y 0.56 while the upper arm stayed stretched out at
+ * y 0.78, leaving a V per side — which is what appeared on screen as four arms.
+ * It also killed the walk: the swing was scaled by the same mask, so it
+ * vanished toward the body and never read as motion.
+ *
+ * A bone matrix applies to every vertex bound to that bone equally. That is the
+ * whole difference.
  */
+uniform mat4 uBones[12];
+/** 1 for the character, 0 for scenery — the studio backdrop shares this
+ *  program, and a fragment uniform cannot gate vertex code. */
 uniform float uAnimate;
-out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
 
-// Rotate a point about an arbitrary pivot on the Y axis.
-vec3 rotY(vec3 p, vec3 pivot, float a){
-    vec3 d = p - pivot;
-    float c = cos(a), s = sin(a);
-    return pivot + vec3(d.x * c + d.z * s, d.y, -d.x * s + d.z * c);
-}
-// Rotate about the X axis (forward/back swing).
-vec3 rotX(vec3 p, vec3 pivot, float a){
-    vec3 d = p - pivot;
-    float c = cos(a), s = sin(a);
-    return pivot + vec3(d.x, d.y * c - d.z * s, d.y * s + d.z * c);
-}
-// Rotate about the Z axis (arms dropping to the sides).
-vec3 rotZ(vec3 p, vec3 pivot, float a){
-    vec3 d = p - pivot;
-    float c = cos(a), s = sin(a);
-    return pivot + vec3(d.x * c - d.y * s, d.x * s + d.y * c, d.z);
-}
+out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
 
 void main(){
     vec3 p = aPos;
-    // Skinning weights belong to the REST pose. Reading p as it is progressively
-    // deformed makes each step's mask depend on the previous step's rotation,
-    // which is how a rigid part ends up sheared across a blend band.
-    vec3 rest = aPos;
-    float h = clamp(rest.y, 0.0, 1.0);
+    vec3 n = aNormal;
+
     if (uAnimate > 0.5) {
-    // uWalk is a continuous 0..1.6 gait blend (0 idle, 1 walk, >1 run), not a
-    // yes/no flag. Everything below scales off it, which is what stops the
-    // character snapping between two fixed poses.
-    float gait = clamp(uWalk, 0.0, 1.6);
-    float run  = clamp(gait - 1.0, 0.0, 0.6) / 0.6;
-    float stride = uTime * 6.4;
-
-    // --- 1. Break the T-pose ------------------------------------------------
-    // The source mesh is modelled arms-out. Rotate each arm down about its own
-    // shoulder so the character rests naturally; without this she stands with
-    // both arms straight out, which is what the in-game screenshot showed.
-    float armSide = sign(rest.x);
-    float armReach = smoothstep(0.10, 0.30, abs(rest.x));       // 0 at torso, 1 at hand
-    float armBand = smoothstep(0.58, 0.66, rest.y) * (1.0 - smoothstep(0.80, 0.88, rest.y));
-    float armMask = armReach * armBand;
-    if (armMask > 0.001) {
-        vec3 shoulder = vec3(armSide * 0.11, 0.74, 0.0);
-        // ~78 degrees DOWN, so the arms hang close to the body.
-        //
-        // The sign matters and it was wrong. rotZ turns anticlockwise, so for a
-        // hand sitting at +x from the shoulder a positive angle lifts it: both
-        // arms were being rotated up by 78 degrees and the hands ended up level
-        // with the top of her head, one either side. Negating per side sends
-        // each arm down the way a shoulder actually works.
-        p = rotZ(p, shoulder, -armSide * 1.36 * armMask);
-        // Slight inward tuck so the hands sit beside the hips, not splayed.
-        p = rotY(p, shoulder, -armSide * 0.20 * armMask);
+        // Linear blend skinning. The weights are normalised at bind time, so
+        // this is a plain weighted sum with no renormalisation needed.
+        mat4 skin =
+            uBones[int(aBoneIdx.x)] * aBoneWt.x +
+            uBones[int(aBoneIdx.y)] * aBoneWt.y +
+            uBones[int(aBoneIdx.z)] * aBoneWt.z +
+            uBones[int(aBoneIdx.w)] * aBoneWt.w;
+        p = (skin * vec4(aPos, 1.0)).xyz;
+        // Normals take the rotation but not the translation.
+        n = normalize(mat3(skin) * aNormal);
     }
-
-    // --- 2. Arm swing -------------------------------------------------------
-    // Opposite phase per side, and opposite to the legs, as in a real gait.
-    // The forearm lags the upper arm by a fraction of a cycle: that lag is the
-    // single biggest thing separating a swinging limb from a rotating stick,
-    // and its absence is most of what read as robotic.
-    //
-    // The right arm is also the torch arm. When the torch is up it stops
-    // swinging entirely and comes forward instead, which is the only way a
-    // held object can look held rather than carried past.
-    float isRight = armSide > 0.0 ? 1.0 : 0.0;
-    float torchArm = uTorch * isRight;
-    if (armMask > 0.001) {
-        vec3 shoulder = vec3(armSide * 0.11, 0.74, 0.0);
-        float phase = stride + (armSide > 0.0 ? 3.14159 : 0.0);
-        float swing = sin(phase);
-        // Idle arms are never quite still either — a slow, tiny sway.
-        float idleSway = sin(uTime * 0.9 + armSide) * 0.055;
-        float amount = (swing * (0.40 + 0.30 * run) * gait + idleSway) * armMask;
-        // Torch arm: swing suppressed, then rotated forward and up.
-        amount = mix(amount, -1.24 * armMask, torchArm);
-        p = rotX(p, shoulder, amount);
-        // Tuck it toward the body centre line so the beam points where she is
-        // looking rather than off to her right.
-        p = rotZ(p, shoulder, -armSide * 0.34 * torchArm * armMask);
-
-        // Elbow: same swing, delayed, applied only below the joint so the upper
-        // arm keeps its own arc.
-        float forearm = smoothstep(0.20, 0.34, abs(rest.x));
-        if (forearm > 0.001) {
-            vec3 elbow = vec3(armSide * 0.21, 0.60, 0.0);
-            float lag = sin(phase - 0.85);
-            float bend = (lag * 0.30 * gait + 0.10) * forearm;
-            // A raised torch is held with the elbow bent, not the arm locked.
-            bend = mix(bend, -0.52 * forearm, torchArm);
-            p = rotX(p, elbow, bend);
-        }
-    }
-
-    // --- 3. Legs ------------------------------------------------------------
-    float legMask = 1.0 - smoothstep(0.05, 0.48, rest.y);
-    if (legMask > 0.001) {
-        vec3 hip = vec3(sign(rest.x) * 0.05, 0.48, 0.0);
-        float legPhase = stride + (rest.x > 0.0 ? 0.0 : 3.14159);
-        p = rotX(p, hip, sin(legPhase) * (0.52 + 0.34 * run) * gait * legMask);
-        // Knee bend on the recovery half of the stride only, which is what makes
-        // the trailing foot clear the floor instead of scything through it.
-        float shin = 1.0 - smoothstep(0.02, 0.26, rest.y);
-        float bend = max(0.0, -sin(legPhase - 0.6));
-        p = rotX(p, vec3(sign(rest.x) * 0.05, 0.24, 0.0), -bend * (0.42 + 0.30 * run) * gait * shin);
-        // Airborne: legs tuck up under the body rather than staying extended,
-        // which is what makes a jump read as a jump and not as the whole model
-        // being translated upward.
-        p = rotX(p, hip, 0.70 * uAir * legMask);
-        p = rotX(p, vec3(sign(rest.x) * 0.05, 0.24, 0.0), -0.95 * uAir * shin);
-    }
-
-    // --- 4. Crouch ----------------------------------------------------------
-    // Not a scale: the hips drop, the knees fold under them and the torso
-    // pitches forward over the new centre of mass. Scaling the model down was
-    // the obvious cheat and it looks exactly like what it is.
-    if (uCrouch > 0.001) {
-        // Two-link solve, not hand-picked angles.
-        //
-        // The hip has to come down and the FOOT has to stay on the floor, and
-        // those two constraints fix the knee and ankle angles exactly. Guessing
-        // them (0.85 at the hip, -1.30 at the knee) drove the shins straight
-        // through the carpet, and the y >= 0 clamp further down then flattened
-        // whatever had gone under into a smear at floor level — which is what
-        // "the knees and feet go into the ground" was.
-        //
-        // Masks read yPre, the leg's height BEFORE any of this ran; using the
-        // live p.y would make each step's mask depend on the previous step's
-        // rotation and the joints would drift apart.
-        float yPre = rest.y;
-        const float La = 0.22;                 // hip -> knee
-        const float Lb = 0.24;                 // knee -> ankle
-        const float standH = La + Lb;          // hip height standing
-        float drop = 0.30 * uCrouch;
-        float hipY = standH - drop;            // hip height crouched
-
-        // Triangle (La, Lb, hipY): the knee angle and the thigh's lean off
-        // vertical that put the ankle exactly on the floor.
-        float thigh = acos(clamp((La*La + hipY*hipY - Lb*Lb) / (2.0 * La * max(hipY, 0.001)), -1.0, 1.0));
-        // Shin angle measured from vertical at the planted ankle.
-        float shinAng = atan(La * sin(thigh), max(hipY - La * cos(thigh), 0.001));
-
-        float side = sign(rest.x) * 0.05;
-        vec3 ankle = vec3(side, 0.0, 0.0);
-        vec3 hipAfter = vec3(side, hipY, 0.0);
-
-        float shinMask  = 1.0 - smoothstep(Lb - 0.03, Lb + 0.07, yPre);
-        float thighMask = smoothstep(Lb - 0.03, Lb + 0.07, yPre) *
-                          (1.0 - smoothstep(standH - 0.03, standH + 0.09, yPre));
-        float upperMask = smoothstep(standH - 0.03, standH + 0.09, yPre);
-
-        // Shin pivots on the planted foot, so the sole never leaves the floor.
-        p = rotX(p, ankle, shinAng * shinMask);
-        // Thigh sinks with the pelvis, then swings forward off the lowered hip.
-        p.y -= drop * thighMask;
-        p = rotX(p, hipAfter, -thigh * thighMask);
-        // Pelvis and everything above simply come down with it.
-        p.y -= drop * upperMask;
-        // Torso pitches forward over the knees to keep her balanced.
-        float torso = smoothstep(standH, 0.72, yPre);
-        p = rotX(p, vec3(0.0, hipY, 0.0), 0.30 * uCrouch * torso);
-    }
-
-    // --- 5. Head ------------------------------------------------------------
-    // The head follows where the player is aiming. uHeadYaw/uHeadPitch carry the
-    // camera's own offset from the body, so turning the view turns her head —
-    // which is the difference between a character looking around and a mannequin
-    // whose head happens to be attached.
-    //
-    // When the player is not turning, a slow idle scan takes over so she is
-    // never completely still. Three detuned sines rather than one, so the scan
-    // never repeats on an obvious beat.
-    // Narrow band, so the SKULL is rigid and only the neck blends. A wide
-    // gradient rotates the top of the head further than the jaw and the face
-    // shears apart — which is what "her head goes crooked" was.
-    float headMask = smoothstep(0.845, 0.895, rest.y);
-    if (headMask > 0.001) {
-        vec3 neck = vec3(0.0, 0.83, 0.0);
-        float idleYaw = sin(uTime * 0.42) * 0.34 + sin(uTime * 0.17) * 0.16 + sin(uTime * 0.83) * 0.06;
-        float idlePitch = sin(uTime * 0.31 + 2.1) * 0.14 - 0.04;
-        // Walking, she mostly faces forward — but the head counter-rotates
-        // slightly against the shoulders, keeping the gaze level as the torso
-        // twists underneath it.
-        float walkBlend = clamp(gait, 0.0, 1.0);
-        idleYaw = mix(idleYaw, -sin(stride) * 0.13 + sin(stride * 0.5) * 0.07, walkBlend);
-        idlePitch = mix(idlePitch, -0.05 - 0.10 * run, walkBlend);
-        // The player's aim wins wherever there is any; the idle fills the rest.
-        float aimWeight = clamp(abs(uHeadYaw) * 2.2, 0.0, 1.0);
-        float lookYaw = mix(idleYaw, uHeadYaw, aimWeight);
-        float lookPitch = idlePitch + uHeadPitch;
-        p = rotY(p, neck, lookYaw * headMask);
-        p = rotX(p, neck, lookPitch * headMask);
-        // A small vertical bob out of phase with the stride, so the head floats
-        // over the gait rather than riding rigidly on top of it.
-        p.y += sin(stride * 2.0 + 1.1) * 0.008 * gait * headMask;
-    }
-
-    // --- 6. Whole-body motion ----------------------------------------------
-    float upper = smoothstep(0.25, 1.0, h);
-    // Torso counter-twist: shoulders rotate against the hips every stride.
-    p = rotY(p, vec3(0.0, 0.50, 0.0), sin(stride) * 0.10 * gait * upper);
-    p.y += sin(uTime * 1.5) * 0.005 * upper;                  // breathing
-    p.y += abs(sin(stride)) * (0.028 + 0.022 * run) * gait;   // gait bob
-    p.x += sin(uTime * 0.7 + 1.2) * 0.006 * upper;            // idle drift
-    p = rotZ(p, vec3(0.0, 0.0, 0.0), sin(stride) * 0.035 * gait);        // hip sway
-    p = rotX(p, vec3(0.0, 0.0, 0.0), 0.05 * gait + 0.09 * run);          // forward lean
-    // Airborne lean, and arms coming up for balance.
-    p = rotX(p, vec3(0.0, 0.30, 0.0), -0.18 * uAir);
-
-    // Floor contact. Every rotation above can swing a foot below the model's
-    // own origin, and the origin is the ground plane — so without this the toes
-    // sink into the carpet on the down phase of every stride. Clamped rather
-    // than folded, so only the vertices that would have broken through move.
-    p.y = max(p.y, 0.0);
-    }   // uAnimate
 
     vec4 world = uModel * vec4(p, 1.0);
     vWorldPos = world.xyz;
-    vNormal = mat3(uModel) * aNormal;
+    vNormal = mat3(uModel) * n;
     vUV = aUV;
     gl_Position = uMVP * vec4(p, 1.0);
 }
@@ -9485,8 +9589,11 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
 
     private var program = 0
     private var uMVP = 0; private var uModel = 0; private var uTime = 0
-    private var uWalk = 0; private var uTex = 0; private var uIsChar = 0
-    private var uAnimate = 0; private var uSubject = 0
+    private var uTex = 0; private var uIsChar = 0
+    private var uAnimate = 0; private var uSubject = 0; private var uBones = 0
+    /** Same pose builder the corridor uses, so the studio cannot show a pose
+     *  the game never produces. */
+    private val pose = PoseBuilder()
 
     private var charVbo = 0; private var charIbo = 0; private var charCount = 0
     private var roomVbo = 0; private var roomIbo = 0
@@ -9519,7 +9626,7 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
             uMVP = GLES30.glGetUniformLocation(program, "uMVP")
             uModel = GLES30.glGetUniformLocation(program, "uModel")
             uTime = GLES30.glGetUniformLocation(program, "uTime")
-            uWalk = GLES30.glGetUniformLocation(program, "uWalk")
+            uBones = GLES30.glGetUniformLocation(program, "uBones")
             uTex = GLES30.glGetUniformLocation(program, "uTex")
             uIsChar = GLES30.glGetUniformLocation(program, "uIsCharacter")
             uAnimate = GLES30.glGetUniformLocation(program, "uAnimate")
@@ -9611,7 +9718,6 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
         Matrix.setIdentityM(model, 0)
         GLES30.glUniformMatrix4fv(uMVP, 1, false, vp, 0)
         GLES30.glUniformMatrix4fv(uModel, 1, false, model, 0)
-        GLES30.glUniform1f(uWalk, 0f)
         GLES30.glUniform1f(uIsChar, 0f)
         // Scenery holds still.
         GLES30.glUniform1f(uAnimate, 0f)
@@ -9630,28 +9736,40 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
             GLES30.glUniformMatrix4fv(uMVP, 1, false, mvp, 0)
             GLES30.glUniformMatrix4fv(uModel, 1, false, model, 0)
-            GLES30.glUniform1f(uWalk, walkAmount)
             GLES30.glUniform1f(uIsChar, 1f)
             GLES30.glUniform1f(uAnimate, 1f)
-            drawIndexed(charVbo, charIbo, charCount, charTex)
+            // walkAmount is the Idle/Walk toggle. It used to feed a uniform the
+            // shader scaled by a position mask, so the swing died out toward
+            // the body and pressing Walk did nothing visible.
+            pose.build(t, walkAmount, 0f, 0f, 0f, 0f, 0f)
+            GLES30.glUniformMatrix4fv(uBones, Skeleton.BONES, false, pose.matrices, 0)
+            drawIndexed(charVbo, charIbo, charCount, charTex, skinned = true)
         }
     }
 
-    private fun drawIndexed(vbo: Int, ibo: Int, count: Int, tex: Int) {
+    /** [skinned] selects the character's 16-float layout over the backdrop
+     *  quads' 8-float one. Both go through this program, so the stride cannot
+     *  be a constant. */
+    private fun drawIndexed(vbo: Int, ibo: Int, count: Int, tex: Int, skinned: Boolean = false) {
         if (count <= 0) return
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex)
         GLES30.glUniform1i(uTex, 0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
-        val stride = 8 * 4
+        val stride = (if (skinned) CharacterMesh.FLOATS_PER_VERTEX else 8) * 4
         GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)
         GLES30.glEnableVertexAttribArray(1); GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
         GLES30.glEnableVertexAttribArray(2); GLES30.glVertexAttribPointer(2, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+        if (skinned) {
+            GLES30.glEnableVertexAttribArray(3); GLES30.glVertexAttribPointer(3, 4, GLES30.GL_FLOAT, false, stride, 8 * 4)
+            GLES30.glEnableVertexAttribArray(4); GLES30.glVertexAttribPointer(4, 4, GLES30.GL_FLOAT, false, stride, 12 * 4)
+        }
         GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibo)
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, count, GLES30.GL_UNSIGNED_SHORT, 0)
         GLES30.glDisableVertexAttribArray(0)
         GLES30.glDisableVertexAttribArray(1)
         GLES30.glDisableVertexAttribArray(2)
+        if (skinned) { GLES30.glDisableVertexAttribArray(3); GLES30.glDisableVertexAttribArray(4) }
     }
 
     private fun quadMesh(
