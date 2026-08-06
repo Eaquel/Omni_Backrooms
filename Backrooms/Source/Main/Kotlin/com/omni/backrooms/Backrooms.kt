@@ -719,10 +719,23 @@ class AssetManager @Inject constructor(@ApplicationContext private val ctx: Cont
 
     fun getLevelTheme(level: Int): LevelTheme = levelThemes[level] ?: LevelTheme("level_$level")
 
+    /**
+     * Level 0 carries exactly one creature, on every difficulty.
+     *
+     * Three to eight of them, topped up every twelve seconds, turned an empty
+     * yellow maze into a crowd — and a crowd is not frightening, it is busy.
+     * One thing that is somewhere, that you have driven off twice already and
+     * know is coming back, is the whole level.
+     *
+     * Difficulty now changes what the one creature is rather than how many
+     * there are: how fast it moves and how far it can see. `spawnIntervalMs` is
+     * kept because Level 1 will want a spawner, but it is set beyond any run
+     * length so nothing is topped up here.
+     */
     fun getSpawnConfig(difficulty: String): SpawnConfig = when (difficulty.lowercase()) {
-        "easy" -> SpawnConfig(count=3,  speedMult=0.7f, sightMult=0.8f, spawnIntervalMs=40_000)
-        "hard" -> SpawnConfig(count=8,  speedMult=1.4f, sightMult=1.3f, spawnIntervalMs=12_000)
-        else   -> SpawnConfig(count=5,  speedMult=1.0f, sightMult=1.0f, spawnIntervalMs=22_000)
+        "easy" -> SpawnConfig(count=1, speedMult=0.7f, sightMult=0.8f, spawnIntervalMs=3_600_000)
+        "hard" -> SpawnConfig(count=1, speedMult=1.4f, sightMult=1.3f, spawnIntervalMs=3_600_000)
+        else   -> SpawnConfig(count=1, speedMult=1.0f, sightMult=1.0f, spawnIntervalMs=3_600_000)
     }
 
     /** Loads the story in the given language, falling back to English per-chapter
@@ -1612,7 +1625,7 @@ class GameVM @Inject constructor(
                 }
 
                 val wasOver = _state.value.isGameOver
-                val derived = stepSimulation(bridge, dt)
+                val derived = stepSimulation(bridge, dt, _state.value)
                 _state.update { applyTickToState(it, derived, dt, elapsedMs, score) }
                 if (!wasOver && _state.value.isGameOver) {
                     // Dying still pays for the time survived — just without the
@@ -2589,7 +2602,7 @@ private const val OMNI_BILLBOARD_FRAG = """#version 300 es
 precision mediump float;
 in vec2 vUV;
 uniform vec3 uColor; uniform float uAlert; uniform float uAlpha; uniform float uColorBlind;
-uniform float uTime; uniform float uSeed;
+uniform float uTime; uniform float uSeed; uniform float uDissolve;
 out vec4 fragColor;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
@@ -2618,6 +2631,19 @@ void main(){
     float hem = smoothstep(0.30, 0.85, vUV.y);
     float wisp = noise(vec2(vUV.x * 9.0, vUV.y * 4.0 - t * 1.4));
     body = max(body, smoothstep(0.62, 0.95, wisp) * (1.0 - hem) * 0.55);
+
+    // --- Driven off ---------------------------------------------------------
+    // The flashlight does not kill it, it makes it leave — so it has to come
+    // apart rather than fade out. A uniform alpha ramp reads as a UI element
+    // being hidden; eating the silhouette away along a noise field, edges
+    // first, reads as something losing its hold on being there.
+    if (uDissolve > 0.001) {
+        float grain = noise(vUV * 7.0 + vec2(t * 0.6, -t * 0.35));
+        // Bias the threshold by how far out the fragment is, so it comes apart
+        // from the outside in and the face is the last thing left.
+        float threshold = uDissolve * 1.35 - (0.45 - r) * 0.55;
+        body -= smoothstep(threshold - 0.22, threshold + 0.10, grain + (1.0 - r));
+    }
 
     if (body < 0.02) discard;
 
@@ -3166,7 +3192,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var uUvScale = 0
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
-    private var bTime = 0; private var bSeed = 0
+    private var bTime = 0; private var bSeed = 0; private var bDissolve = 0
     private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
     private var pCbMix = 0; private var pCbAxis = 0; private var pFlashOn = 0; private var pMadness = 0
     private var pBloomTex = 0; private var pBloomStrength = 0; private var pExposure = 0
@@ -3285,6 +3311,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         bColorBlind = GLES30.glGetUniformLocation(billboardProgram, "uColorBlind")
         bTime = GLES30.glGetUniformLocation(billboardProgram, "uTime")
         bSeed = GLES30.glGetUniformLocation(billboardProgram, "uSeed")
+        bDissolve = GLES30.glGetUniformLocation(billboardProgram, "uDissolve")
 
         postProgram = linkGlProgram(OMNI_POST_VERT, OMNI_POST_FRAG)
         pScene = GLES30.glGetUniformLocation(postProgram, "uScene")
@@ -3753,7 +3780,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
         val rangeSq = range * range
         for (e in entities) {
-            if (!e.isActive) continue
+            // isAway is a creature that has been driven off and is waiting out
+            // of sight. It is still being simulated — it has to be, or it could
+            // never come back — but there is nothing left of it to draw.
+            if (!e.isActive || e.isAway) continue
             val sp = smoothEntities[e.id] ?: floatArrayOf(e.posX, e.posY, e.posZ)
             val dx = sp[0] - camX; val dz = sp[2] - camZ
             if (dx * dx + dz * dz > rangeSq) continue
@@ -3771,6 +3801,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             // Per-creature offset, so a row of them never boils or blinks in
             // unison — nothing gives away a shared shader faster than that.
             GLES30.glUniform1f(bSeed, (e.id * 0.618f) % 1f)
+            GLES30.glUniform1f(bDissolve, e.dissolve)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
         GLES30.glDisableVertexAttribArray(0)
@@ -3787,12 +3818,14 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
         val rangeSq = range * range
         for (e in entities) {
-            if (!e.isActive) continue
+            if (!e.isActive || e.isAway) continue
             val sp = smoothEntities[e.id] ?: floatArrayOf(e.posX, e.posY, e.posZ)
             val dx = sp[0] - camX; val dz = sp[2] - camZ
             val d2 = dx * dx + dz * dz
             if (d2 > rangeSq) continue
-            val fade = 1f - (d2 / rangeSq)
+            // Thins out with the body, or a creature that has been driven off
+            // leaves its shadow behind on the carpet.
+            val fade = (1f - (d2 / rangeSq)) * (1f - e.dissolve)
             GLES30.glUniform3f(sCenter, sp[0], 0f, sp[2])
             GLES30.glUniform1f(sSize, 0.95f)
             GLES30.glUniform1f(sAlpha, 0.55f * fade)

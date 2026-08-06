@@ -25,6 +25,7 @@
 #include "Map/Level_0.h"
 #include "Frame/Frame.h"
 #include "Trail/Trail.h"
+#include "Entity/Entity.h"
 
 // Cells per chunk edge. 24 keeps a chunk mesh small enough to build in a frame
 // while large enough that streaming happens rarely.
@@ -821,212 +822,8 @@ struct GuardState {
 
 } // namespace omni::guard
 
-namespace omni::entity {
-
-[[maybe_unused]] constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
-
-struct Vec2i { int x,y; bool operator==(const Vec2i& o) const noexcept { return x==o.x&&y==o.y; } };
-struct Vec2f { float x,y; };
-struct Vec3f { float x=0,y=0,z=0; };
-
-struct Vec2iHash {
-    size_t operator()(const Vec2i& v) const noexcept {
-        return std::hash<int64_t>{}(static_cast<int64_t>(v.x)<<32|static_cast<uint32_t>(v.y));
-    }
-};
-
-enum class EntityType : uint8_t {
-    Smiler=0,HoundDog=1,PartyGoer=2,Skin_Stealer=3,WanderingOne=4,Deathwatch=5,Crawler=6,FacelingDark=7
-};
-
-enum class AIState : uint8_t { Idle=0,Wander=1,Alert=2,Chase=3,Attack=4,Flee=5,Stalk=6,Ambush=7 };
-
-struct Blackboard {
-    Vec3f lastKnownPlayerPos;
-    float timeSincePlayerSeen=999.0f;
-    float alertLevel=0.0f;
-    bool  playerInSight=false;
-    bool  heardNoise=false;
-    float noiseLevel=0.0f;
-    int   patrolIndex=0;
-};
-
-struct Entity {
-    Vec3f pos,vel;
-    float speed,hearRadius,sightRadius,attackRadius,aggroRadius;
-    float wanderAngle,wanderTimer,attackCooldown,hp,maxHp,stalkTimer,ambushTimer,flickerInfluence;
-    EntityType type;
-    AIState    state;
-    Blackboard bb;
-    int        id;
-    bool       active;
-    std::vector<Vec3f> patrolPoints;
-};
-
-[[nodiscard]] float dist2d(const Vec3f& a,const Vec3f& b) noexcept { return std::hypot(a.x-b.x,a.z-b.z); }
-[[nodiscard]] float dist3d(const Vec3f& a,const Vec3f& b) noexcept {
-    float dx=a.x-b.x,dy=a.y-b.y,dz=a.z-b.z; return std::sqrt(dx*dx+dy*dy+dz*dz);
-}
-
-class AStarPlanner {
-public:
-    [[nodiscard]] std::vector<Vec2i> plan(const Vec2i& start,const Vec2i& goal,const std::vector<std::vector<bool>>& grid) const {
-        if(goal.y<0||goal.y>=static_cast<int>(grid.size()))    return {};
-        if(goal.x<0||goal.x>=static_cast<int>(grid[0].size())) return {};
-        if(!grid[goal.y][goal.x]) return {};
-        using Node=std::pair<float,Vec2i>;
-        auto cmp=[](const Node& a,const Node& b) noexcept { return a.first>b.first; };
-        std::priority_queue<Node,std::vector<Node>,decltype(cmp)> open(cmp);
-        std::unordered_map<Vec2i,Vec2i,Vec2iHash>  from;
-        std::unordered_map<Vec2i,float,Vec2iHash>  g;
-        std::unordered_set<Vec2i,Vec2iHash>         closed;
-        g[start]=0.0f; open.emplace(heur(start,goal),start);
-        constexpr std::array<Vec2i,8> dirs{Vec2i{0,1},{0,-1},{1,0},{-1,0},{1,1},{1,-1},{-1,1},{-1,-1}};
-        constexpr std::array<float,8> costs{1.0f,1.0f,1.0f,1.0f,1.414f,1.414f,1.414f,1.414f};
-        while(!open.empty()){
-            auto [_,cur]=open.top(); open.pop();
-            if(cur==goal) return reconstruct(from,cur);
-            if(closed.contains(cur)) continue;
-            closed.insert(cur);
-            for(size_t i=0;i<dirs.size();++i){
-                Vec2i nb{cur.x+dirs[i].x,cur.y+dirs[i].y};
-                if(nb.y<0||nb.y>=static_cast<int>(grid.size()))    continue;
-                if(nb.x<0||nb.x>=static_cast<int>(grid[0].size())) continue;
-                if(!grid[nb.y][nb.x]||closed.contains(nb)) continue;
-                float ng=g[cur]+costs[i];
-                if(!g.contains(nb)||ng<g[nb]){ g[nb]=ng; from[nb]=cur; open.emplace(ng+heur(nb,goal),nb); }
-            }
-        }
-        return {};
-    }
-private:
-    [[nodiscard]] static float heur(const Vec2i& a,const Vec2i& b) noexcept {
-        float dx=std::abs(a.x-b.x),dy=std::abs(a.y-b.y);
-        return std::max(dx,dy)+(std::sqrt(2.0f)-1.0f)*std::min(dx,dy);
-    }
-    [[nodiscard]] static std::vector<Vec2i> reconstruct(const std::unordered_map<Vec2i,Vec2i,Vec2iHash>& from,Vec2i cur) {
-        std::vector<Vec2i> path;
-        while(from.contains(cur)){ path.push_back(cur); cur=from.at(cur); }
-        std::ranges::reverse(path); return path;
-    }
-};
-
-class BehaviorTree {
-public:
-    static void tick(Entity& e,const Vec3f& playerPos,float dt,std::mt19937& rng) {
-        updateBlackboard(e,playerPos,dt);
-        AIState next=e.state;
-        switch(e.type){
-            case EntityType::Smiler:       next=tickSmiler(e,dt,rng);      break;
-            case EntityType::HoundDog:     next=tickHound(e,dt,rng);       break;
-            case EntityType::PartyGoer:    next=tickPartyGoer(e,dt,rng);   break;
-            case EntityType::Skin_Stealer: next=tickSkinStealer(e,dt,rng); break;
-            case EntityType::WanderingOne: next=tickWanderer(e,dt,rng);    break;
-            case EntityType::Deathwatch:   next=tickDeathwatch(e,dt,rng);  break;
-            case EntityType::Crawler:      next=tickCrawler(e,dt,rng);     break;
-            case EntityType::FacelingDark: next=tickFaceling(e,dt,rng);    break;
-        }
-        e.state=next;
-        executeState(e,playerPos,dt,rng);
-    }
-private:
-    static void updateBlackboard(Entity& e,const Vec3f& pp,float dt) noexcept {
-        float d=dist3d(e.pos,pp);
-        e.bb.timeSincePlayerSeen+=dt;
-        e.bb.playerInSight=(d<e.sightRadius);
-        e.bb.heardNoise   =(d<e.hearRadius);
-        e.bb.alertLevel=std::clamp(e.bb.alertLevel+(e.bb.playerInSight?2.0f*dt:-0.5f*dt),0.0f,1.0f);
-        if(e.bb.playerInSight){ e.bb.lastKnownPlayerPos=pp; e.bb.timeSincePlayerSeen=0.0f; }
-    }
-    static AIState tickSmiler(Entity& e,float dt,std::mt19937&) noexcept {
-        if(e.bb.playerInSight){
-            e.flickerInfluence=std::min(1.0f,e.flickerInfluence+dt*0.8f);
-            return dist3d(e.pos,e.bb.lastKnownPlayerPos)<e.attackRadius?AIState::Attack:AIState::Stalk;
-        }
-        e.flickerInfluence=std::max(0.0f,e.flickerInfluence-dt*0.3f);
-        return e.bb.alertLevel>0.3f?AIState::Alert:AIState::Idle;
-    }
-    static AIState tickHound(Entity& e,float,std::mt19937&) noexcept {
-        if(e.bb.alertLevel>0.5f) return AIState::Chase;
-        if(e.bb.heardNoise)      return AIState::Alert;
-        return AIState::Wander;
-    }
-    static AIState tickPartyGoer(Entity& e,float,std::mt19937& rng) noexcept {
-        std::uniform_real_distribution<float> nd(0,1);
-        if(e.bb.playerInSight&&nd(rng)<0.01f) return AIState::Attack;
-        if(e.bb.playerInSight) return AIState::Chase;
-        return AIState::Wander;
-    }
-    static AIState tickSkinStealer(Entity& e,float,std::mt19937&) noexcept {
-        if(e.bb.alertLevel>0.7f) return AIState::Chase;
-        if(e.bb.playerInSight)   return AIState::Stalk;
-        return e.stalkTimer>0.0f?AIState::Stalk:AIState::Wander;
-    }
-    static AIState tickWanderer(Entity& e,float,std::mt19937& rng) noexcept {
-        std::uniform_real_distribution<float> nd(0,1);
-        if(e.bb.playerInSight&&nd(rng)<0.003f) return AIState::Attack;
-        return AIState::Wander;
-    }
-    static AIState tickDeathwatch(Entity& e,float dt,std::mt19937&) noexcept {
-        e.ambushTimer-=dt;
-        if(e.ambushTimer<=0&&e.bb.playerInSight) return AIState::Attack;
-        return e.bb.playerInSight?AIState::Ambush:AIState::Stalk;
-    }
-    static AIState tickCrawler(Entity& e,float,std::mt19937&) noexcept {
-        if(e.bb.alertLevel>0.6f) return AIState::Chase;
-        if(e.bb.heardNoise)      return AIState::Alert;
-        return AIState::Wander;
-    }
-    static AIState tickFaceling(Entity& e,float,std::mt19937&) noexcept {
-        if(e.bb.playerInSight) return e.bb.alertLevel>0.8f?AIState::Chase:AIState::Stalk;
-        return e.bb.alertLevel>0.4f?AIState::Alert:AIState::Idle;
-    }
-    static void executeState(Entity& e,const Vec3f& target,float dt,std::mt19937& rng) noexcept {
-        switch(e.state){
-            case AIState::Wander:  doWander(e,dt,rng); break;
-            case AIState::Chase:
-            case AIState::Stalk:   moveToward(e,target,dt,e.state==AIState::Stalk?0.55f:1.0f); break;
-            case AIState::Attack:  doAttack(e,target,dt); break;
-            case AIState::Flee:    fleFrom(e,target,dt); break;
-            default: break;
-        }
-    }
-    static void doWander(Entity& e,float dt,std::mt19937& rng) noexcept {
-        e.wanderTimer-=dt;
-        if(e.wanderTimer<=0){
-            std::uniform_real_distribution<float> ad(-1.0f,1.0f);
-            e.wanderAngle+=ad(rng)*1.2f;
-            e.wanderTimer=1.0f+std::uniform_real_distribution<float>(0,2)(rng);
-        }
-        e.vel.x=std::sin(e.wanderAngle)*e.speed*0.4f;
-        e.vel.z=std::cos(e.wanderAngle)*e.speed*0.4f;
-        e.pos.x+=e.vel.x*dt; e.pos.z+=e.vel.z*dt;
-    }
-    static void moveToward(Entity& e,const Vec3f& t,float dt,float speedMult) noexcept {
-        float dx=t.x-e.pos.x,dz=t.z-e.pos.z;
-        float d=std::hypot(dx,dz); if(d<0.1f) return;
-        e.pos.x+=dx/d*e.speed*speedMult*dt;
-        e.pos.z+=dz/d*e.speed*speedMult*dt;
-    }
-    static void doAttack(Entity& e,const Vec3f& t,float dt) noexcept {
-        if(e.attackCooldown>0){ e.attackCooldown-=dt; return; }
-        moveToward(e,t,dt,1.0f); e.attackCooldown=0.8f;
-    }
-    static void fleFrom(Entity& e,const Vec3f& t,float dt) noexcept {
-        float dx=e.pos.x-t.x,dz=e.pos.z-t.z;
-        float d=std::hypot(dx,dz); if(d<0.1f) return;
-        e.pos.x+=dx/d*e.speed*1.2f*dt;
-        e.pos.z+=dz/d*e.speed*1.2f*dt;
-    }
-};
-
-struct EntitySystem {
-    std::vector<Entity> entities;
-    Vec3f               playerPos;
-    std::mt19937        rng{12345};
-};
-
-} // namespace omni::entity
+// The creatures live in Entity/Entity.h — see the note at the top of that
+// file for why they had to leave this one.
 
 namespace omni::sound {
 
@@ -1561,6 +1358,11 @@ Java_com_omni_backrooms_NativeBridge_destroyCore(JNIEnv*, jobject) {
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_initEntities(JNIEnv*, jobject) {
     gEntitySys.entities.clear();
+    // The AI reads the world to decide what it can see. A Level0Field is a pure
+    // function of its seed, so a second one with the same seed is the same
+    // world — no pointer into gField to keep alive, no ordering to get wrong.
+    gEntitySys.field.setSeed(gField.seed());
+    gEntitySys.sense = omni::entity::WorldSense{};
     LOGI_E("EntitySystem initialized");
 }
 
@@ -1575,7 +1377,7 @@ Java_com_omni_backrooms_NativeBridge_spawnEntity(
     Entity e{};
     e.pos={x,y,z}; e.speed=speed; e.hearRadius=hear; e.sightRadius=sight;
     e.aggroRadius=aggro; e.attackRadius=1.4f;
-    e.type=static_cast<EntityType>(typeId%8); e.state=AIState::Wander;
+    e.type=static_cast<EntityType>(typeId%kEntityTypeCount); e.state=AIState::Wander;
     e.hp=e.maxHp=100.0f; e.wanderTimer=1.0f;
     e.ambushTimer=5.0f+std::uniform_real_distribution<float>(0,5)(gEntitySys.rng);
     e.active=true; e.id=id;
@@ -1586,31 +1388,52 @@ Java_com_omni_backrooms_NativeBridge_spawnEntity(
 JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_tickEntities(
         JNIEnv* env, jobject,
-        jfloat px, jfloat py, jfloat pz, jfloat dt) {
+        jfloat px, jfloat py, jfloat pz, jfloat dt,
+        jfloat noise, jfloat torchX, jfloat torchZ, jboolean torchOn) {
     using namespace omni::entity;
-    gEntitySys.playerPos={px,py,pz};
-    for(auto& e: gEntitySys.entities){ if(!e.active) continue; BehaviorTree::tick(e,gEntitySys.playerPos,dt,gEntitySys.rng); }
-    const int fpn=10;
-    auto count=static_cast<jsize>(gEntitySys.entities.size()*fpn);
-    auto arr=env->NewFloatArray(count); if(!arr) return nullptr;
+    gEntitySys.sense.playerPos = {px, py, pz};
+    gEntitySys.sense.noise     = noise;
+    gEntitySys.sense.torchX    = torchX;
+    gEntitySys.sense.torchZ    = torchZ;
+    gEntitySys.sense.torchOn   = (torchOn == JNI_TRUE);
+    gEntitySys.tick(dt);
+
+    const int fpn = 11;
+    auto count = static_cast<jsize>(gEntitySys.entities.size() * fpn);
+    auto arr = env->NewFloatArray(count); if(!arr) return nullptr;
     std::vector<float> flat; flat.reserve(count);
     for(const auto& e: gEntitySys.entities){
         flat.push_back(e.pos.x); flat.push_back(e.pos.y); flat.push_back(e.pos.z);
         flat.push_back(static_cast<float>(e.state)); flat.push_back(e.bb.alertLevel);
         flat.push_back(e.hp/e.maxHp); flat.push_back(e.flickerInfluence);
         flat.push_back(e.bb.playerInSight?1.0f:0.0f); flat.push_back(static_cast<float>(e.type));
-        flat.push_back(e.active?1.0f:0.0f);
+        flat.push_back(e.active?1.0f:0.0f); flat.push_back(e.dissolve);
     }
     env->SetFloatArrayRegion(arr,0,count,flat.data());
     return arr;
 }
 
+/**
+ * Drives a creature off. Not kills it — nothing in the Backrooms dies.
+ *
+ * Damage now spends into the same exposure meter the torch fills, so being hurt
+ * and being held in the beam are one mechanic with two inputs, and both end the
+ * same way: it breaks off, fades out, waits, and comes back. Deactivating the
+ * entity, which is what this did before, removed it from the level for good and
+ * quietly turned every encounter into a fight the player could finish.
+ */
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_damageEntity(JNIEnv*, jobject, jint id, jfloat amount) {
     if(id<0||id>=static_cast<int>(gEntitySys.entities.size())) return;
     auto& e=gEntitySys.entities[id];
     e.hp=std::max(0.0f,e.hp-amount);
-    if(e.hp<=0.0f) e.active=false;
+    // 100 damage is a full meter, so the existing 25-per-hit call takes four
+    // hits — the same number of blows it used to take, with a different ending.
+    e.torchExposure += omni::entity::kRetreatExposure * (amount / 100.0f);
+    if(e.hp<=0.0f){
+        e.hp = e.maxHp;
+        e.torchExposure = omni::entity::kRetreatExposure;
+    }
 }
 
 JNIEXPORT jfloat JNICALL
@@ -1618,7 +1441,7 @@ Java_com_omni_backrooms_NativeBridge_getTotalFlickerInfluence(JNIEnv*, jobject) 
     float total=0.0f;
     for(const auto& e: gEntitySys.entities){
         if(!e.active) continue;
-        float d=omni::entity::dist3d(e.pos,gEntitySys.playerPos);
+        float d=omni::entity::dist3d(e.pos,gEntitySys.sense.playerPos);
         float falloff=std::max(0.0f,1.0f-d/15.0f);
         total+=e.flickerInfluence*falloff;
     }

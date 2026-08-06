@@ -35,7 +35,8 @@ NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
 KOTLIN = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms")
 
 # Modules with no Android dependency, so they can be compiled on the host.
-HOST_MODULES = ["Map/Level_0.cpp", "Frame/Frame.cpp", "Trail/Trail.cpp"]
+HOST_MODULES = ["Map/Level_0.cpp", "Frame/Frame.cpp", "Trail/Trail.cpp",
+                "Entity/Entity.cpp"]
 
 JNI_PREFIX = "Java_com_omni_backrooms_NativeBridge_"
 
@@ -85,6 +86,138 @@ def kotlin_externals() -> set[str]:
         i += 1
     body = text[m.end():i]
     return set(re.findall(r"external fun\s+([A-Za-z0-9_]+)\s*\(", body))
+
+
+# Kotlin type -> the JNI type it arrives as. Only the types this bridge
+# actually uses; anything else is reported rather than silently accepted.
+KOTLIN_TO_JNI = {
+    "Int": "jint", "Long": "jlong", "Float": "jfloat", "Double": "jdouble",
+    "Boolean": "jboolean", "Byte": "jbyte", "Short": "jshort", "Char": "jchar",
+    "String": "jstring", "String?": "jstring",
+    "FloatArray": "jfloatArray", "FloatArray?": "jfloatArray",
+    "IntArray": "jintArray", "IntArray?": "jintArray",
+    "ByteArray": "jbyteArray", "ByteArray?": "jbyteArray",
+    # Anything that crosses as a plain object reference.
+    "Bitmap": "jobject", "Any": "jobject", "Any?": "jobject", "Object": "jobject",
+}
+
+
+def _split_params(text: str) -> list[str]:
+    """Top-level comma split, so a generic or a default value cannot break it."""
+    out, depth, cur = [], 0, ""
+    for ch in text:
+        if ch in "(<[":
+            depth += 1
+        elif ch in ")>]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur); cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur)
+    return [p.strip() for p in out if p.strip()]
+
+
+def kotlin_signatures(body: str) -> dict[str, list[str]]:
+    """Parameter types of each `external fun`, in order."""
+    sigs = {}
+    for m in re.finditer(r"external fun\s+([A-Za-z0-9_]+)\s*\(", body):
+        i, depth = m.end() - 1, 0
+        while i < len(body):
+            if body[i] == "(":
+                depth += 1
+            elif body[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        params = _split_params(body[m.end():i])
+        sigs[m.group(1)] = [p.split(":", 1)[1].strip() for p in params if ":" in p]
+    return sigs
+
+
+def native_signatures() -> dict[str, list[str]]:
+    """Parameter types of each JNI definition, after JNIEnv* and jobject."""
+    sigs = {}
+    for path in glob.glob(os.path.join(NATIVE, "**/*.cpp"), recursive=True):
+        text = open(path, encoding="utf-8").read()
+        for m in re.finditer(re.escape(JNI_PREFIX) + r"([A-Za-z0-9_]+)\s*\(", text):
+            i, depth = m.end() - 1, 0
+            while i < len(text):
+                if text[i] == "(":
+                    depth += 1
+                elif text[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            params = _split_params(text[m.end():i])
+            # Drop the two the JVM always supplies.
+            params = params[2:]
+            types = []
+            for p in params:
+                p = p.strip()
+                # "jfloat x" -> jfloat; a bare "jfloat" (unnamed) -> jfloat
+                types.append(p.split()[0] if p.split() else p)
+            sigs[m.group(1)] = types
+    return sigs
+
+
+def check_jni_signatures() -> None:
+    """
+    Arity and types, not just names.
+
+    JNI resolves by name alone when a method is not overloaded, so a native
+    function that takes four floats will happily bind to a Kotlin declaration
+    that passes eight. Nothing errors. The extra arguments are read off the
+    stack as whatever happened to be there, and the symptom is a creature that
+    behaves strangely on some devices and correctly on others.
+
+    This is the one contract in the project with no compiler behind it at all,
+    which is exactly why it is worth spelling out here.
+    """
+    section("JNI signatures")
+    src = os.path.join(KOTLIN, "Service.kt")
+    if not os.path.exists(src):
+        return
+    text = open(src, encoding="utf-8").read()
+    m = re.search(r"class NativeBridge[^{]*\{", text)
+    if not m:
+        return
+    i, depth = m.end() - 1, 0
+    while i < len(text):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    kt = kotlin_signatures(text[m.end():i])
+    cpp = native_signatures()
+
+    checked = 0
+    for name, kparams in sorted(kt.items()):
+        if name not in cpp:
+            continue                        # already reported by the name check
+        nparams = cpp[name]
+        if len(kparams) != len(nparams):
+            failures.append(
+                f"{name}: Kotlin passes {len(kparams)} argument(s), native takes "
+                f"{len(nparams)} — JNI binds by name and will not catch this")
+            continue
+        for pos, (k, n) in enumerate(zip(kparams, nparams)):
+            want = KOTLIN_TO_JNI.get(k)
+            if want is None:
+                failures.append(f"{name}: argument {pos + 1} has Kotlin type "
+                                f"'{k}', which this check does not know")
+            elif want != n:
+                failures.append(f"{name}: argument {pos + 1} is {k} in Kotlin "
+                                f"but {n} in native (expected {want})")
+        checked += 1
+    print(f"   {checked} signature(s) compared, "
+          f"{sum(1 for f in failures if f.split(':')[0] in kt)} mismatch(es)")
 
 
 def check_jni_contract() -> None:
@@ -148,6 +281,7 @@ def check_host_build() -> None:
 
 def main() -> int:
     check_jni_contract()
+    check_jni_signatures()
     check_cmake_sources()
     check_host_build()
 

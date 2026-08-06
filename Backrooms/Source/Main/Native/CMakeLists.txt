@@ -24,11 +24,17 @@ add_library(
     Map/Level_0.cpp
     Frame/Frame.cpp
     Trail/Trail.cpp
+    Entity/Entity.cpp
 )
 
 # Map/ holds level generation. Kept out of Engine.cpp because it is the part
 # most likely to be iterated on, and it has no business sharing a translation
 # unit with audio, netcode and the anti-tamper guard.
+#
+# Entity/ holds the creatures. Their behaviour is the least inspectable code
+# in the game and was the only part that could not be built without a device;
+# on its own it compiles against Map/ alone, so Entity_Check.py can put a
+# creature in a corridor and watch what it does.
 #
 # Frame/ and Trail/ hold the cosmetics. A frame's silhouette and a trail's
 # ageing rules are content, and content that was previously a switch on a

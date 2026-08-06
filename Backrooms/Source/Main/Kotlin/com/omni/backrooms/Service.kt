@@ -140,7 +140,14 @@ class NativeBridge @Inject constructor() {
     external fun destroySound()
     external fun initEntities()
     external fun spawnEntity(x: Float, y: Float, z: Float, speed: Float, hear: Float, sight: Float, aggro: Float, typeId: Int): Int
-    external fun tickEntities(px: Float, py: Float, pz: Float, dt: Float): FloatArray?
+    /** [noise] is how loud the player is this tick, 0..1, and it scales every
+     *  creature's hearing radius. [torchX]/[torchZ] are the look direction on
+     *  the ground plane; together with [torchOn] they are the flashlight cone
+     *  the AI is driven off by. */
+    external fun tickEntities(
+        px: Float, py: Float, pz: Float, dt: Float,
+        noise: Float, torchX: Float, torchZ: Float, torchOn: Boolean
+    ): FloatArray?
     external fun damageEntity(id: Int, amount: Float)
     external fun getTotalFlickerInfluence(): Float
     external fun destroyEntities()
@@ -447,10 +454,17 @@ data class EntityState(
     val flickerInfluence: Float,
     val playerInSight   : Boolean,
     val typeId          : Int,
-    val isActive        : Boolean
+    val isActive        : Boolean,
+    /** 0 solid, 1 fully faded out. Rises while the flashlight drives it off and
+     *  falls again when it comes back — nothing here dies, so this is the only
+     *  thing that ever takes a creature off the screen. */
+    val dissolve        : Float = 0f
 ) {
+    /** Fully dissolved and waiting somewhere out of sight. Still simulated. */
+    val isAway: Boolean get() = dissolve >= 0.999f
+
     companion object {
-        const val FLOATS_PER_ENTITY = 10
+        const val FLOATS_PER_ENTITY = 11
 
         fun fromFloatArray(data: FloatArray, index: Int, id: Int): EntityState? {
             val base = index * FLOATS_PER_ENTITY
@@ -458,7 +472,7 @@ data class EntityState(
             return EntityState(
                 id, data[base], data[base+1], data[base+2], data[base+3].toInt(),
                 data[base+4], data[base+5], data[base+6], data[base+7] > 0.5f,
-                data[base+8].toInt(), data[base+9] > 0.5f
+                data[base+8].toInt(), data[base+9] > 0.5f, data[base+10]
             )
         }
 
@@ -558,8 +572,14 @@ private fun pickRingPoint(world: WorldInfo, aroundX: Float, aroundZ: Float, minD
  *  through every lore creature with its correct native AI id. */
 fun spawnInitialEntities(bridge: NativeBridge, world: WorldInfo, cfg: SpawnConfig) {
     if (!world.isValid) return
+    // Which creature Level 0 gets is chosen from the world itself rather than
+    // from the loop index, so its one resident is not the same one every single
+    // run — and, because it comes from the seed, two players in the same room
+    // are stalked by the same thing without exchanging a byte about it.
+    val residentOffset = (world.spawnX.toInt() * 31 + world.spawnZ.toInt())
+        .mod(EntityType.entries.size)
     repeat(cfg.count) { i ->
-        val entity = EntityType.entries[i % EntityType.entries.size]
+        val entity = EntityType.entries[(residentOffset + i) % EntityType.entries.size]
         val (sx, sz) = pickRingPoint(world, world.spawnX, world.spawnZ, minDist = 24f)
         bridge.spawnEntity(
             x = sx, y = 0f, z = sz,
@@ -595,20 +615,72 @@ data class TickDerived(
     val damage     : Float
 )
 
+/**
+ * What the player is giving away this tick.
+ *
+ * How loud you are is a decision, and it needs to reach the AI as one number
+ * rather than as three booleans it has to interpret. Crouching is close enough
+ * to silent that a creature has to nearly walk into you; sprinting carries
+ * across a whole wing. Standing still is quieter than walking but not silent —
+ * you are still breathing, and a value of zero would make "stop moving" an
+ * exploit rather than a tactic.
+ */
+data class PlayerSense(
+    val noise  : Float,
+    val torchX : Float,
+    val torchZ : Float,
+    val torchOn: Boolean
+) {
+    companion object {
+        /** Head-bob amplitude is set natively to `speed * 0.04`, so it is a
+         *  measurement of how fast the body is actually moving rather than a
+         *  guess from which button is held — which matters, because being
+         *  shoved by a creature or sliding down a step is noise too. */
+        private const val BOB_TO_METRES_PER_SECOND = 25f
+        private const val SPRINT_SPEED = 6f
+
+        fun from(state: GameState, cam: CameraSnapshot?): PlayerSense {
+            val speed = ((cam?.bobAmount ?: 0f) * BOB_TO_METRES_PER_SECOND)
+                .coerceIn(0f, SPRINT_SPEED)
+            val effort = speed / SPRINT_SPEED
+            val noise = if (state.isCrouching) 0.05f + effort * 0.14f
+                        else                   0.20f + effort * 0.80f
+
+            // Native yaw is in degrees, and forward on the ground plane is
+            // (sin yaw, cos yaw) — the same basis the renderer builds the view
+            // from, so the cone points exactly where the beam is drawn.
+            val yaw = Math.toRadians((cam?.yaw ?: 0f).toDouble())
+            return PlayerSense(
+                noise,
+                kotlin.math.sin(yaw).toFloat(),
+                kotlin.math.cos(yaw).toFloat(),
+                state.flashlightOn && state.flashlightBattery > 0f
+            )
+        }
+    }
+}
+
 /** Advances the native sim by [dt] and reads back camera/entity state. Do not
  *  call this from more than one place per logical frame — physicsTick/
  *  tickEntities mutate native state, so calling it twice per frame from two
  *  hosts at once would double-advance the simulation. */
-fun stepSimulation(bridge: NativeBridge, dt: Float): TickDerived {
+fun stepSimulation(bridge: NativeBridge, dt: Float, state: GameState): TickDerived {
     bridge.physicsTick(dt)
     val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
     if (cam != null) bridge.setListenerPos(cam.posX, cam.posY, cam.posZ)
+    val sense = PlayerSense.from(state, cam)
     val entityList = EntityState.listFromFloatArray(
-        bridge.tickEntities(cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt)
+        bridge.tickEntities(
+            cam?.posX ?: 0f, cam?.posY ?: 0f, cam?.posZ ?: 0f, dt,
+            sense.noise, sense.torchX, sense.torchZ, sense.torchOn
+        )
     )
     val flicker = bridge.getTotalFlickerInfluence()
     val nearbyCount = entityList.count { e ->
-        if (!e.isActive || cam == null) return@count false
+        // A creature that has been driven off is not there. Counting it would
+        // drain sanity from something the player cannot see, hear or do
+        // anything about — a hidden penalty for having used the torch.
+        if (!e.isActive || e.isAway || cam == null) return@count false
         val dx = e.posX - cam.posX; val dz = e.posZ - cam.posZ
         dx * dx + dz * dz < 625f // within 25 units
     }
@@ -817,7 +889,7 @@ class SessionService : Service() {
                 val dt  = ((now - lastTickMs).coerceIn(1, 100)).toFloat() / 1000f
                 lastTickMs = now; elapsedMs += (dt * 1000).toLong()
                 val wasGameOver = _gameState.value.isGameOver
-                val derived = stepSimulation(bridge, dt)
+                val derived = stepSimulation(bridge, dt, _gameState.value)
                 _gameState.update { applyTickToState(it, derived, dt, elapsedMs, score) }
                 if (!wasGameOver && _gameState.value.isGameOver) onGameOver()
                 delay(16)
