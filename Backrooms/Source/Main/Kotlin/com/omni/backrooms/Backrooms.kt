@@ -1111,6 +1111,9 @@ class MarketVM @Inject constructor(
                     cosmetics.setTrail(key)
                 }
                 item.id.startsWith("priv_") || item.category == "vip" -> {
+                    // VIP is an entitlement, not a cosmetic: it doubles what a
+                    // run pays out, so it has to be readable offline.
+                    cosmetics.setVip(true)
                     // Straight from the native catalogue, so a frame added there
                     // is covered without anyone remembering to update a list.
                     runCatching {
@@ -1204,7 +1207,12 @@ class MarketVM @Inject constructor(
             )
         )
         MarketTab.Vip -> listOf(
-            MarketItemDto("priv_all","Tüm Ayrıcalıklar","All Privileges","Şu an ücretsiz — tüm görsel ayrıcalıklar açık","Free right now — every cosmetic privilege unlocked","vip",0,"soulium",null,false,false,true,null)
+            MarketItemDto(
+                "priv_all", "VIP", "VIP",
+                "Her Koşudan 2 Kat Omnium, Ve Tüm Görsel Ayrıcalıklar",
+                "Double Omnium From Every Run, And Every Cosmetic Privilege",
+                "vip", 0, "soulium", null, false, false, true, null
+            )
         )
         else -> emptyList()
     }
@@ -1342,6 +1350,8 @@ class GameVM @Inject constructor(
         /** Omnium per minute survived, plus a bonus for actually getting out. */
         const val OMNIUM_PER_MINUTE = 12L
         const val OMNIUM_ESCAPE_BONUS = 150L
+        /** What VIP is actually worth: every run pays double. */
+        const val VIP_OMNIUM_MULTIPLIER = 2L
     }
 
     /** Grid for the currently loaded level; kept here (not just in GameState) so the
@@ -1374,6 +1384,9 @@ class GameVM @Inject constructor(
 
             val cfg = assetManager.getSpawnConfig(useDiff)
             spawnInitialEntities(bridge, world, cfg)
+
+            // Entitlement for this run, sampled now — see vipRun.
+            vipRun = runCatching { cosmetics.observeVip().first() }.getOrDefault(false)
 
             // Equip the trail and start it empty. Without the clear, a second
             // run inherits the marks from the first and the player spawns
@@ -1573,8 +1586,16 @@ class GameVM @Inject constructor(
     private fun startScoreAccumulator() {
         scoreJob = viewModelScope.launch {
             while (isActive) {
-                if (!_state.value.isPaused)
-                    score += when (_state.value.difficulty) { "hard" -> 5L; "normal" -> 3L; else -> 1L }
+                // Exactly the same guard the clock needs, and for exactly the
+                // same reason: this only ever checked isPaused, so after the
+                // player died the score carried on ticking up once a second
+                // behind the results screen they were reading. A finished run's
+                // score is a fact, not a running total.
+                val s = _state.value
+                val runOver = s.isGameOver || s.isEscaped || s.isMadnessOver
+                if (!s.isPaused && !runOver) {
+                    score += when (s.difficulty) { "hard" -> 5L; "normal" -> 3L; else -> 1L }
+                }
                 delay(1_000)
             }
         }
@@ -1751,12 +1772,24 @@ class GameVM @Inject constructor(
         }
     }
 
+    /**
+     * VIP, sampled once when the run starts.
+     *
+     * Read at the start rather than at payout so a player cannot buy VIP from
+     * another device mid-run and have it apply retroactively to time they
+     * already survived without it.
+     */
+    @Volatile private var vipRun = false
+
     /** Survival is the whole point of the mode, so it is what pays. */
     private fun omniumForRun(elapsed: Long, escaped: Boolean): Long {
         val minutes = elapsed / 60_000f
         val base = (minutes * OMNIUM_PER_MINUTE).toLong()
         val bonus = if (escaped) OMNIUM_ESCAPE_BONUS else 0L
-        return (base + bonus).coerceAtLeast(0L)
+        // VIP doubles the whole payout, escape bonus included — a multiplier
+        // that skipped the bonus would quietly punish the players who finish.
+        val vipMult = if (vipRun) VIP_OMNIUM_MULTIPLIER else 1L
+        return ((base + bonus) * vipMult).coerceAtLeast(0L)
     }
 
     /**
@@ -2044,18 +2077,18 @@ fun MainMenu(
             horizontalAlignment   = Alignment.End
         ) {
             PremiumEventButton(
-                label   = stringResource(R.string.menu_play_offline),
-                accent  = SuccessGreen,
-                onClick = { showOfflineChoice = true },
-                modifier = Modifier.width(226.dp),
-                glyph   = { drawOfflineGlyph(it) }
-            )
-            PremiumEventButton(
                 label   = stringResource(R.string.menu_play_online),
                 accent  = OmniumCol,
                 onClick = onOnline,
                 modifier = Modifier.width(226.dp),
                 glyph   = { drawOnlineGlyph(it) }
+            )
+            PremiumEventButton(
+                label   = stringResource(R.string.menu_play_offline),
+                accent  = SuccessGreen,
+                onClick = { showOfflineChoice = true },
+                modifier = Modifier.width(226.dp),
+                glyph   = { drawOfflineGlyph(it) }
             )
         }
 
@@ -6839,7 +6872,7 @@ fun GameOverOverlay(gameState: GameState, onExit: () -> Unit) {
             OmniumAwardRow(gameState.omniumEarned)
             StatRow(stringResource(R.string.game_stat_score),      gameState.score.toString(),       Yellow)
             StatRow(stringResource(R.string.game_stat_kills),      gameState.kills.toString(),       DangerRed)
-            StatRow(stringResource(R.string.game_stat_difficulty), gameState.difficulty.uppercase(), CrtAmber)
+            StatRow(stringResource(R.string.game_stat_difficulty), gameState.difficulty.titleCase(), CrtAmber)
             DividerLine()
             AtmosphericButton(stringResource(R.string.game_return_lobby), Icons.Default.ExitToApp, DangerRed, 220.dp, 50.dp, onExit)
         }
@@ -6909,7 +6942,7 @@ fun EscapedOverlay(gameState: GameState, onExit: () -> Unit) {
             OmniumAwardRow(gameState.omniumEarned)
             StatRow(stringResource(R.string.game_stat_score),      gameState.score.toString(),       Yellow)
             StatRow(stringResource(R.string.game_stat_kills),      gameState.kills.toString(),       DangerRed)
-            StatRow(stringResource(R.string.game_stat_difficulty), gameState.difficulty.uppercase(), CrtAmber)
+            StatRow(stringResource(R.string.game_stat_difficulty), gameState.difficulty.titleCase(), CrtAmber)
             DividerLine()
             AtmosphericButton(
                 stringResource(R.string.game_return_lobby), Icons.Default.ExitToApp,
@@ -7304,7 +7337,7 @@ private fun MarketCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(item.price.toString(), color = currencyColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(item.currency.uppercase(), color = currencyColor.copy(0.7f), fontSize = 9.sp)
+                    Text(item.currency.titleCase(), color = currencyColor.copy(0.7f), fontSize = 9.sp)
                 }
             }
         }
@@ -7329,7 +7362,7 @@ private fun PurchaseConfirmDialog(item: MarketItemDto, onConfirm: () -> Unit, on
             Text(item.nameTr, color = Yellow, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Text(item.descTr, color = TextSec, fontSize = 12.sp, textAlign = TextAlign.Center)
             DividerLine()
-            Text("${item.price} ${item.currency.uppercase()}", color = OmniumCol, fontSize = 20.sp, fontWeight = FontWeight.Black)
+            Text("${item.price} ${item.currency.titleCase()}", color = OmniumCol, fontSize = 20.sp, fontWeight = FontWeight.Black)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AtmosphericButton(stringResource(R.string.common_cancel), Icons.Default.Close,    TextDim, 120.dp, 44.dp, onCancel)
                 AtmosphericButton(stringResource(R.string.market_buy),    Icons.Default.ShoppingCart, Yellow, 120.dp, 44.dp, onConfirm)
@@ -7398,7 +7431,12 @@ private fun PlayerCard(profile: PlayerProfile) {
     OmniPanel {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(46.dp).clip(CircleShape).background(MetalBg), Alignment.Center) {
-                Text(profile.name.take(1).uppercase(), color = Yellow, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                // Locale-aware: a Turkish name starting with "i" has to show
+                // "İ", and the locale-invariant uppercase() gives "I".
+                Text(
+                    profile.name.take(1).uppercase(Locale.getDefault()),
+                    color = Yellow, fontSize = 18.sp, fontWeight = FontWeight.Black
+                )
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(profile.name, color = Yellow, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -7892,6 +7930,23 @@ private fun CurrencyChip(accent: Color, amount: Long, isOmnium: Boolean) {
             formatCompactAmount(amount),
             color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
         )
+    }
+}
+
+/**
+ * Title Case, in the device's own language.
+ *
+ * Used for values that arrive as bare lowercase identifiers — "normal",
+ * "omnium" — and are then shown to the player. Locale-aware on purpose:
+ * Kotlin's own uppercase() is locale-invariant, so on a Turkish device it turns
+ * "i" into "I" rather than "İ", and every label that went through it came out
+ * misspelled.
+ */
+internal fun String.titleCase(): String {
+    val locale = Locale.getDefault()
+    return split(' ').joinToString(" ") { word ->
+        if (word.isEmpty()) word
+        else word.substring(0, 1).uppercase(locale) + word.substring(1).lowercase(locale)
     }
 }
 
@@ -8510,7 +8565,7 @@ fun PremiumEventButton(
             }
             Column {
                 Text(
-                    label.uppercase(),
+                    label,
                     color = if (enabled) Color.White else TextDim,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Black,

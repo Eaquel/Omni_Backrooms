@@ -5,7 +5,7 @@
     <string name="app_version_prefix">v</string>
     <string name="androidx_startup" translatable="false">androidx.startup</string>
     <string name="splash_presents">Presented by Eaquel</string>
-    <string name="splash_title">OMNI BACKROOMS</string>
+    <string name="splash_title">Omni Backrooms</string>
     <string name="splash_tagline">Level 0 — The Waiting Room</string>
 
     <string name="loading_text">Loading…</string>
@@ -136,14 +136,14 @@
     <string name="market_tab_daily">Daily</string>
     <string name="market_buy">Buy</string>
     <string name="market_equipped">Equipped</string>
-    <string name="market_limited">LIMITED</string>
+    <string name="market_limited">Limited</string>
     <string name="market_confirm_title">Purchase</string>
     <string name="market_purchase_success">purchased!</string>
 
     <string name="char_default_name_prefix">Player</string>
-    <string name="char_locked_label">LOCKED</string>
+    <string name="char_locked_label">Locked</string>
     <string name="char_select_label">Select</string>
-    <string name="char_active_label">ACTIVE</string>
+    <string name="char_active_label">Active</string>
     <string name="char_unlock_prefix">Unlock — </string>
     <string name="characters_unlocked">Unlocked</string>
     <string name="char_stats_hp">Health</string>
@@ -162,20 +162,20 @@
     <string name="currency_soulium">Soulium</string>
     <string name="player_level_prefix">Level </string>
 
-    <string name="game_paused">PAUSED</string>
+    <string name="game_paused">Paused</string>
     <string name="game_resume">Resume</string>
     <string name="game_exit_menu">Main Menu</string>
-    <string name="game_over_title">GAME OVER</string>
-    <string name="game_escaped_title">ESCAPED!</string>
+    <string name="game_over_title">Game Over</string>
+    <string name="game_escaped_title">Escaped!</string>
     <string name="game_stat_score">Score</string>
     <string name="game_stat_kills">Kills</string>
     <string name="game_stat_time">Time</string>
     <string name="game_stat_difficulty">Difficulty</string>
     <string name="game_hud_hp">HP</string>
-    <string name="game_hud_sanity">SAN</string>
-    <string name="game_hud_stamina">STAMINA</string>
-    <string name="game_hud_battery">BATT</string>
-    <string name="game_hud_exit_near">EXIT NEARBY — TAP</string>
+    <string name="game_hud_sanity">Sanity</string>
+    <string name="game_hud_stamina">Stamina</string>
+    <string name="game_hud_battery">Battery</string>
+    <string name="game_hud_exit_near">Exit Nearby — Tap</string>
 
     <string name="quality_low">Low</string>
     <string name="quality_medium">Medium</string>
@@ -191,7 +191,7 @@
     <string name="common_no_connection">No internet connection</string>
     <string name="common_loading">Loading…</string>
     <string name="common_retry">Retry</string>
-    <string name="common_limited_badge">LIMITED</string>
+    <string name="common_limited_badge">Limited</string>
     <string name="common_percent">%d%%</string>
     <string name="common_offline_only">Playing in offline mode</string>
 
@@ -229,15 +229,15 @@
     <string name="settings_language">Language</string>
     <string name="settings_language_system">Device Language</string>
     <string name="story_codex_title">Record Archive</string>
-    <string name="story_codex_level">LEVEL 0 — THE WAITING ROOM</string>
+    <string name="story_codex_level">Level 0 — The Waiting Room</string>
     <string name="story_codex_level_body">Endless mono-yellow office corridors. Damp carpet, humming fluorescents, rooms that lead nowhere. In some regions the lights have failed entirely — there, only your flashlight shows the way.</string>
-    <string name="story_codex_survival">SURVIVAL</string>
+    <string name="story_codex_survival">Survival</string>
     <string name="story_codex_survival_body">Sanity drains with entity proximity and flickering light, and slowly recovers in calm, lit spaces. The flashlight only consumes battery while switched on. Moving costs stamina.</string>
-    <string name="story_codex_entities">ENTITIES</string>
+    <string name="story_codex_entities">Entities</string>
     <string name="story_codex_entities_body">Eight kinds wander here, each driven by its own behaviour tree: some follow sound, some wait until you enter their line of sight, some hunt outright. An entity that enters its attack state will hurt you at close range.</string>
-    <string name="story_codex_exit">THE EXIT</string>
+    <string name="story_codex_exit">The Exit</string>
     <string name="story_codex_exit_body">Every run places the exit at the furthest point from where you landed. A prompt appears once you are close; the interact button gets you out.</string>
-    <string name="story_chapters_header">CHAPTERS</string>
+    <string name="story_chapters_header">Chapters</string>
     <string name="settings_tab_language">Language</string>
     <string name="room_server_unavailable">Cannot reach the server. Online mode is not live yet — you can play offline.</string>
     <string name="market_tab_characters_new">Characters</string>
@@ -260,11 +260,11 @@
     <string name="settings_hud_editor">Open HUD Layout</string>
     <string name="daily_resets_in">Resets in %1$s</string>
     <string name="daily_free_trial">1 Hour Free</string>
-    <string name="game_survival_label">SURVIVAL TIME</string>
-    <string name="game_next_levels_soon">NEW LEVELS ARE COMING VERY SOON</string>
+    <string name="game_survival_label">Survival Time</string>
+    <string name="game_next_levels_soon">New Levels Are Coming Very Soon</string>
     <string name="game_return_lobby">Return to Lobby</string>
     <string name="game_omnium_earned">Omnium earned</string>
-    <string name="game_madness_title">YOUR SANITY SWALLOWED YOU</string>
+    <string name="game_madness_title">Your Sanity Swallowed You</string>
     <string name="game_madness_sub">The corridors started talking to you, and you listened.</string>
     <string name="frame_face_of_darkness">Face of Darkness</string>
     <string name="frame_endless_dimension">Endless Dimension</string>

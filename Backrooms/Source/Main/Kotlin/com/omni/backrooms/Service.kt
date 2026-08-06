@@ -1275,7 +1275,7 @@ private fun RoomRow(room: RoomInfo, onClick: () -> Unit) {
         Text("${room.currentPlayers}/${room.maxPlayers}", color = TextSec, fontSize = 11.sp)
         Spacer(Modifier.width(10.dp))
         Text(
-            room.difficulty.uppercase(),
+            room.difficulty.titleCase(),
             fontSize     = 10.sp,
             fontWeight   = FontWeight.Bold,
             letterSpacing = 1.sp,
@@ -1660,6 +1660,7 @@ class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Co
         val OWNED_FRAMES = stringPreferencesKey("owned_frames")
         val TRAIL        = stringPreferencesKey("trail")
         val OWNED_TRAILS = stringPreferencesKey("owned_trails")
+        val VIP          = stringPreferencesKey("vip")
         val BEST_SURVIVAL= longPreferencesKey("best_survival_ms")
         val OMNIUM       = longPreferencesKey("omnium_balance")
     }
@@ -1720,6 +1721,19 @@ class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Co
 
     suspend fun setTrail(key: String) {
         runCatching { ctx.identityStore.edit { it[Keys.TRAIL] = key } }
+    }
+
+    /**
+     * VIP, held locally.
+     *
+     * The profile carries an isVip from the server, but the reward multiplier
+     * has to work on a device that is offline for a whole run — which is the
+     * mode this game is mostly played in — so entitlement is mirrored here.
+     */
+    fun observeVip(): Flow<Boolean> = ctx.identityStore.data.map { it[Keys.VIP] == "1" }
+
+    suspend fun setVip(active: Boolean) {
+        runCatching { ctx.identityStore.edit { it[Keys.VIP] = if (active) "1" else "0" } }
     }
 
     suspend fun grantTrail(key: String) = grant(Keys.OWNED_TRAILS, key)

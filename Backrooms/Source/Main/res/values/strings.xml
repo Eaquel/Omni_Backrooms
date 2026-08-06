@@ -5,7 +5,7 @@
     <string name="app_version_prefix">v</string>
     <string name="androidx_startup" translatable="false">androidx.startup</string>
     <string name="splash_presents">Eaquel tarafından sunuldu</string>
-    <string name="splash_title">OMNI BACKROOMS</string>
+    <string name="splash_title">Omni Backrooms</string>
     <string name="splash_tagline">Seviye 0 — Bekleme Odası</string>
 
     <string name="loading_text">Yükleniyor…</string>
@@ -111,14 +111,14 @@
     <string name="market_tab_daily">Günlük</string>
     <string name="market_buy">Satın Al</string>
     <string name="market_equipped">Kullanılıyor</string>
-    <string name="market_limited">SINIRLI</string>
+    <string name="market_limited">Sınırlı</string>
     <string name="market_confirm_title">Satın Al</string>
     <string name="market_purchase_success">satın alındı!</string>
 
     <string name="char_default_name_prefix">Player</string>
-    <string name="char_locked_label">KİLİTLİ</string>
+    <string name="char_locked_label">Kilitli</string>
     <string name="char_select_label">Seç</string>
-    <string name="char_active_label">AKTİF</string>
+    <string name="char_active_label">Aktif</string>
     <string name="char_unlock_prefix">Kilidi Aç — </string>
     <string name="characters_unlocked">Kilidi Açık</string>
     <string name="char_stats_hp">Can</string>
@@ -137,20 +137,20 @@
     <string name="currency_soulium">Soulium</string>
     <string name="player_level_prefix">Seviye </string>
 
-    <string name="game_paused">DURAKLANDI</string>
+    <string name="game_paused">Duraklandı</string>
     <string name="game_resume">Devam Et</string>
     <string name="game_exit_menu">Ana Menü</string>
-    <string name="game_over_title">OYUN BİTTİ</string>
-    <string name="game_escaped_title">KAÇTIN!</string>
+    <string name="game_over_title">Oyun Bitti</string>
+    <string name="game_escaped_title">Kaçtın!</string>
     <string name="game_stat_score">Skor</string>
     <string name="game_stat_kills">Öldürülen</string>
     <string name="game_stat_time">Süre</string>
     <string name="game_stat_difficulty">Zorluk</string>
     <string name="game_hud_hp">HP</string>
-    <string name="game_hud_sanity">AKL</string>
-    <string name="game_hud_stamina">STAMINA</string>
-    <string name="game_hud_battery">PİL</string>
-    <string name="game_hud_exit_near">ÇIKIŞ YAKINDA — DOKUN</string>
+    <string name="game_hud_sanity">Akıl</string>
+    <string name="game_hud_stamina">Stamina</string>
+    <string name="game_hud_battery">Pil</string>
+    <string name="game_hud_exit_near">Çıkış Yakında — Dokun</string>
 
     <string name="settings_tab_notif">Bildirimler</string>
 
@@ -163,7 +163,7 @@
     <string name="common_no_connection">İnternet bağlantısı yok</string>
     <string name="common_loading">Yükleniyor…</string>
     <string name="common_retry">Tekrar Dene</string>
-    <string name="common_limited_badge">SINIRLI</string>
+    <string name="common_limited_badge">Sınırlı</string>
     <string name="common_percent">%d%%</string>
     <string name="common_offline_only">Çevrimdışı modda oynanıyor</string>
 
@@ -232,15 +232,15 @@
     <string name="settings_language">Dil</string>
     <string name="settings_language_system">Cihaz Dili</string>
     <string name="story_codex_title">Kayıt Arşivi</string>
-    <string name="story_codex_level">SEVİYE 0 — BEKLEME ODASI</string>
+    <string name="story_codex_level">Seviye 0 — Bekleme Odası</string>
     <string name="story_codex_level_body">Sonu olmayan mono-sarı ofis koridorları. Nemli halı, uğuldayan floresanlar, boş kalan odalar. Belirli bölgelerde lambalar tamamen sönmüştür — orada yalnızca fenerinizle görürsünüz.</string>
-    <string name="story_codex_survival">HAYATTA KALMA</string>
+    <string name="story_codex_survival">Hayatta Kalma</string>
     <string name="story_codex_survival_body">Akıl sağlığınız yaratıkların yakınlığı ve ışık titremesiyle azalır; sakin ve aydınlık yerlerde yavaşça toparlanır. Fener pili sadece açıkken tükenir. Koşmak stamina harcar.</string>
-    <string name="story_codex_entities">VARLIKLAR</string>
+    <string name="story_codex_entities">Varlıklar</string>
     <string name="story_codex_entities_body">Sekiz tür dolaşır. Her biri ayrı bir davranış ağacıyla hareket eder: bazıları sesi takip eder, bazıları görüş alanına girmenizi bekler, bazıları doğrudan avlanır. Saldırı durumuna geçen bir varlık menzile girerse can kaybedersiniz.</string>
-    <string name="story_codex_exit">ÇIKIŞ</string>
+    <string name="story_codex_exit">Çıkış</string>
     <string name="story_codex_exit_body">Her koşuda çıkış, doğduğunuz noktadan en uzak konuma yerleştirilir. Yakınına vardığınızda ekranda uyarı çıkar; etkileşim tuşuyla kaçabilirsiniz.</string>
-    <string name="story_chapters_header">BÖLÜMLER</string>
+    <string name="story_chapters_header">Bölümler</string>
     <string name="settings_tab_language">Dil</string>
     <string name="room_server_unavailable">Sunucuya ulaşılamıyor. Çevrimiçi mod için sunucu henüz yayında değil — çevrimdışı oynayabilirsin.</string>
     <string name="market_tab_characters_new">Karakterler</string>
@@ -263,11 +263,11 @@
     <string name="settings_hud_editor">HUD Düzenini Aç</string>
     <string name="daily_resets_in">Yenilenmesine: %1$s</string>
     <string name="daily_free_trial">1 Saat Ücretsiz</string>
-    <string name="game_survival_label">HAYATTA KALMA SÜRESİ</string>
-    <string name="game_next_levels_soon">YENİ LEVELLER ÇOK YAKINDA EKLENECEK</string>
+    <string name="game_survival_label">Hayatta Kalma Süresi</string>
+    <string name="game_next_levels_soon">Yeni Leveller Çok Yakında Eklenecek</string>
     <string name="game_return_lobby">Lobiye Dön</string>
     <string name="game_omnium_earned">Kazanılan Omnium</string>
-    <string name="game_madness_title">AKIL SAĞLIĞIN SENİ YUTTU</string>
+    <string name="game_madness_title">Akıl Sağlığın Seni Yuttu</string>
     <string name="game_madness_sub">Koridorlar seninle konuşmaya başladı ve sen dinledin.</string>
     <string name="frame_face_of_darkness">Karanlığın Yüzü</string>
     <string name="frame_endless_dimension">Sonsuz Boyut</string>
