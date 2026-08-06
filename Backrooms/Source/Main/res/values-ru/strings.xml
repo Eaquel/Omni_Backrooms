@@ -171,6 +171,7 @@
     <string name="quality_medium">Среднее</string>
     <string name="quality_ultra">Ультра</string>
     <string name="room_create_confirm">Создать</string>
+    <string name="room_create_name_label">Название комнаты</string>
     <string name="room_create_name_hint">Название комнаты (4–12 символов)</string>
     <string name="room_create_password_hint">Введите пароль…</string>
     <string name="room_create_password_label">Защищена паролем</string>

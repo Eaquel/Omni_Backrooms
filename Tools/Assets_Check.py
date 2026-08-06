@@ -459,13 +459,29 @@ def check_inventory() -> None:
           f"{len(dupes)} duplicate group(s), {len(orphans)} orphan(s)")
 
 
+# Acronyms the game legitimately writes in capitals. In English they sit inside
+# a mixed-case sentence and pass on their own, but a Japanese or Chinese label
+# like "FPS上限" has no lowercase letter anywhere to prove it is not shouting —
+# so the acronym is removed before the test rather than special-cased after it.
+ACRONYMS = ("VIP", "FPS", "VHS", "HUD", "APK", "SFX", "UI", "HP", "PV", "OK",
+            "ID", "XP", "MS")
+
+
 def check_title_case() -> None:
     section("Title Case")
     bad = 0
     for p in sorted(glob.glob(os.path.join(RES, "values*/strings.xml"))):
         text = open(p, encoding="utf-8").read()
         for key, val in re.findall(r'<string name="([A-Za-z_0-9]+)">([^<]*)</string>', text):
-            if len(val) > 2 and any(c.isalpha() for c in val) and val == val.upper():
+            # `val == val.upper()` is trivially true for a script that has no
+            # case at all, so Chinese and Japanese would report every single
+            # line as shouting. Only judge a string that actually contains a
+            # letter with two cases to choose between.
+            body = val
+            for a in ACRONYMS:
+                body = body.replace(a, "")
+            cased = [c for c in body if c.lower() != c.upper()]
+            if len(val) > 2 and cased and body == body.upper():
                 failures.append(f"{os.path.basename(os.path.dirname(p))}/{key} is ALL CAPS: {val}")
                 bad += 1
     # Kotlin must not force it back on at the call site.
@@ -480,6 +496,71 @@ def check_title_case() -> None:
             failures.append(f"{os.path.basename(kt)}: forced uppercase on a label: {line[:90]}")
             bad += 1
     print(f"   {'ok' if bad == 0 else f'{bad} violation(s)'}")
+
+
+def check_locales() -> None:
+    """
+    Every language must be whole.
+
+    A half-translated locale is worse than no locale: Android falls back to the
+    default per *string*, so a missing key shows English in the middle of a
+    Japanese menu with nothing to warn you. Nobody notices until a player does.
+
+    The format specifiers matter just as much. `getString` on a string with a
+    stray %d and no argument throws, and it throws only in the language nobody
+    on the team reads — which is exactly how the Turkish room-size label sat
+    there rendering a literal "%d".
+
+    The count of languages is asserted too, so silently dropping one is a
+    failure rather than a quiet regression.
+    """
+    section("Locales")
+    default = os.path.join(RES, "values/strings.xml")
+    root = ET.parse(default).getroot()
+    base = {e.get("name"): (e.text or "") for e in root.findall("string")}
+    translatable = {e.get("name") for e in root.findall("string")
+                    if e.get("translatable") != "false"}
+
+    # AppLanguage is what the picker offers; the resources are what it can
+    # actually resolve. They have to agree or a chip switches to nothing.
+    service = open(os.path.join(KOTLIN, "Service.kt"), encoding="utf-8").read()
+    enum = re.search(r"enum class AppLanguage\b.*?;", service, re.S)
+    offered = re.findall(r'\(\s*"([a-z]{2})"\s*,', enum.group(0)) if enum else []
+
+    spec = re.compile(r"%(?:\d+\$)?[a-zA-Z]")
+    present = {"en"}                       # values/ is the English default
+    for path in sorted(glob.glob(os.path.join(RES, "values-*/strings.xml"))):
+        tag = os.path.basename(os.path.dirname(path)).split("-", 1)[1]
+        if not re.fullmatch(r"[a-z]{2}", tag):
+            continue                       # values-night and friends
+        present.add(tag)
+        try:
+            loc = {e.get("name"): (e.text or "")
+                   for e in ET.parse(path).getroot().findall("string")}
+        except ET.ParseError as e:
+            failures.append(f"{tag}: strings.xml does not parse — {e}")
+            continue
+
+        missing = sorted(translatable - set(loc))
+        unknown = sorted(set(loc) - set(base))
+        empty = sorted(k for k, v in loc.items() if not v.strip())
+        drift = sorted(k for k in loc if k in base
+                       and sorted(spec.findall(base[k])) != sorted(spec.findall(loc[k])))
+        for label, items in (("untranslated", missing), ("not in the default", unknown),
+                             ("empty", empty), ("format specifiers differ from English", drift)):
+            if items:
+                shown = ", ".join(items[:6]) + (f" (+{len(items) - 6} more)" if len(items) > 6 else "")
+                failures.append(f"{tag}: {len(items)} {label}: {shown}")
+        print(f"   {tag}  {len(loc):3d} strings"
+              f"{'' if not (missing or unknown or empty or drift) else '  ← see failures'}")
+
+    for tag in sorted(set(offered) - present):
+        failures.append(f"AppLanguage offers '{tag}' but there is no values-{tag}/strings.xml")
+    for tag in sorted(present - set(offered)):
+        failures.append(f"values-{tag}/ exists but AppLanguage does not offer '{tag}'")
+
+    check(len(present) == 10, f"the game is meant to ship 10 languages, found {len(present)}")
+    print(f"   {len(present)} languages, {len(translatable)} translatable strings each")
 
 
 # ===========================================================================
@@ -654,6 +735,7 @@ def main() -> int:
     check_cosmetics()
     check_inventory()
     check_title_case()
+    check_locales()
 
     print()
     for f in failures:

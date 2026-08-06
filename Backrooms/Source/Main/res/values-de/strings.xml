@@ -171,6 +171,7 @@
     <string name="quality_medium">Mittel</string>
     <string name="quality_ultra">Ultra</string>
     <string name="room_create_confirm">Erstellen</string>
+    <string name="room_create_name_label">Raumname</string>
     <string name="room_create_name_hint">Raumname (4–12 Zeichen)</string>
     <string name="room_create_password_hint">Passwort eingeben…</string>
     <string name="room_create_password_label">Passwortgeschützt</string>

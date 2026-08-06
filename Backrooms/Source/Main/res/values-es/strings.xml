@@ -171,6 +171,7 @@
     <string name="quality_medium">Media</string>
     <string name="quality_ultra">Ultra</string>
     <string name="room_create_confirm">Crear</string>
+    <string name="room_create_name_label">Nombre de la sala</string>
     <string name="room_create_name_hint">Nombre de sala (4–12 caracteres)</string>
     <string name="room_create_password_hint">Introduce la contraseña…</string>
     <string name="room_create_password_label">Protegida con contraseña</string>

@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Omni Backrooms</string>
+    <string name="splash_presents">Eaquel お届け</string>
+    <string name="splash_title">Omni Backrooms</string>
+    <string name="splash_tagline">レベル0 — 待合室</string>
+
+    <string name="loading_text">読み込み中…</string>
+    <string name="loading_stage_shaders">シェーダーをコンパイル中…</string>
+    <string name="loading_stage_assets">アセットを読み込み中…</string>
+    <string name="loading_stage_entities">エンティティを初期化中…</string>
+    <string name="loading_stage_audio">オーディオエンジンを起動中…</string>
+    <string name="loading_stage_network">接続を確認中…</string>
+    <string name="loading_stage_done">準備完了。</string>
+
+    <string name="story_title">ストーリー</string>
+    <string name="story_chapter_locked">この章はまだロックされています。</string>
+
+    <string name="menu_new_game">新しいゲーム</string>
+    <string name="menu_settings">設定</string>
+    <string name="menu_story">ストーリー</string>
+    <string name="menu_market">ショップ</string>
+    <string name="menu_leaderboard">ランキング</string>
+    <string name="menu_play_offline">オフラインで遊ぶ</string>
+    <string name="menu_play_online">オンラインで遊ぶ</string>
+    <string name="menu_profile">プロフィール</string>
+    <string name="menu_abilities">アビリティ</string>
+    <string name="menu_season">シーズン</string>
+    <string name="menu_coming_soon">近日公開</string>
+    <string name="menu_new_run">新しいゲーム</string>
+    <string name="menu_continue">つづきから</string>
+    <string name="menu_no_save">セーブデータがありません</string>
+
+    <string name="mode_select_title">ゲームモード</string>
+    <string name="mode_offline">オフライン</string>
+    <string name="mode_online">オンライン</string>
+
+    <string name="difficulty_title">難易度を選択</string>
+    <string name="difficulty_easy">かんたん</string>
+    <string name="difficulty_normal">ふつう</string>
+    <string name="difficulty_hard">むずかしい</string>
+
+    <string name="online_select_title">オンライン</string>
+    <string name="online_find_room">ルームを探す</string>
+    <string name="online_create_room">ルームを作る</string>
+
+    <string name="room_list_title">ルーム一覧</string>
+    <string name="room_list_empty">ルームが見つかりません</string>
+    <string name="room_search_hint">ルーム名を検索…</string>
+    <string name="room_filter_locked">ロック中</string>
+    <string name="room_filter_unlocked">公開</string>
+    <string name="room_page_prev">前へ</string>
+    <string name="room_page_next">次へ</string>
+    <string name="room_join">参加</string>
+    <string name="room_players_label">人</string>
+    <string name="room_ping_label">ms</string>
+    <string name="room_create_title">ルームを作る</string>
+    <string name="room_create_name_label">ルーム名</string>
+    <string name="room_create_name_hint">ルーム名（4〜12文字）</string>
+    <string name="room_create_size_label">プレイヤー数</string>
+    <string name="room_create_password_label">パスワードで保護</string>
+    <string name="room_create_password_hint">パスワードを入力…</string>
+    <string name="room_create_confirm">作成</string>
+    <string name="room_name_error_length">ルーム名は4〜12文字にしてください</string>
+    <string name="room_name_error_chars">絵文字と特殊文字は使えません</string>
+
+    <string name="settings_title">設定</string>
+    <string name="settings_tab_account">アカウント</string>
+    <string name="settings_tab_graphics">グラフィック</string>
+    <string name="settings_tab_audio">オーディオ</string>
+    <string name="settings_tab_controls">操作</string>
+    <string name="settings_tab_gameplay">ゲームプレイ</string>
+    <string name="settings_tab_notifications">通知</string>
+    <string name="settings_tab_notif">通知</string>
+    <string name="settings_color_blind">色覚サポート</string>
+    <string name="settings_fps_limit">FPS上限</string>
+    <string name="settings_vibration">振動</string>
+
+    <string name="account_change_name">名前を変更</string>
+    <string name="account_change_photo">写真を変更</string>
+    <string name="account_google_connect">Googleと連携</string>
+    <string name="account_name_hint">ユーザー名…</string>
+    <string name="account_player_name">プレイヤー名</string>
+    <string name="account_connect_google">Googleでログイン</string>
+    <string name="account_sync">同期</string>
+    <string name="account_reset">リセット</string>
+    <string name="account_remote_config_active">リモート設定が有効</string>
+
+    <string name="graphics_quality_label">グラフィック品質</string>
+    <string name="graphics_quality_low">低</string>
+    <string name="graphics_quality_medium">中</string>
+    <string name="graphics_quality_high">高</string>
+    <string name="graphics_vhs_effect">VHSエフェクト</string>
+    <string name="graphics_resolution_label">解像度</string>
+    <string name="graphics_resolution_scale">解像度スケール</string>
+    <string name="graphics_shadows">影</string>
+    <string name="graphics_antialiasing">アンチエイリアス</string>
+    <string name="graphics_fog">フォグ効果</string>
+    <string name="graphics_show_fps">FPSを表示</string>
+    <string name="graphics_show_ping">Pingを表示</string>
+
+    <string name="audio_master_volume">全体の音量</string>
+    <string name="audio_music_volume">音楽</string>
+    <string name="audio_footstep_volume">足音</string>
+    <string name="audio_monster_sfx_volume">モンスターの音</string>
+    <string name="audio_voice_volume">ボイス</string>
+    <string name="audio_vibration">振動</string>
+
+    <string name="controls_ui_layout">UIレイアウト</string>
+    <string name="controls_camera_sensitivity">カメラ感度</string>
+    <string name="controls_save_exit">保存して終了</string>
+
+    <string name="editor_btn_move">移動</string>
+    <string name="editor_btn_sprint">ダッシュ</string>
+    <string name="editor_btn_interact">調べる</string>
+    <string name="editor_btn_crouch">しゃがむ</string>
+    <string name="editor_btn_flashlight">ライト</string>
+
+    <string name="gameplay_colorblind_label">色覚サポート</string>
+    <string name="gameplay_colorblind_none">なし</string>
+    <string name="gameplay_colorblind_deuteranopia">2型色覚</string>
+    <string name="gameplay_colorblind_protanopia">1型色覚</string>
+    <string name="gameplay_colorblind_tritanopia">3型色覚</string>
+
+    <string name="notifications_label">通知</string>
+    <string name="notif_push_toggle">プッシュ通知</string>
+    <string name="notif_info_text">通知は新シーズンと特別イベントのお知らせに使われます。</string>
+
+    <string name="market_title">ショップ</string>
+    <string name="market_tab_boosts">ブースト</string>
+    <string name="market_tab_characters">キャラクター</string>
+    <string name="market_tab_soulium">ソウリウム</string>
+    <string name="market_tab_vip">特典</string>
+    <string name="market_tab_daily">デイリー</string>
+    <string name="market_buy">購入</string>
+    <string name="market_equipped">装備中</string>
+    <string name="market_limited">期間限定</string>
+    <string name="market_confirm_title">購入</string>
+    <string name="market_purchase_success">を購入しました！</string>
+
+    <string name="char_default_name_prefix">プレイヤー</string>
+    <string name="char_locked_label">ロック中</string>
+    <string name="char_select_label">選択</string>
+    <string name="char_active_label">使用中</string>
+    <string name="char_unlock_prefix">解放 — </string>
+    <string name="characters_unlocked">解放済み</string>
+    <string name="char_stats_hp">体力</string>
+    <string name="char_stats_speed">速さ</string>
+    <string name="char_stats_stealth">隠密</string>
+    <string name="char_stats_stamina">スタミナ</string>
+
+    <string name="leaderboard_title">ランキング</string>
+    <string name="leaderboard_my_rank">あなたの順位：%d位</string>
+    <string name="leaderboard_filter_all">すべて</string>
+    <string name="leaderboard_empty">まだ記録がありません</string>
+    <string name="leaderboard_prev">前へ</string>
+    <string name="leaderboard_next">次へ</string>
+
+    <string name="currency_omnium">オムニウム</string>
+    <string name="currency_soulium">ソウリウム</string>
+    <string name="player_level_prefix">レベル </string>
+
+    <string name="game_paused">一時停止</string>
+    <string name="game_resume">再開</string>
+    <string name="game_exit_menu">メインメニュー</string>
+    <string name="game_over_title">ゲームオーバー</string>
+    <string name="game_escaped_title">脱出成功！</string>
+    <string name="game_stat_score">スコア</string>
+    <string name="game_stat_kills">撃破数</string>
+    <string name="game_stat_time">時間</string>
+    <string name="game_stat_difficulty">難易度</string>
+    <string name="game_hud_hp">HP</string>
+    <string name="game_hud_sanity">正気</string>
+    <string name="game_hud_stamina">スタミナ</string>
+    <string name="game_hud_battery">バッテリー</string>
+    <string name="game_hud_exit_near">出口が近い — タップ</string>
+
+    <string name="quality_low">低</string>
+    <string name="quality_medium">中</string>
+    <string name="quality_high">高</string>
+    <string name="quality_ultra">最高</string>
+
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">キャンセル</string>
+    <string name="common_save">保存</string>
+    <string name="common_close">閉じる</string>
+    <string name="common_back">戻る</string>
+    <string name="common_error">エラーが発生しました。もう一度お試しください。</string>
+    <string name="common_no_connection">インターネットに接続されていません</string>
+    <string name="common_loading">読み込み中…</string>
+    <string name="common_retry">再試行</string>
+    <string name="common_limited_badge">期間限定</string>
+    <string name="common_offline_only">オフラインモードでプレイ中</string>
+
+    <string name="guard_threat_title">セキュリティ警告</string>
+    <string name="guard_threat_message">この端末で不正なソフトウェアを検出しました。</string>
+
+    <string name="notif_channel_session">Omni Backrooms のゲームセッション</string>
+
+    <string name="cb_none">オフ</string>
+    <string name="cb_none_desc">色はそのまま表示されます</string>
+    <string name="cb_deuteranopia">2型色覚（緑が見えにくい）</string>
+    <string name="cb_deuteranopia_desc">最も多いタイプ。赤と緑が混ざって見えるため、警告色は青とオレンジに切り替わります</string>
+    <string name="cb_protanopia">1型色覚（赤が見えにくい）</string>
+    <string name="cb_protanopia_desc">赤がくすんで見えるため、危険の合図は青とオレンジの軸を使います</string>
+    <string name="cb_tritanopia">3型色覚（青と黄が見えにくい）</string>
+    <string name="cb_tritanopia_desc">まれなタイプ。青と黄の区別がつきにくいため、コントラストは赤と緑の軸に移ります</string>
+    <string name="perm_notif_title">通知を許可</string>
+    <string name="perm_notif_body">通知はセッションのリマインダー、シーズンのお知らせ、フレンドの招待に使われます。拒否してもゲームは問題なく遊べます。</string>
+    <string name="perm_allow">許可</string>
+    <string name="perm_later">あとで</string>
+    <string name="profile_frame">フレーム</string>
+    <string name="profile_change_photo">写真を変更</string>
+    <string name="profile_best_survival">最長生存記録</string>
+    <string name="profile_frame_locked">ショップまたはイベントで解放されます</string>
+    <string name="market_tab_frames">フレーム</string>
+    <string name="market_tab_looks">見た目</string>
+    <string name="market_tab_trails">足あと</string>
+    <string name="market_cosmetic_note">ここにあるものはゲーム上の有利にはなりません。すべて見た目だけです。</string>
+    <string name="market_owned">所持済み</string>
+    <string name="room_password_required">ロックされたルームにはパスワードを入力してください</string>
+    <string name="editor_btn_jump">ジャンプ</string>
+    <string name="notif_permission_denied">システムの許可が得られていません</string>
+    <string name="notif_open_settings">システム設定を開く</string>
+    <string name="notif_permission_granted">システムの許可を取得しました</string>
+    <string name="settings_language">言語</string>
+    <string name="settings_language_system">端末の言語</string>
+    <string name="story_codex_title">記録アーカイブ</string>
+    <string name="story_codex_level">レベル0 — 待合室</string>
+    <string name="story_codex_level_body">果てしなく続く単調な黄色いオフィスの廊下。湿ったカーペット、うなる蛍光灯、どこにも通じない部屋。明かりが完全に落ちた区画もあり、そこでは懐中電灯だけが道を照らします。</string>
+    <string name="story_codex_survival">サバイバル</string>
+    <string name="story_codex_survival_body">正気はエンティティが近づくときと明かりがちらつくときに削られ、静かで明るい場所ではゆっくり回復します。懐中電灯は点灯中だけバッテリーを消費します。移動にはスタミナを使います。</string>
+    <string name="story_codex_entities">エンティティ</string>
+    <string name="story_codex_entities_body">ここには8種がさまよっており、それぞれ独自の行動ツリーで動きます。音を追うもの、視界に入るまで待つもの、はじめから狩りにくるもの。攻撃状態に入ったエンティティは至近距離であなたを傷つけます。</string>
+    <string name="story_codex_exit">出口</string>
+    <string name="story_codex_exit_body">出口は毎回、降り立った地点から最も遠い場所に配置されます。近づくと表示が出ます。調べるボタンで脱出できます。</string>
+    <string name="story_chapters_header">チャプター</string>
+    <string name="settings_tab_language">言語</string>
+    <string name="room_server_unavailable">サーバーに接続できません。オンラインモードはまだ稼働していません — オフラインで遊べます。</string>
+    <string name="market_tab_characters_new">キャラクター</string>
+    <string name="char_preview_title">キャラクタープレビュー</string>
+    <string name="char_preview_rotate">ドラッグで回転 · ピンチで拡大</string>
+    <string name="char_preview_equip">装備する</string>
+    <string name="char_preview_equipped">装備中</string>
+    <string name="char_anim_idle">待機</string>
+    <string name="char_anim_walk">歩き</string>
+    <string name="editor_btn_bars">ステータスバー</string>
+    <string name="editor_btn_pause">一時停止</string>
+    <string name="editor_btn_readouts">数値表示</string>
+    <string name="editor_size">サイズ</string>
+    <string name="editor_reset">リセット</string>
+    <string name="editor_hint">ドラッグで移動、選んでからスライダーでサイズ変更</string>
+    <string name="editor_selected">選択中</string>
+    <string name="settings_camera_view">カメラ視点</string>
+    <string name="camera_first_person">一人称</string>
+    <string name="camera_third_person">三人称</string>
+    <string name="settings_hud_editor">HUDレイアウトを開く</string>
+    <string name="daily_resets_in">%1$s 後にリセット</string>
+    <string name="daily_free_trial">1時間無料</string>
+    <string name="game_survival_label">生存時間</string>
+    <string name="game_next_levels_soon">新しいレベルがまもなく登場します</string>
+    <string name="game_return_lobby">ロビーに戻る</string>
+    <string name="game_omnium_earned">獲得オムニウム</string>
+    <string name="game_madness_title">正気があなたを飲み込んだ</string>
+    <string name="game_madness_sub">廊下があなたに語りかけ、あなたは耳を傾けてしまった。</string>
+    <string name="frame_face_of_darkness">闇の貌</string>
+    <string name="frame_endless_dimension">果てなき次元</string>
+    <string name="frame_sound_of_rooms">部屋の残響</string>
+    <string name="trail_dust">粉塵の足あと</string>
+    <string name="trail_static">ノイズの足あと</string>
+    <string name="trail_salt">塩の足あと</string>
+    <string name="profile_trail">足あと</string>
+    <string name="trail_preview_title">足あとの確認</string>
+    <string name="trail_preview_hint">歩きを見る · タップで切り替え</string>
+    <string name="guard_threat_reason">理由</string>
+</resources>

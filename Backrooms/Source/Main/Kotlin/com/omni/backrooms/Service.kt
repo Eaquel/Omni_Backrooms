@@ -1156,7 +1156,7 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                SectionLabel("ODA ADI")
+                SectionLabel(stringResource(R.string.room_create_name_label))
                 OmniTextField(s.name, vm::onName, stringResource(R.string.room_create_name_hint), error = s.nameError?.let { stringResource(it) })
 
                 SectionLabel(stringResource(R.string.room_create_size_label))
@@ -1173,32 +1173,40 @@ fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hil
 
                 DifficultySelector(s.difficulty, vm::onDifficulty)
 
-                // All five supported languages, derived from AppLanguage so this
-                // can never drift out of step with the rest of the app again.
-                // Tighter spacing and smaller type keeps five chips on one row.
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    AppLanguage.entries.forEach { lang ->
-                        val code = lang.tag.uppercase()
-                        val sel = s.language.equals(code, ignoreCase = true)
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.weight(1f).height(34.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
-                                .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(4.dp))
-                                .clickable { vm.onLanguage(code) }
-                        ) {
-                            Text(
-                                code,
-                                color = if (sel) Yellow else TextDim,
-                                fontSize = 10.sp,
-                                fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
-                                maxLines = 1
-                            )
+                // Every supported language, derived from AppLanguage so this can
+                // never drift out of step with the rest of the app again. Laid
+                // out five to a row: ten equal-weight chips on one row leaves
+                // each about 26dp on a narrow phone, which is below the touch
+                // target minimum. Chunking keeps the width the row was designed
+                // for and grows downwards as languages are added.
+                AppLanguage.entries.chunked(5).forEach { row ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        row.forEach { lang ->
+                            val code = lang.tag.uppercase()
+                            val sel = s.language.equals(code, ignoreCase = true)
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.weight(1f).height(34.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
+                                    .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(4.dp))
+                                    .clickable { vm.onLanguage(code) }
+                            ) {
+                                Text(
+                                    code,
+                                    color = if (sel) Yellow else TextDim,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1
+                                )
+                            }
                         }
+                        // Keeps the last row's chips the same width as the first
+                        // when the language count is not a multiple of five.
+                        repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
 
@@ -1812,11 +1820,16 @@ class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Co
 /** Languages the UI is actually localised for. Anything else falls back to
  *  English, which is also the default. */
 enum class AppLanguage(val tag: String, val endonym: String) {
-    ENGLISH("en", "English"),
-    TURKISH("tr", "Türkçe"),
-    SPANISH("es", "Español"),
-    RUSSIAN("ru", "Русский"),
-    GERMAN ("de", "Deutsch");
+    ENGLISH   ("en", "English"),
+    TURKISH   ("tr", "Türkçe"),
+    GERMAN    ("de", "Deutsch"),
+    SPANISH   ("es", "Español"),
+    FRENCH    ("fr", "Français"),
+    ITALIAN   ("it", "Italiano"),
+    PORTUGUESE("pt", "Português"),
+    RUSSIAN   ("ru", "Русский"),
+    JAPANESE  ("ja", "日本語"),
+    CHINESE   ("zh", "中文");
 
     companion object {
         const val SYSTEM = "system"

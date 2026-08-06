@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Omni Backrooms</string>
+    <string name="splash_presents">Eaquel tarafından sunuldu</string>
+    <string name="splash_title">Omni Backrooms</string>
+    <string name="splash_tagline">Seviye 0 — Bekleme Odası</string>
+
+    <string name="loading_text">Yükleniyor…</string>
+    <string name="loading_stage_shaders">Shader\'lar derleniyor…</string>
+    <string name="loading_stage_assets">Varlıklar yükleniyor…</string>
+    <string name="loading_stage_entities">Varlıklar başlatılıyor…</string>
+    <string name="loading_stage_audio">Ses motoru başlatılıyor…</string>
+    <string name="loading_stage_network">Ağ bağlantısı kontrol ediliyor…</string>
+    <string name="loading_stage_done">Hazır.</string>
+    <string name="story_title">Hikaye</string>
+    <string name="story_chapter_locked">Bu bölüm henüz kilitli.</string>
+    <string name="menu_new_game">Yeni Oyun</string>
+    <string name="menu_settings">Ayarlar</string>
+    <string name="menu_story">Hikaye</string>
+    <string name="menu_market">Market</string>
+    <string name="menu_leaderboard">Liderlik</string>
+    <string name="mode_select_title">Oyun Modu</string>
+    <string name="mode_offline">Çevrimdışı</string>
+    <string name="mode_online">Çevrimiçi</string>
+
+    <string name="difficulty_title">Zorluk Seç</string>
+    <string name="difficulty_easy">Kolay</string>
+    <string name="difficulty_normal">Normal</string>
+    <string name="difficulty_hard">Zor</string>
+    <string name="online_select_title">Çevrimiçi</string>
+    <string name="online_find_room">Oda Bul</string>
+    <string name="online_create_room">Oda Oluştur</string>
+
+    <string name="room_list_title">Oda Listesi</string>
+    <string name="room_list_empty">Oda bulunamadı</string>
+    <string name="room_search_hint">Oda adı ara…</string>
+    <string name="room_filter_locked">Kilitli</string>
+    <string name="room_filter_unlocked">Kilitsiz</string>
+    <string name="room_page_prev">Önceki</string>
+    <string name="room_page_next">Sonraki</string>
+    <string name="room_join">Katıl</string>
+    <string name="room_players_label">oyuncu</string>
+    <string name="room_ping_label">ms</string>
+
+    <string name="room_create_title">Oda Oluştur</string>
+    <string name="room_create_name_label">Oda Adı</string>
+    <string name="room_create_name_hint">Oda Adı (4–12 karakter)</string>
+    <string name="room_create_size_label">Oyuncu Sayısı</string>
+    <string name="room_create_password_label">Şifreli Oda</string>
+    <string name="room_create_password_hint">Şifre girin…</string>
+    <string name="room_create_confirm">Oluştur</string>
+    <string name="room_name_error_length">Oda adı 4–12 karakter olmalıdır</string>
+    <string name="room_name_error_chars">Emoji veya özel karakter kullanılamaz</string>
+
+    <string name="settings_title">Ayarlar</string>
+    <string name="settings_tab_account">Hesap</string>
+    <string name="settings_tab_graphics">Grafikler</string>
+    <string name="settings_tab_audio">Ses</string>
+    <string name="settings_tab_controls">Kontrol</string>
+    <string name="settings_tab_gameplay">Oynanış</string>
+    <string name="settings_tab_notifications">Bildirimler</string>
+
+    <string name="account_change_name">İsim Değiştir</string>
+    <string name="account_change_photo">Fotoğraf Değiştir</string>
+    <string name="account_google_connect">Google ile Bağla</string>
+    <string name="account_name_hint">Kullanıcı adı…</string>
+
+    <string name="graphics_quality_label">Grafik Kalitesi</string>
+    <string name="graphics_quality_low">Düşük</string>
+    <string name="graphics_quality_medium">Orta</string>
+    <string name="graphics_quality_high">Yüksek</string>
+    <string name="graphics_vhs_effect">VHS Efekti</string>
+    <string name="graphics_resolution_label">Çözünürlük</string>
+    <string name="graphics_shadows">Gölgeler</string>
+    <string name="graphics_antialiasing">Anti-Aliasing</string>
+    <string name="graphics_fog">Sis Efekti</string>
+    <string name="graphics_show_fps">FPS Göster</string>
+    <string name="graphics_show_ping">Ping Göster</string>
+
+    <string name="audio_music_volume">Müzik</string>
+    <string name="audio_footstep_volume">Ayak Sesleri</string>
+    <string name="audio_monster_sfx_volume">Canavar SFX</string>
+    <string name="audio_voice_volume">Ses Seviyesi</string>
+    <string name="audio_vibration">Titreşim</string>
+
+    <string name="controls_ui_layout">Arayüz Düzeni</string>
+    <string name="controls_camera_sensitivity">Kamera Hassasiyeti</string>
+    <string name="controls_save_exit">Kaydet ve Çıkış</string>
+
+    <string name="editor_btn_move">Hareket</string>
+    <string name="editor_btn_sprint">Koşu</string>
+    <string name="editor_btn_interact">Etkileş</string>
+    <string name="editor_btn_crouch">Çömel</string>
+    <string name="editor_btn_flashlight">Fener</string>
+
+    <string name="gameplay_colorblind_label">Renk Körlüğü Modu</string>
+    <string name="gameplay_colorblind_none">Yok</string>
+    <string name="gameplay_colorblind_deuteranopia">Deuteranopia</string>
+    <string name="gameplay_colorblind_protanopia">Protanopia</string>
+    <string name="gameplay_colorblind_tritanopia">Tritanopia</string>
+
+    <string name="notifications_label">Bildirimler</string>
+
+    <string name="market_title">Market</string>
+    <string name="market_tab_boosts">Boostlar</string>
+    <string name="market_tab_characters">Karakterler</string>
+    <string name="market_tab_soulium">Soulium</string>
+    <string name="market_tab_vip">Ayrıcalıklar</string>
+    <string name="market_tab_daily">Günlük</string>
+    <string name="market_buy">Satın Al</string>
+    <string name="market_equipped">Kullanılıyor</string>
+    <string name="market_limited">Sınırlı</string>
+    <string name="market_confirm_title">Satın Al</string>
+    <string name="market_purchase_success">satın alındı!</string>
+
+    <string name="char_default_name_prefix">Player</string>
+    <string name="char_locked_label">Kilitli</string>
+    <string name="char_select_label">Seç</string>
+    <string name="char_active_label">Aktif</string>
+    <string name="char_unlock_prefix">Kilidi Aç — </string>
+    <string name="characters_unlocked">Kilidi Açık</string>
+    <string name="char_stats_hp">Can</string>
+    <string name="char_stats_speed">Hız</string>
+    <string name="char_stats_stealth">Gizlilik</string>
+    <string name="char_stats_stamina">Dayanıklılık</string>
+
+    <string name="leaderboard_title">Liderlik Tablosu</string>
+    <string name="leaderboard_my_rank">Sıralaman: #%d</string>
+    <string name="leaderboard_filter_all">Tümü</string>
+    <string name="leaderboard_empty">Henüz kayıt yok</string>
+    <string name="leaderboard_prev">Önceki</string>
+    <string name="leaderboard_next">Sonraki</string>
+
+    <string name="currency_omnium">Omnium</string>
+    <string name="currency_soulium">Soulium</string>
+    <string name="player_level_prefix">Seviye </string>
+
+    <string name="game_paused">Duraklandı</string>
+    <string name="game_resume">Devam Et</string>
+    <string name="game_exit_menu">Ana Menü</string>
+    <string name="game_over_title">Oyun Bitti</string>
+    <string name="game_escaped_title">Kaçtın!</string>
+    <string name="game_stat_score">Skor</string>
+    <string name="game_stat_kills">Öldürülen</string>
+    <string name="game_stat_time">Süre</string>
+    <string name="game_stat_difficulty">Zorluk</string>
+    <string name="game_hud_hp">HP</string>
+    <string name="game_hud_sanity">Akıl</string>
+    <string name="game_hud_stamina">Stamina</string>
+    <string name="game_hud_battery">Pil</string>
+    <string name="game_hud_exit_near">Çıkış Yakında — Dokun</string>
+
+    <string name="settings_tab_notif">Bildirimler</string>
+
+    <string name="common_ok">Tamam</string>
+    <string name="common_cancel">İptal</string>
+    <string name="common_save">Kaydet</string>
+    <string name="common_close">Kapat</string>
+    <string name="common_back">Geri</string>
+    <string name="common_error">Bir hata oluştu. Lütfen tekrar deneyin.</string>
+    <string name="common_no_connection">İnternet bağlantısı yok</string>
+    <string name="common_loading">Yükleniyor…</string>
+    <string name="common_retry">Tekrar Dene</string>
+    <string name="common_limited_badge">Sınırlı</string>
+    <string name="common_offline_only">Çevrimdışı modda oynanıyor</string>
+
+    <string name="guard_threat_title">Güvenlik Uyarısı</string>
+    <string name="guard_threat_message">Bu cihazda yetkisiz yazılım tespit edildi.</string>
+
+    <string name="notif_channel_session">Omni Backrooms Oyun Oturumu</string>
+
+    <string name="menu_play_offline">Çevrimdışı Oyna</string>
+    <string name="menu_play_online">Çevrimiçi Oyna</string>
+    <string name="menu_profile">Profil</string>
+    <string name="menu_abilities">Yetenekler</string>
+    <string name="menu_season">Sezon</string>
+    <string name="menu_coming_soon">Yakında Eklenecek</string>
+    <string name="menu_new_run">Yeni Oyun</string>
+    <string name="menu_continue">Devam Et</string>
+    <string name="menu_no_save">Kaydedilen Bir Oyununuz Yok</string>
+
+    <string name="quality_low">Düşük</string>
+    <string name="quality_medium">Orta</string>
+    <string name="quality_high">Yüksek</string>
+    <string name="quality_ultra">Ultra</string>
+
+    <string name="graphics_resolution_scale">Çözünürlük Ölçeği</string>
+    <string name="audio_master_volume">Ana Ses</string>
+    <string name="settings_vibration">Titreşim</string>
+
+    <string name="account_player_name">Oyuncu Adı</string>
+    <string name="account_connect_google">Google ile Bağla</string>
+    <string name="account_sync">Senkronize Et</string>
+    <string name="account_reset">Sıfırla</string>
+    <string name="account_remote_config_active">Uzak yapılandırma aktif</string>
+
+    <string name="settings_color_blind">Renk Körlüğü Modu</string>
+    <string name="settings_fps_limit">FPS Limiti</string>
+
+    <string name="notif_push_toggle">Anlık Bildirimler</string>
+    <string name="notif_info_text">Bildirimler, yeni sezonlar ve özel etkinlikler için gönderilir.</string>
+
+    <string name="cb_none">Kapalı</string>
+    <string name="cb_none_desc">Renkler olduğu gibi gösterilir</string>
+    <string name="cb_deuteranopia">Döteranopi (Yeşil Körlüğü)</string>
+    <string name="cb_deuteranopia_desc">En yaygın tür. Kırmızı ve yeşil tonları birbirine karışır — uyarı renkleri mavi/turuncuya kaydırılır</string>
+    <string name="cb_protanopia">Protanopi (Kırmızı Körlüğü)</string>
+    <string name="cb_protanopia_desc">Kırmızı tonlar soluk görünür — tehlike göstergeleri mavi/turuncu eksende gösterilir</string>
+    <string name="cb_tritanopia">Tritanopi (Mavi-Sarı Körlüğü)</string>
+    <string name="cb_tritanopia_desc">Nadir tür. Mavi ve sarı ayırt edilemez — kontrast kırmızı/yeşil eksene taşınır</string>
+    <string name="perm_notif_title">Bildirimlere İzin Ver</string>
+    <string name="perm_notif_body">Oturum hatırlatmaları, sezon duyuruları ve arkadaş davetleri için bildirim izni gerekiyor. İstemezsen oyun tamamen normal çalışmaya devam eder.</string>
+    <string name="perm_allow">İzin Ver</string>
+    <string name="perm_later">Şimdi Değil</string>
+    <string name="profile_frame">Çerçeve</string>
+    <string name="profile_change_photo">Fotoğrafı Değiştir</string>
+    <string name="profile_best_survival">En Yüksek Hayatta Kalma</string>
+    <string name="profile_frame_locked">Bu çerçeve markette veya etkinliklerde açılır</string>
+    <string name="market_tab_frames">Çerçeveler</string>
+    <string name="market_tab_looks">Görünüm</string>
+    <string name="market_tab_trails">İzler</string>
+    <string name="market_cosmetic_note">Buradaki hiçbir ürün oyun içi avantaj sağlamaz — tamamı görsel.</string>
+    <string name="market_owned">Sahipsin</string>
+    <string name="room_password_required">Şifreli oda için şifre girmelisin</string>
+    <string name="editor_btn_jump">Zıpla</string>
+    <string name="notif_permission_denied">Sistem izni verilmedi</string>
+    <string name="notif_open_settings">Sistem Ayarlarını Aç</string>
+    <string name="notif_permission_granted">Sistem izni verildi</string>
+    <string name="settings_language">Dil</string>
+    <string name="settings_language_system">Cihaz Dili</string>
+    <string name="story_codex_title">Kayıt Arşivi</string>
+    <string name="story_codex_level">Seviye 0 — Bekleme Odası</string>
+    <string name="story_codex_level_body">Sonu olmayan mono-sarı ofis koridorları. Nemli halı, uğuldayan floresanlar, boş kalan odalar. Belirli bölgelerde lambalar tamamen sönmüştür — orada yalnızca fenerinizle görürsünüz.</string>
+    <string name="story_codex_survival">Hayatta Kalma</string>
+    <string name="story_codex_survival_body">Akıl sağlığınız yaratıkların yakınlığı ve ışık titremesiyle azalır; sakin ve aydınlık yerlerde yavaşça toparlanır. Fener pili sadece açıkken tükenir. Koşmak stamina harcar.</string>
+    <string name="story_codex_entities">Varlıklar</string>
+    <string name="story_codex_entities_body">Sekiz tür dolaşır. Her biri ayrı bir davranış ağacıyla hareket eder: bazıları sesi takip eder, bazıları görüş alanına girmenizi bekler, bazıları doğrudan avlanır. Saldırı durumuna geçen bir varlık menzile girerse can kaybedersiniz.</string>
+    <string name="story_codex_exit">Çıkış</string>
+    <string name="story_codex_exit_body">Her koşuda çıkış, doğduğunuz noktadan en uzak konuma yerleştirilir. Yakınına vardığınızda ekranda uyarı çıkar; etkileşim tuşuyla kaçabilirsiniz.</string>
+    <string name="story_chapters_header">Bölümler</string>
+    <string name="settings_tab_language">Dil</string>
+    <string name="room_server_unavailable">Sunucuya ulaşılamıyor. Çevrimiçi mod için sunucu henüz yayında değil — çevrimdışı oynayabilirsin.</string>
+    <string name="market_tab_characters_new">Karakterler</string>
+    <string name="char_preview_title">Karakter İncelemesi</string>
+    <string name="char_preview_rotate">Döndürmek için sürükle · Yakınlaştırmak için sıkıştır</string>
+    <string name="char_preview_equip">Kuşan</string>
+    <string name="char_preview_equipped">Kuşanıldı</string>
+    <string name="char_anim_idle">Bekleme</string>
+    <string name="char_anim_walk">Yürüyüş</string>
+    <string name="editor_btn_bars">Durum Barları</string>
+    <string name="editor_btn_pause">Duraklat</string>
+    <string name="editor_btn_readouts">Göstergeler</string>
+    <string name="editor_size">Boyut</string>
+    <string name="editor_reset">Sıfırla</string>
+    <string name="editor_hint">Sürükleyerek taşı, seçip kaydırıcıyla boyutlandır</string>
+    <string name="editor_selected">Seçili</string>
+    <string name="settings_camera_view">Kamera Görüşü</string>
+    <string name="camera_first_person">1. Şahıs</string>
+    <string name="camera_third_person">3. Şahıs</string>
+    <string name="settings_hud_editor">HUD Düzenini Aç</string>
+    <string name="daily_resets_in">Yenilenmesine: %1$s</string>
+    <string name="daily_free_trial">1 Saat Ücretsiz</string>
+    <string name="game_survival_label">Hayatta Kalma Süresi</string>
+    <string name="game_next_levels_soon">Yeni Leveller Çok Yakında Eklenecek</string>
+    <string name="game_return_lobby">Lobiye Dön</string>
+    <string name="game_omnium_earned">Kazanılan Omnium</string>
+    <string name="game_madness_title">Akıl Sağlığın Seni Yuttu</string>
+    <string name="game_madness_sub">Koridorlar seninle konuşmaya başladı ve sen dinledin.</string>
+    <string name="frame_face_of_darkness">Karanlığın Yüzü</string>
+    <string name="frame_endless_dimension">Sonsuz Boyut</string>
+    <string name="frame_sound_of_rooms">Odaların Sesi</string>
+    <string name="trail_dust">Toz İzi</string>
+    <string name="trail_static">Statik İz</string>
+    <string name="trail_salt">Tuz İzi</string>
+    <string name="profile_trail">İz</string>
+    <string name="trail_preview_title">İz İncelemesi</string>
+    <string name="trail_preview_hint">Yürüyüşü izle · Dokun ve değiştir</string>
+    <string name="guard_threat_reason">Sebep</string>
+</resources>
