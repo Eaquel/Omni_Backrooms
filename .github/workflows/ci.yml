@@ -41,52 +41,43 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq glslang-tools
 
+      # Every check below guards something the Gradle build genuinely cannot
+      # see. GLSL lives inside Kotlin raw strings; the level generator is an
+      # infinite pure function with no authored data to inspect; icons are
+      # hand-written vector XML that aapt2 accepts even when malformed; and the
+      # JNI contract between Kotlin and C++ is resolved by name at runtime, so
+      # nothing at build time notices when the two sides disagree.
+
       # A shader that fails to compile throws on the GL thread the first time
       # its screen is opened, and the only symptom is a black screen.
-      - name: Compile every embedded shader
-        run: python3 Tools/check_shaders.py
+      - name: Shaders
+        run: python3 Tools/Shaders_Check.py
 
-      # Sweeps the market inspection camera over its whole orbit/dolly envelope
-      # and every plausible aspect ratio. A shot that runs off the end of the
-      # backdrop, or a camera that sinks under the floor, is pure geometry — no
-      # reason to find it on a phone.
-      - name: Check the inspection camera envelope
-        run: python3 Tools/preview_cam.py
+      # Drawables, mesher UVs, the inspection camera envelope, the cosmetic
+      # catalogue, asset duplication and Title Case.
+      - name: Assets
+        run: python3 Tools/Assets_Check.py
 
-      # Every icon in the project is hand-written vector XML. A typo in a path
-      # does not fail the build — aapt2 accepts it and the icon renders as a
-      # garbled shape, or as nothing.
-      - name: Check the vector drawables
-        run: python3 Tools/drawable_check.py
-
-      # Level 0's textures are world-anchored, so a vertex's UV must equal its
-      # own world position. The ceiling silently violated that for a long time
-      # and every tile came out mirrored across its diagonal.
-      - name: Check the chunk mesher's UVs
-        run: python3 Tools/mesh_uv_check.py
-
-      # Frames and trails are content, and content that only ever runs on a
-      # phone is content nobody checks. This asserts the properties the UI
-      # depends on — including that no frame's tube can close in over the
-      # portrait it surrounds, which is the fault that got the ring deleted
-      # from the avatar in the first place.
-      - name: Probe the cosmetic catalogue
-        run: |
-          g++ -std=c++20 -O2 -Wall -Wextra -I Backrooms/Source/Main/Native \
-            Tools/cosmetic_probe.cpp \
-            Backrooms/Source/Main/Native/Frame/Frame.cpp \
-            Backrooms/Source/Main/Native/Trail/Trail.cpp \
-            -o /tmp/cosmetic_probe
-          /tmp/cosmetic_probe
+      # JNI symbols against Kotlin's external fun declarations, the CMake
+      # source list, and a warnings-as-errors host build of the modules that
+      # do not need the NDK.
+      - name: Native
+        run: python3 Tools/Native_Check.py
 
       # Floods the map from the spawn and proves the exit is actually reachable,
       # over many seeds. An unreachable exit is unwinnable and silent.
-      - name: Probe the level generator
-        run: |
-          g++ -std=c++20 -O2 -I Backrooms/Source/Main/Native \
-            Tools/level0_probe.cpp Backrooms/Source/Main/Native/Map/Level_0.cpp \
-            -o /tmp/level0_probe
-          /tmp/level0_probe 40
+      - name: Level 0
+        run: python3 Tools/Level_0_Check.py 40
+
+      # Spawn tuning, the entity model and the entity JNI surface.
+      - name: Entities
+        run: python3 Tools/Entity_Check.py
+
+      # Every sound is synthesised on device, so there is no waveform to
+      # eyeball. This asserts the generators are finite, deterministic, free of
+      # DC offset and not clipping.
+      - name: Sound
+        run: python3 Tools/Code_To_Sound.py
 
   # Runs on every branch and every pull request, not just main.
   #

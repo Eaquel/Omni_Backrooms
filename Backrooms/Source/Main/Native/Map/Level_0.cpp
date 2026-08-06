@@ -126,7 +126,9 @@ inline void sectorRooms(int sx, int sz, uint64_t seed, Room out[kRoomsPerSector]
         const uint64_t h0 = hashCell(sx, sz, seed, kSaltRoom + static_cast<uint64_t>(i) * 7ULL);
         const uint64_t h1 = mix64(h0 + 1);
         const uint64_t h2 = mix64(h0 + 2);
-        const uint64_t h3 = mix64(h0 + 3);
+        // There was an h3 here, left over from when room dimensions were drawn
+        // continuously at random. The archetype catalogue below replaced that,
+        // and nothing has read h3 since.
 
         const int baseX = sx * kSectorSize;
         const int baseZ = sz * kSectorSize;

@@ -1,30 +1,40 @@
-// ============================================================================
-// Level 0 generator probe.
-//
-// The level is an infinite pure function, which means nothing about it can be
-// eyeballed in an editor and a bad seed cannot be spotted until a player is
-// already lost in it. This exercises the generator directly on the host, over
-// many seeds, and asserts the properties a run actually depends on:
-//
-//   * the spawn is on open floor;
-//   * the exit is on open floor;
-//   * the exit is REACHABLE from the spawn — a flood fill gets there;
-//   * relocated exits are reachable too, from wherever the player has wandered;
-//   * open space is neither so sparse the level is a maze of dead ends nor so
-//     dense it is one undifferentiated hall;
-//   * every open cell has some light, so nowhere is pitch black;
-//   * the light is not FLAT — there are pools under the fittings and gloom
-//     between them, rather than one uniformly lit box;
-//   * enough of the plan is corridor that it reads as a maze rather than as one
-//     continuous open floor;
-//   * columns concentrate in the unlit halls, and never seal a corridor.
-//
-// Build and run:
-//     g++ -std=c++20 -O2 -I Backrooms/Source/Main/Native \
-//         Tools/level0_probe.cpp Backrooms/Source/Main/Native/Map/Level_0.cpp \
-//         -o /tmp/level0_probe && /tmp/level0_probe
-// ============================================================================
+#!/usr/bin/env python3
+"""
+Level_0_Check.py — the level generator probe.
 
+The level is an infinite pure function, which means nothing about it can be
+eyeballed in an editor and a bad seed cannot be spotted until a player is
+already lost in it. This exercises the generator directly on the host, over
+many seeds, and asserts the properties a run actually depends on:
+
+  * the spawn and the exit are on open floor;
+  * the exit is REACHABLE from the spawn — a flood fill gets there;
+  * relocated exits are reachable too, from wherever the player has wandered;
+  * open space is neither so sparse the level is a maze of dead ends nor so
+    dense it is one undifferentiated hall;
+  * every open cell has some light, so nowhere is pitch black;
+  * the light is not FLAT — there are pools under the fittings and gloom
+    between them. A previous tuning measured 1.00x contrast: a uniformly lit
+    light box with no pools at all, and nothing in the build could see it;
+  * enough of the plan is corridor that it reads as a maze rather than as one
+    continuous open floor;
+  * columns concentrate in the unlit halls, and never seal a corridor.
+
+The probe itself is C++ because the generator is: it is embedded below, written
+to a temporary file and compiled on demand, which keeps Tools/ to the eight
+files it is meant to have.
+
+    python3 Tools/Level_0_Check.py [seed-count]
+"""
+import os
+import subprocess
+import sys
+import tempfile
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
+
+PROBE = r"""
 #include "Map/Level_0.h"
 
 #include <algorithm>
@@ -261,3 +271,25 @@ int main(int argc, char** argv) {
                 failures ? "FAILED" : "PASSED", failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;
 }
+"""
+
+
+def main() -> int:
+    seeds = sys.argv[1] if len(sys.argv) > 1 else "40"
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "probe.cpp")
+        exe = os.path.join(tmp, "probe")
+        with open(src, "w", encoding="utf-8") as fh:
+            fh.write(PROBE)
+        build = subprocess.run(
+            ["g++", "-std=c++20", "-O2", "-I", NATIVE, src,
+             os.path.join(NATIVE, "Map/Level_0.cpp"), "-o", exe],
+            capture_output=True, text=True)
+        if build.returncode != 0:
+            print("level probe failed to compile:\n" + build.stderr[:3000])
+            return 2
+        return subprocess.run([exe, seeds]).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())
