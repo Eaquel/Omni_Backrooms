@@ -8165,38 +8165,139 @@ private fun DrawScope.marketItemArt(id: String, category: String, accent: Color,
             }
         }
         category == "characters" -> {
-            // Stylised bust: hair silhouette, face oval and the eye shape that
-            // reads as this specific character at thumbnail size.
-            val cx = size.width * 0.5f
-            drawCircle(accent.copy(0.16f), radius = size.minDimension * 0.40f, center = center)
-            val hair = Path().apply {
-                moveTo(cx, size.height * 0.12f)
-                cubicTo(size.width * 0.92f, size.height * 0.18f, size.width * 0.88f, size.height * 0.72f, size.width * 0.74f, size.height * 0.86f)
-                lineTo(size.width * 0.26f, size.height * 0.86f)
-                cubicTo(size.width * 0.12f, size.height * 0.72f, size.width * 0.08f, size.height * 0.18f, cx, size.height * 0.12f)
+            // Portrait bust.
+            //
+            // The old one was a flat brown oval on a blob of hair with two dark
+            // ovals for eyes, and it was the picture representing the game's
+            // only character. Everything below is still vector paths — this
+            // draws at 62dp in a scrolling grid, so it has to stay cheap — but
+            // it is built the way a portrait is: hair BEHIND the face and a
+            // fringe in front of it, shading that follows one light, and eyes
+            // with an iris, a pupil, a catchlight and a lash line.
+            val w = size.width; val h = size.height
+            val cx = w * 0.5f
+            val minD = size.minDimension
+            // A soft key from the upper left, so the shading below has a source.
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(accent.copy(0.26f), Color.Transparent),
+                    center = Offset(w * 0.34f, h * 0.30f), radius = minD * 0.75f
+                ),
+                radius = minD * 0.75f, center = center
+            )
+
+            val hairDark = Color(0xFF2B2440)
+            val hairLit  = Color(0xFF4A3F6B)
+            val skin     = Color(0xFFF6E2D6)
+            val skinShade= Color(0xFFE0BFB0)
+
+            // Back hair: a wide mass falling past the shoulders, so the head
+            // sits in front of something instead of floating.
+            val back = Path().apply {
+                moveTo(cx, h * 0.08f)
+                cubicTo(w * 0.97f, h * 0.18f, w * 0.93f, h * 0.74f, w * 0.84f, h * 0.94f)
+                lineTo(w * 0.16f, h * 0.94f)
+                cubicTo(w * 0.07f, h * 0.74f, w * 0.03f, h * 0.18f, cx, h * 0.08f)
                 close()
             }
-            drawPath(hair, accent.copy(0.55f))
-            drawPath(hair, accent, style = Stroke(size.minDimension * 0.05f))
+            drawPath(back, hairDark)
+
+            // Shoulders, cut off by the card edge.
+            val body = Path().apply {
+                moveTo(w * 0.20f, h * 1.02f)
+                cubicTo(w * 0.24f, h * 0.80f, w * 0.38f, h * 0.74f, cx, h * 0.74f)
+                cubicTo(w * 0.62f, h * 0.74f, w * 0.76f, h * 0.80f, w * 0.80f, h * 1.02f)
+                close()
+            }
+            drawPath(body, Color(0xFF1E2430))
+
+            // Face: a rounded jaw tapering to a chin, not an egg.
             val face = Path().apply {
-                moveTo(cx, size.height * 0.26f)
-                cubicTo(size.width * 0.76f, size.height * 0.30f, size.width * 0.74f, size.height * 0.66f, cx, size.height * 0.80f)
-                cubicTo(size.width * 0.26f, size.height * 0.66f, size.width * 0.24f, size.height * 0.30f, cx, size.height * 0.26f)
+                moveTo(cx, h * 0.22f)
+                cubicTo(w * 0.74f, h * 0.24f, w * 0.73f, h * 0.52f, w * 0.66f, h * 0.66f)
+                cubicTo(w * 0.60f, h * 0.77f, w * 0.40f, h * 0.77f, w * 0.34f, h * 0.66f)
+                cubicTo(w * 0.27f, h * 0.52f, w * 0.26f, h * 0.24f, cx, h * 0.22f)
                 close()
             }
-            drawPath(face, Color(0xFFF2DCD3))
-            // Large anime eyes.
-            listOf(0.38f, 0.62f).forEach { fx ->
-                drawOval(
-                    Color(0xFF3A2018),
-                    topLeft = Offset(size.width * (fx - 0.075f), size.height * 0.46f),
-                    size = Size(size.width * 0.15f, size.height * 0.16f)
-                )
-                drawCircle(
-                    Color.White, radius = size.minDimension * 0.028f,
-                    center = Offset(size.width * (fx + 0.012f), size.height * 0.50f)
+            drawPath(face, skin)
+            // Shading down the right side, away from the key.
+            clipPath(face) {
+                drawRect(
+                    Brush.horizontalGradient(
+                        0.45f to Color.Transparent, 1f to skinShade.copy(0.75f),
+                        startX = w * 0.30f, endX = w * 0.76f
+                    ),
+                    topLeft = Offset(0f, 0f), size = Size(w, h)
                 )
             }
+
+            // Fringe, in front of the face: a centre part with two swept
+            // sections and a strand between them. This is the single thing that
+            // most makes a bust read as a character rather than as a mannequin.
+            val fringe = Path().apply {
+                moveTo(cx, h * 0.14f)
+                cubicTo(w * 0.76f, h * 0.17f, w * 0.76f, h * 0.34f, w * 0.72f, h * 0.48f)
+                cubicTo(w * 0.70f, h * 0.34f, w * 0.64f, h * 0.28f, w * 0.54f, h * 0.30f)
+                cubicTo(w * 0.58f, h * 0.40f, w * 0.55f, h * 0.44f, w * 0.50f, h * 0.46f)
+                cubicTo(w * 0.45f, h * 0.44f, w * 0.42f, h * 0.40f, w * 0.46f, h * 0.30f)
+                cubicTo(w * 0.36f, h * 0.28f, w * 0.30f, h * 0.34f, w * 0.28f, h * 0.48f)
+                cubicTo(w * 0.24f, h * 0.34f, w * 0.24f, h * 0.17f, cx, h * 0.14f)
+                close()
+            }
+            drawPath(fringe, hairDark)
+            // A lit edge along the top of the fringe, catching the same key.
+            drawPath(
+                Path().apply {
+                    moveTo(w * 0.30f, h * 0.20f)
+                    cubicTo(w * 0.38f, h * 0.13f, w * 0.62f, h * 0.13f, w * 0.70f, h * 0.20f)
+                },
+                hairLit, style = Stroke(minD * 0.045f, cap = StrokeCap.Round)
+            )
+
+            // Eyes. Iris, pupil, catchlight and a heavier lash line along the
+            // top lid — the lash is what carries the expression at this size.
+            listOf(0.395f to -1f, 0.605f to 1f).forEach { (fx, _) ->
+                val ex = w * fx
+                val ey = h * 0.535f
+                val ew = w * 0.115f
+                val eh = h * 0.115f
+                // White of the eye.
+                drawOval(
+                    Color(0xFFFBF6F4),
+                    topLeft = Offset(ex - ew * 0.5f, ey - eh * 0.5f),
+                    size = Size(ew, eh)
+                )
+                // Iris, sat low in the eye so she is looking at the viewer.
+                drawCircle(accent.copy(0.92f), radius = eh * 0.40f, center = Offset(ex, ey + eh * 0.06f))
+                drawCircle(Color(0xFF17121F), radius = eh * 0.20f, center = Offset(ex, ey + eh * 0.06f))
+                drawCircle(
+                    Color.White.copy(0.95f), radius = eh * 0.11f,
+                    center = Offset(ex - ew * 0.16f, ey - eh * 0.14f)
+                )
+                // Lash line.
+                drawArc(
+                    Color(0xFF241C33), 190f, 160f, false,
+                    topLeft = Offset(ex - ew * 0.60f, ey - eh * 0.66f),
+                    size = Size(ew * 1.20f, eh * 1.20f),
+                    style = Stroke(minD * 0.030f, cap = StrokeCap.Round)
+                )
+            }
+            // Brows, and a small mouth. Both are two strokes and both are the
+            // difference between a face and a doll.
+            listOf(0.395f, 0.605f).forEach { fx ->
+                drawArc(
+                    hairDark.copy(0.85f), 200f, 140f, false,
+                    topLeft = Offset(w * fx - w * 0.070f, h * 0.435f),
+                    size = Size(w * 0.140f, h * 0.070f),
+                    style = Stroke(minD * 0.024f, cap = StrokeCap.Round)
+                )
+            }
+            drawArc(
+                Color(0xFFB9736B), 20f, 140f, false,
+                topLeft = Offset(cx - w * 0.045f, h * 0.640f),
+                size = Size(w * 0.090f, h * 0.045f),
+                style = Stroke(minD * 0.022f, cap = StrokeCap.Round)
+            )
         }
         id.startsWith("priv_") || category == "vip" -> {
             // Laurel-style crest for privileges.
