@@ -3442,7 +3442,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             val fogDensity = (if (rs.fogEnabled) 1.0f else 0.15f) * fogMult
             val flicker = state.flickerIntensity.coerceIn(0.55f, 1f)
             val bump = when (rs.quality) { "low" -> 0f; "high" -> 1.6f; else -> 0.9f }
-            drawLevel(vpM, eyeX, camY, eyeZ, fogDensity, flicker, bump)
+            drawLevel(vpM, eyeX, camY, eyeZ, fogDensity, flicker, bump, timeSec, world)
 
             // How fast the body is actually travelling, in metres per second and
             // smoothed. The avatar's gait is driven from this, so the limbs move
@@ -3570,7 +3570,15 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
     }
 
-    private fun drawLevel(vp: FloatArray, camX: Float, camY: Float, camZ: Float, fogDensity: Float, flicker: Float, bumpStrength: Float) {
+    private fun drawLevel(
+        vp: FloatArray, camX: Float, camY: Float, camZ: Float,
+        fogDensity: Float, flicker: Float, bumpStrength: Float,
+        /** Seconds since start — drives the level's creeping damp, the
+         *  breathing ceiling and the airborne dust. */
+        timeSec: Float,
+        /** Needed to look up the baked light under a footstep decal. */
+        world: WorldInfo
+    ) {
         GLES30.glUseProgram(sceneProgram)
         GLES30.glUniformMatrix4fv(uMVP, 1, false, vp, 0)
         GLES30.glUniform3f(uCamPos, camX, camY, camZ)
