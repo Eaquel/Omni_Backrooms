@@ -2296,6 +2296,18 @@ uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
 uniform float uBumpStrength; uniform float uBumpTexel;
 uniform vec3 uLampTint;
 /**
+ * Seconds. Everything the level's surfaces do over time is driven from here.
+ *
+ * The room used to be entirely static: every stain, seam and sag was a fixed
+ * function of world position, so the only thing that ever moved was the flicker
+ * on the tubes. A space that holds completely still reads as a diorama, and
+ * that is what made the level look flat and lifeless no matter how much detail
+ * was packed into it. Nothing below is fast — damp creeps over minutes, the
+ * ceiling breathes over tens of seconds — because in a place like this the
+ * point is that you are not sure whether it moved.
+ */
+uniform float uTime;
+/**
  * Metres-to-UV, per texture.
  *
  * The mesher emits UVs in world METRES and this converts them, because the
@@ -2311,6 +2323,18 @@ uniform vec3 uLampTint;
  */
 uniform vec2 uUvScale;
 out vec4 fragColor;
+
+// Value noise and two octaves of it. Cheap, and this only ever runs at a very
+// low spatial frequency — it is shaping metre-wide blotches, not texture.
+float vhash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(vhash(i), vhash(i + vec2(1.0, 0.0)), u.x),
+               mix(vhash(i + vec2(0.0, 1.0)), vhash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float fbm2(vec2 p){ return vnoise(p) * 0.62 + vnoise(p * 2.17 + 4.1) * 0.38; }
+
 void main(){
     vec2 uv = vUV * uUvScale;
     vec4 tex = texture(uTex, uv);
@@ -2354,8 +2378,24 @@ void main(){
         albedo = mix(albedo, albedo * 1.30 + vec3(0.035), rail * detailFade);
         // Sag: each tile dips slightly toward its middle, so a big ceiling is
         // not a mathematically flat plane.
-        float sag = 1.0 - 0.05 * (1.0 - min(d.x, d.y) * 4.0);
+        //
+        // Each tile breathes on its own phase, seeded from its own coordinates.
+        // A ceiling where every panel sags in unison is a wave; one where they
+        // drift independently is a suspended grid with something above it.
+        vec2 tileId = floor(vWorldPos.xz / 1.6);
+        float phase = fract(sin(dot(tileId, vec2(41.3, 289.1))) * 43758.5453);
+        float breathe = 1.0 + 0.35 * sin(uTime * 0.21 + phase * 6.2831);
+        float sag = 1.0 - 0.05 * breathe * (1.0 - min(d.x, d.y) * 4.0);
         albedo *= mix(1.0, sag, detailFade);
+
+        // Water damage, creeping. A blotch field whose threshold drifts, so a
+        // stain slowly spreads and pulls back over minutes rather than sitting
+        // there as printed decoration. Concentrated near the grid lines, which
+        // is where a leak actually tracks.
+        float b = fbm2(vWorldPos.xz * 0.22 + vec2(uTime * 0.006, -uTime * 0.004));
+        float creep = smoothstep(0.52 + 0.05 * sin(uTime * 0.05), 0.78, b);
+        vec3 stainCol = vec3(0.52, 0.44, 0.28);
+        albedo = mix(albedo, albedo * stainCol * 1.6, creep * 0.55 * detailFade);
     } else if (n.y > 0.5) {
         // Floor: 0.8 m carpet tiles, seams darker and the tiles alternating in
         // pile direction — the checker is subtle but it is exactly what stops a
@@ -2377,6 +2417,12 @@ void main(){
         albedo = mix(albedo, albedo * 0.74, joint * detailFade);
         float damp = (1.0 - smoothstep(0.0, 0.55, vWorldPos.y)) * 0.16;
         albedo *= 1.0 - damp * detailFade;
+        // Rising damp, creeping. The tide line drifts up and down the wall on a
+        // long period, so the wall is wetter some minutes than others.
+        float tide = 0.62 + 0.30 * sin(uTime * 0.037 + fract(u * 0.13) * 6.2831);
+        float wet = fbm2(vec2(u * 0.28, vWorldPos.y * 0.55) + vec2(uTime * 0.005, 0.0));
+        float rise = (1.0 - smoothstep(0.0, tide, vWorldPos.y)) * smoothstep(0.40, 0.72, wet);
+        albedo = mix(albedo, albedo * vec3(0.58, 0.52, 0.40), rise * 0.5 * detailFade);
     }
 
     // ---- Fully baked lighting -------------------------------------------
@@ -2404,6 +2450,19 @@ void main(){
     // is the single most recognisable thing about this palette.
     vec3 lampMix = mix(vec3(1.0), uLampTint, clamp(vLight * 0.75, 0.0, 1.0));
     vec3 col = albedo * lit * groundAO * lampMix;
+
+    // Dust in the air, drifting across the lit volume between the surface and
+    // the eye. Keyed to how brightly the surface is lit, because dust is only
+    // ever visible where there is light to catch it — under a working tube you
+    // see the air, in a dead hall you do not. This is what stops a long
+    // corridor from being an empty plane of colour receding to fog.
+    float dustField = fbm2(vec2(vWorldPos.x * 0.5 + uTime * 0.05,
+                                vWorldPos.z * 0.5 - uTime * 0.031)
+                           + vec2(vWorldPos.y * 0.3, 0.0));
+    float dust = smoothstep(0.55, 0.95, dustField)
+               * clamp(vLight, 0.0, 1.4)
+               * smoothstep(1.0, 9.0, dist) * 0.06;
+    col += uLampTint * dust * uFlicker;
 
     float fog = 1.0 - exp(-uFogDensity * dist * dist * 0.008);
     col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
@@ -3008,6 +3067,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var uFogDensity = 0
     private var uFogColor = 0; private var uFlicker = 0
     private var uBumpStrength = 0; private var uBumpTexel = 0; private var uLampTint = 0
+    /** Drives the level's creeping damp, breathing ceiling and airborne dust. */
+    private var uSceneTime = 0
     private var uUvScale = 0
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
@@ -3115,6 +3176,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         uBumpStrength = GLES30.glGetUniformLocation(sceneProgram, "uBumpStrength")
         uBumpTexel = GLES30.glGetUniformLocation(sceneProgram, "uBumpTexel")
         uLampTint = GLES30.glGetUniformLocation(sceneProgram, "uLampTint")
+        uSceneTime = GLES30.glGetUniformLocation(sceneProgram, "uTime")
         uUvScale = GLES30.glGetUniformLocation(sceneProgram, "uUvScale")
 
         billboardProgram = linkGlProgram(OMNI_BILLBOARD_VERT, OMNI_BILLBOARD_FRAG)
@@ -3519,6 +3581,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glUniform3f(uFogColor, 0.16f, 0.145f, 0.085f)
         GLES30.glUniform1f(uFlicker, flicker)
         GLES30.glUniform3f(uLampTint, 1.0f, 0.94f, 0.66f)
+        GLES30.glUniform1f(uSceneTime, timeSec)
         // Bump detail scales with quality: off on low, subtle on medium, full
         // on high. The texel step controls how coarse the derived relief is.
         GLES30.glUniform1f(uBumpStrength, bumpStrength)
@@ -6863,7 +6926,10 @@ private fun OmniumAwardRow(amount: Long) {
     ) {
         Text(stringResource(R.string.game_omnium_earned), color = TextSec, fontSize = 11.sp)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            androidx.compose.foundation.Canvas(Modifier.size(13.dp)) { drawOmniumGlyph(OmniumCol.copy(shine)) }
+            val coinClock = rememberFrameClock()
+            androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+                drawOmniumCoin(OmniumCol.copy(shine), coinClock)
+            }
             Text(
                 "+${formatCurrency(amount)}",
                 color = OmniumCol.copy(shine), fontSize = 14.sp, fontWeight = FontWeight.Black
@@ -7283,10 +7349,12 @@ private fun CurrencyBadge(amount: Long, color: Color, isOmnium: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // Identical glyph to the lobby wallet, so the same currency never
-        // appears with two different symbols.
-        androidx.compose.foundation.Canvas(Modifier.size(13.dp)) {
-            if (isOmnium) drawOmniumGlyph(color.copy(shimmer)) else drawSouliumGlyph(color.copy(shimmer))
+        // Identical solid to the lobby wallet, so the same currency never
+        // appears as two different objects.
+        val clock = rememberFrameClock()
+        androidx.compose.foundation.Canvas(Modifier.size(16.dp)) {
+            if (isOmnium) drawOmniumCoin(color.copy(shimmer), clock)
+            else drawSouliumCrystal(color.copy(shimmer), clock + 1.7f)
         }
         Text(
             formatCompactAmount(amount),
@@ -7430,23 +7498,187 @@ private fun DrawScope.drawOnlineGlyph(c: Color) {
     drawLine(c.copy(0.8f), Offset(w * 0.16f, h * 0.5f), Offset(w * 0.84f, h * 0.5f), strokeWidth = sw * 0.75f)
 }
 
-private fun DrawScope.drawOmniumGlyph(c: Color) {
-    val r = size.minDimension * 0.34f
-    drawCircle(c, radius = r, center = center, style = Stroke(size.minDimension * 0.11f))
-    drawCircle(c, radius = r * 0.34f, center = center)
+// ============================================================================
+// Currency.
+//
+// Both were flat outlines — a stroked circle with a dot, and a stroked diamond.
+// They are the two things the player is asked to care about accumulating, and
+// they looked like placeholder icons.
+//
+// They are real solids now, turning: Omnium is a struck coin, Soulium a cut
+// crystal. Rendered the same way the frames are — project, sort back to front,
+// fill — because at chip size that is a few dozen triangles and it buys an
+// actual specular sweeping across a surface as it turns, which no amount of
+// gradient stops on a flat shape will imitate.
+// ============================================================================
+
+/** Shades one face against a fixed key, in view space. */
+private fun currencyShade(
+    base: Color, nx: Float, ny: Float, nz: Float, shininess: Float, emissive: Float
+): Color {
+    // Key over the viewer's left shoulder.
+    val lx = -0.46f; val ly = -0.62f; val lz = 0.64f
+    val diffuse = (nx * lx + ny * ly + nz * lz).coerceAtLeast(0f)
+    // Half-vector against a view direction of (0,0,1).
+    val hx = lx; val hy = ly; val hz = lz + 1f
+    val hl = kotlin.math.sqrt(hx * hx + hy * hy + hz * hz)
+    val spec = Math.pow(
+        ((nx * hx + ny * hy + nz * hz) / hl).coerceAtLeast(0f).toDouble(), shininess.toDouble()
+    ).toFloat()
+    // Facets turned away from the eye take a cool edge, which is what separates
+    // the silhouette from whatever is behind it.
+    val rim = (1f - kotlin.math.abs(nz)).let { it * it } * 0.35f
+    val kd = 0.26f + diffuse * 0.80f
+    return Color(
+        (base.red * kd + spec * 0.9f + rim * 0.5f + emissive).coerceIn(0f, 1f),
+        (base.green * kd + spec * 0.9f + rim * 0.55f + emissive).coerceIn(0f, 1f),
+        (base.blue * kd + spec * 0.9f + rim * 0.75f + emissive).coerceIn(0f, 1f),
+        base.alpha
+    )
 }
 
-private fun DrawScope.drawSouliumGlyph(c: Color) {
-    val w = size.width; val h = size.height
-    val d = Path().apply {
-        moveTo(w * 0.5f, h * 0.16f)
-        lineTo(w * 0.82f, h * 0.5f)
-        lineTo(w * 0.5f, h * 0.84f)
-        lineTo(w * 0.18f, h * 0.5f)
-        close()
+/**
+ * A struck coin, spun about its vertical axis.
+ *
+ * It passes through edge-on once a turn, which is the moment that sells it as a
+ * solid object rather than a circle with a highlight painted on.
+ */
+private fun DrawScope.drawOmniumCoin(c: Color, t: Float) {
+    val r = size.minDimension * 0.36f
+    val half = r * 0.17f                     // half the coin's thickness
+    val spin = t * 1.15f
+    val tilt = 0.42f                          // fixed lean, so the face is legible
+    val cs = cos(spin); val sn = sin(spin)
+    val ct = cos(tilt); val st = sin(tilt)
+    val seg = 22
+
+    // A ring of points on the coin's edge, spun then tilted.
+    val px = FloatArray(seg); val pyTop = FloatArray(seg); val pyBot = FloatArray(seg)
+    val depth = FloatArray(seg); val nOut = FloatArray(seg * 3)
+    for (i in 0 until seg) {
+        val a = i / seg.toFloat() * 6.2831853f
+        val ox = cos(a) * r; val oz = sin(a) * r
+        // Spin about Y.
+        val sx = ox * cs + oz * sn
+        val sz = -ox * sn + oz * cs
+        // Tilt about X: y is the coin's own face normal direction.
+        px[i] = sx
+        pyTop[i] = -half * ct - sz * st
+        pyBot[i] = half * ct - sz * st
+        depth[i] = -half * st + sz * ct
+        // Outward normal at the rim, through the same rotations.
+        val nx0 = cos(a); val nz0 = sin(a)
+        val nsx = nx0 * cs + nz0 * sn
+        val nsz = -nx0 * sn + nz0 * cs
+        nOut[i * 3] = nsx; nOut[i * 3 + 1] = -nsz * st; nOut[i * 3 + 2] = nsz * ct
     }
-    drawPath(d, c, style = Stroke(size.minDimension * 0.10f))
+    // Face normals: the two flat sides.
+    val faceNy = -ct; val faceNz = -st
+
+    // Rim segments, back to front, then whichever face is toward the viewer.
+    data class Rim(val i: Int, val d: Float)
+    val rims = (0 until seg).map { Rim(it, (depth[it] + depth[(it + 1) % seg]) * 0.5f) }
+        .sortedBy { it.d }
+    val path = Path()
+    for (rim in rims) {
+        val i = rim.i; val j = (i + 1) % seg
+        path.reset()
+        path.moveTo(center.x + px[i], center.y + pyTop[i])
+        path.lineTo(center.x + px[j], center.y + pyTop[j])
+        path.lineTo(center.x + px[j], center.y + pyBot[j])
+        path.lineTo(center.x + px[i], center.y + pyBot[i])
+        path.close()
+        drawPath(path, currencyShade(c, nOut[i * 3], nOut[i * 3 + 1], nOut[i * 3 + 2], 26f, 0f))
+    }
+    // The face toward the viewer. Its edge is the same ring, so the disc is
+    // built from the ring rather than from a circle that would not match it.
+    val towardTop = faceNz < 0f
+    path.reset()
+    for (i in 0 until seg) {
+        val y = if (towardTop) pyTop[i] else pyBot[i]
+        if (i == 0) path.moveTo(center.x + px[i], center.y + y)
+        else path.lineTo(center.x + px[i], center.y + y)
+    }
+    path.close()
+    val fn = if (towardTop) 1f else -1f
+    drawPath(path, currencyShade(c, 0f, faceNy * fn, faceNz * fn, 42f, 0.06f))
+
+    // Struck detail: a raised inner ring and a core, squashed by the same tilt
+    // and the same spin so they sit ON the face instead of floating over it.
+    val squash = kotlin.math.abs(cs)
+    val faceY = center.y + (if (towardTop) -half * ct else half * ct)
+    if (squash > 0.12f) {
+        drawOval(
+            c.copy(0.55f),
+            topLeft = Offset(center.x - r * 0.62f * squash, faceY - r * 0.62f * ct),
+            size = Size(r * 1.24f * squash, r * 1.24f * ct),
+            style = Stroke(r * 0.10f)
+        )
+        drawOval(
+            Color.White.copy(0.85f),
+            topLeft = Offset(center.x - r * 0.20f * squash, faceY - r * 0.20f * ct),
+            size = Size(r * 0.40f * squash, r * 0.40f * ct)
+        )
+    }
 }
+
+/**
+ * A cut crystal: an octahedron, turning. Chosen against the coin deliberately —
+ * the two currencies have to be told apart at eleven pixels, and a different
+ * silhouette does that where a different hue does not.
+ */
+private fun DrawScope.drawSouliumCrystal(c: Color, t: Float) {
+    val r = size.minDimension * 0.40f
+    val spin = t * 0.95f
+    val tilt = 0.34f
+    val cs = cos(spin); val sn = sin(spin)
+    val ct = cos(tilt); val st = sin(tilt)
+
+    // Elongated on the vertical axis, so it reads as a cut gem rather than a die.
+    val verts = arrayOf(
+        floatArrayOf(0f, -1.35f, 0f), floatArrayOf(0f, 1.35f, 0f),
+        floatArrayOf(1f, 0f, 0f), floatArrayOf(0f, 0f, 1f),
+        floatArrayOf(-1f, 0f, 0f), floatArrayOf(0f, 0f, -1f)
+    )
+    val sx = FloatArray(6); val sy = FloatArray(6); val sz = FloatArray(6)
+    for (i in 0 until 6) {
+        val v = verts[i]
+        val x = v[0] * cs + v[2] * sn
+        val z = -v[0] * sn + v[2] * cs
+        sx[i] = x * r
+        sy[i] = (v[1] * ct - z * st) * r
+        sz[i] = (v[1] * st + z * ct) * r
+    }
+    // Eight faces: four to the top point, four to the bottom.
+    val faces = arrayOf(
+        intArrayOf(1, 2, 3), intArrayOf(1, 3, 4), intArrayOf(1, 4, 5), intArrayOf(1, 5, 2),
+        intArrayOf(0, 3, 2), intArrayOf(0, 4, 3), intArrayOf(0, 5, 4), intArrayOf(0, 2, 5)
+    )
+    val path = Path()
+    faces.map { f -> f to (sz[f[0]] + sz[f[1]] + sz[f[2]]) / 3f }
+        .sortedBy { it.second }
+        .forEach { (f, _) ->
+            val ax = sx[f[1]] - sx[f[0]]; val ay = sy[f[1]] - sy[f[0]]; val az = sz[f[1]] - sz[f[0]]
+            val bx = sx[f[2]] - sx[f[0]]; val by = sy[f[2]] - sy[f[0]]; val bz = sz[f[2]] - sz[f[0]]
+            var nx = ay * bz - az * by
+            var ny = az * bx - ax * bz
+            var nz = ax * by - ay * bx
+            val nl = kotlin.math.sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-5f)
+            nx /= nl; ny /= nl; nz /= nl
+            // Back faces still contribute: a crystal is translucent, and letting
+            // the far facets show through at low alpha is what makes it read as
+            // glass instead of painted metal.
+            val facing = nz > 0f
+            path.reset()
+            path.moveTo(center.x + sx[f[0]], center.y + sy[f[0]])
+            path.lineTo(center.x + sx[f[1]], center.y + sy[f[1]])
+            path.lineTo(center.x + sx[f[2]], center.y + sy[f[2]])
+            path.close()
+            val shaded = currencyShade(c, nx, ny, nz, 34f, if (facing) 0.10f else 0.02f)
+            drawPath(path, shaded.copy(alpha = if (facing) 1f else 0.34f))
+        }
+}
+
 
 /** Square, bordered icon button whose artwork is a code-drawn vector path. */
 @Composable
@@ -7639,9 +7871,13 @@ private fun RailItem(
 /** Currency readout with its own code-drawn symbol. */
 @Composable
 private fun CurrencyChip(accent: Color, amount: Long, isOmnium: Boolean) {
+    // Coin and crystal both turn; the two are offset so a row of them does not
+    // pulse in unison, which reads as a UI animation rather than as objects.
+    val clock = rememberFrameClock()
     Row(verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.foundation.Canvas(Modifier.size(13.dp)) {
-            if (isOmnium) drawOmniumGlyph(accent) else drawSouliumGlyph(accent)
+        androidx.compose.foundation.Canvas(Modifier.size(16.dp)) {
+            if (isOmnium) drawOmniumCoin(accent, clock)
+            else drawSouliumCrystal(accent, clock + 1.7f)
         }
         Spacer(Modifier.width(4.dp))
         Text(
