@@ -1,5 +1,6 @@
 import java.util.Properties
 import java.io.FileInputStream
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 
 plugins {
     alias(libs.plugins.android.application)
@@ -64,6 +65,22 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "ENABLE_GUARD", "true")
+
+            // Most of this game is C++ behind the NDK, so most of what can crash
+            // it crashes natively. Without symbols those arrive in Crashlytics as
+            // raw addresses and there is nothing to read.
+            //
+            // The Crashlytics plugin only REGISTERS uploadCrashlyticsSymbolFile-
+            // Release when this is switched on for the build type. It was not,
+            // so the task never existed and CI's upload step failed instantly on
+            // every signed release for as long as it has been there — swallowed
+            // by `|| true`, so nothing ever said so. Setting the Gradle property
+            // alone does not do it; the CI gradle.properties has been setting
+            // com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true the
+            // whole time and the task still was not created.
+            configure<CrashlyticsExtension> {
+                nativeSymbolUploadEnabled = true
+            }
         }
         debug {
             isMinifyEnabled = false

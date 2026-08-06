@@ -254,8 +254,26 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Only meaningful with real Firebase credentials, and the task only exists
-      # when native symbol upload is configured for the variant.
+      # Runs after the artifact upload on purpose: whatever happens here, the
+      # build is already downloadable.
+      #
+      # This used to be one line ending in `|| true`, and it had been failing on
+      # every signed release since the day it was added — "task
+      # 'uploadCrashlyticsSymbolFileRelease' not found in project ':Backrooms'",
+      # BUILD FAILED in 1s, swallowed, green tick. A step that cannot fail
+      # cannot tell you it is broken, which is the whole reason nobody noticed
+      # that a native game was shipping without native crash symbols.
+      #
+      # So the two failure modes are now separated. A missing task is a build
+      # configuration bug in this repository and fails the run; a failed upload
+      # is Firebase's end and only warns.
       - name: Upload Crashlytics NDK symbols
         if: steps.keystore.outputs.signed == 'true'
-        run: ./gradlew :Backrooms:uploadCrashlyticsSymbolFileRelease || true
+        run: |
+          if ! ./gradlew -q :Backrooms:tasks --all 2>/dev/null \
+               | grep -q 'uploadCrashlyticsSymbolFileRelease'; then
+            echo "::error::uploadCrashlyticsSymbolFileRelease does not exist. Native symbol upload is not enabled for the release variant, so native crashes will arrive in Crashlytics unsymbolicated."
+            exit 1
+          fi
+          ./gradlew :Backrooms:uploadCrashlyticsSymbolFileRelease \
+            || echo "::warning::The symbol upload task ran but did not succeed; this build's native symbols may be missing from Crashlytics."
