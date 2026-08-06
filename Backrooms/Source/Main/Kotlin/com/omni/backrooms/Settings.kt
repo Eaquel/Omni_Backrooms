@@ -1089,82 +1089,101 @@ fun UiEditor(onSave: () -> Unit, vm: UiEditorVM = hiltViewModel()) {
             }
         }
 
-        // --- Controls --------------------------------------------------------
+        // --- Size panel ------------------------------------------------------
+        //
+        // Small, and at the top centre. It used to be a full-width slab pinned
+        // across the bottom of the screen, which is exactly where the stick, the
+        // sprint button and the crouch button all live — so the tool for
+        // arranging the controls was sitting on top of most of the controls it
+        // was meant to arrange. The top centre is the one region the built-in
+        // layout leaves empty: the bars are hard left, the readouts and the
+        // pause button hard right.
         Column(
             Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(Color.Black.copy(0.88f))
-                .padding(horizontal = 18.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .align(Alignment.TopCenter)
+                .padding(top = 10.dp)
+                .width(250.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color.Black.copy(0.86f))
+                .border(1.dp, BorderCol, RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(
-                stringResource(R.string.editor_hint),
-                color = TextDim, fontSize = 10.sp, lineHeight = 14.sp
-            )
-
             val sel = elements.firstOrNull { it.id == selectedId }
-            if (sel != null) {
+            if (sel == null) {
+                Text(
+                    stringResource(R.string.editor_hint),
+                    color = TextDim, fontSize = 10.sp, lineHeight = 14.sp
+                )
+            } else {
                 val index = elements.indexOfFirst { it.id == sel.id }
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                     Text(
-                        "${stringResource(R.string.editor_selected)}: ${stringResource(sel.labelRes)}",
-                        color = Yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                        stringResource(sel.labelRes),
+                        color = Yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1
                     )
                     Text("${(sel.scale * 100).toInt()}%", color = CrtAmber, fontSize = 11.sp)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.editor_size), color = TextSec, fontSize = 11.sp)
-                    Spacer(Modifier.width(10.dp))
-                    Slider(
-                        value = sel.scale,
-                        onValueChange = { elements[index] = elements[index].copy(scale = it) },
-                        valueRange = 0.6f..1.8f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = Yellow,
-                            activeTrackColor = Yellow.copy(0.75f),
-                            inactiveTrackColor = MetalBg
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                Slider(
+                    value = sel.scale,
+                    onValueChange = { elements[index] = elements[index].copy(scale = it) },
+                    valueRange = 0.6f..1.8f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Yellow,
+                        activeTrackColor = Yellow.copy(0.75f),
+                        inactiveTrackColor = MetalBg
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
+        }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AtmosphericButton(
-                    label = stringResource(R.string.editor_reset),
-                    icon = Icons.Default.Refresh,
-                    accent = TextSec,
-                    width = 150.dp, height = 44.dp,
-                    onClick = {
-                        vm.reset()
-                        selectedId = null
-                        // Straight from the tables the HUD lays out from, so
-                        // "reset" lands on exactly the built-in layout rather
-                        // than on a third copy of the numbers that has drifted.
-                        HUD_DEFAULT_SLOTS.forEach { (id, slot) ->
-                            elements.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { i ->
-                                elements[i] = elements[i].copy(
-                                    normX = slot.x, normY = slot.y, scale = slot.scale
-                                )
-                            }
+        // --- Reset / save ----------------------------------------------------
+        // A pill that wraps its contents rather than a bar across the screen, so
+        // an element parked at the bottom stays reachable.
+        Row(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(0.86f))
+                .border(1.dp, BorderCol, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AtmosphericButton(
+                label = stringResource(R.string.editor_reset),
+                icon = Icons.Default.Refresh,
+                accent = TextSec,
+                width = 140.dp, height = 42.dp,
+                onClick = {
+                    vm.reset()
+                    selectedId = null
+                    // Straight from the tables the HUD lays out from, so
+                    // "reset" lands on exactly the built-in layout rather
+                    // than on a third copy of the numbers that has drifted.
+                    HUD_DEFAULT_SLOTS.forEach { (id, slot) ->
+                        elements.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { i ->
+                            elements[i] = elements[i].copy(
+                                normX = slot.x, normY = slot.y, scale = slot.scale
+                            )
                         }
                     }
-                )
-                AtmosphericButton(
-                    label = stringResource(R.string.controls_save_exit),
-                    icon = Icons.Default.Check,
-                    accent = Yellow,
-                    width = 170.dp, height = 44.dp,
-                    onClick = {
-                        vm.saveLayout(
-                            elements.map { UiButtonLayout(it.id, Offset(it.normX, it.normY), it.scale) }
-                        )
-                        onSave()
-                    },
-                    isPrimary = true
-                )
-            }
+                }
+            )
+            AtmosphericButton(
+                label = stringResource(R.string.controls_save_exit),
+                icon = Icons.Default.Check,
+                accent = Yellow,
+                width = 160.dp, height = 42.dp,
+                onClick = {
+                    vm.saveLayout(
+                        elements.map { UiButtonLayout(it.id, Offset(it.normX, it.normY), it.scale) }
+                    )
+                    onSave()
+                },
+                isPrimary = true
+            )
         }
     }
 }
@@ -1206,7 +1225,8 @@ private fun EditorPreview(id: String, widthDp: Float, selected: Boolean) {
             EditorBadge("04:12", TextSec)
             EditorBadge("◉ 2", DangerRed)
         }
-        "joystick" -> VirtualJoystick(Modifier.size(widthDp.dp)) { _, _ -> }
+        // Inert: in the editor a drag has to pick the control up, not work it.
+        "joystick" -> VirtualJoystick(Modifier.size(widthDp.dp), interactive = false) { _, _ -> }
         "pause" -> IconGlyphButton((widthDp * 0.85f).dp, Yellow.copy(0.8f), onClick = {}) {
             HudGlyph("pause", it, Modifier.fillMaxSize())
         }

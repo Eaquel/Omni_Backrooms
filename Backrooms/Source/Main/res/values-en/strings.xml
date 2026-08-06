@@ -266,4 +266,13 @@
     <string name="game_omnium_earned">Omnium earned</string>
     <string name="game_madness_title">YOUR SANITY SWALLOWED YOU</string>
     <string name="game_madness_sub">The corridors started talking to you, and you listened.</string>
+    <string name="frame_face_of_darkness">Face of Darkness</string>
+    <string name="frame_endless_dimension">Endless Dimension</string>
+    <string name="frame_sound_of_rooms">Sound of Rooms</string>
+    <string name="trail_dust">Dust Trail</string>
+    <string name="trail_static">Static Trail</string>
+    <string name="trail_salt">Salt Trail</string>
+    <string name="profile_trail">Trail</string>
+    <string name="trail_preview_title">Trail Inspection</string>
+    <string name="trail_preview_hint">Watch the walk · Tap to switch</string>
 </resources>

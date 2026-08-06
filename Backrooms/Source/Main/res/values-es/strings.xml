@@ -239,4 +239,13 @@
     <string name="game_omnium_earned">Omnium ganado</string>
     <string name="game_madness_title">TU CORDURA TE HA DEVORADO</string>
     <string name="game_madness_sub">Los pasillos empezaron a hablarte, y escuchaste.</string>
+    <string name="frame_face_of_darkness">Rostro de la Oscuridad</string>
+    <string name="frame_endless_dimension">Dimensión Infinita</string>
+    <string name="frame_sound_of_rooms">Sonido de las Salas</string>
+    <string name="trail_dust">Rastro de Polvo</string>
+    <string name="trail_static">Rastro Estático</string>
+    <string name="trail_salt">Rastro de Sal</string>
+    <string name="profile_trail">Rastro</string>
+    <string name="trail_preview_title">Inspección de Rastro</string>
+    <string name="trail_preview_hint">Observa el paso · Toca para cambiar</string>
 </resources>

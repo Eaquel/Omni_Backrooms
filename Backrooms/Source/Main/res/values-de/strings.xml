@@ -239,4 +239,13 @@
     <string name="game_omnium_earned">Verdientes Omnium</string>
     <string name="game_madness_title">DEIN VERSTAND HAT DICH VERSCHLUNGEN</string>
     <string name="game_madness_sub">Die Gänge begannen zu dir zu sprechen, und du hast zugehört.</string>
+    <string name="frame_face_of_darkness">Antlitz der Dunkelheit</string>
+    <string name="frame_endless_dimension">Endlose Dimension</string>
+    <string name="frame_sound_of_rooms">Klang der Räume</string>
+    <string name="trail_dust">Staubspur</string>
+    <string name="trail_static">Statikspur</string>
+    <string name="trail_salt">Salzspur</string>
+    <string name="profile_trail">Spur</string>
+    <string name="trail_preview_title">Spur-Ansicht</string>
+    <string name="trail_preview_hint">Den Gang beobachten · Tippen zum Wechseln</string>
 </resources>

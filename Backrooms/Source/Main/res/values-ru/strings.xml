@@ -239,4 +239,13 @@
     <string name="game_omnium_earned">Заработано Omnium</string>
     <string name="game_madness_title">РАССУДОК ПОГЛОТИЛ ТЕБЯ</string>
     <string name="game_madness_sub">Коридоры заговорили с тобой, и ты стал слушать.</string>
+    <string name="frame_face_of_darkness">Лик Тьмы</string>
+    <string name="frame_endless_dimension">Бесконечное Измерение</string>
+    <string name="frame_sound_of_rooms">Звук Комнат</string>
+    <string name="trail_dust">Пыльный След</string>
+    <string name="trail_static">Статический След</string>
+    <string name="trail_salt">Соляной След</string>
+    <string name="profile_trail">След</string>
+    <string name="trail_preview_title">Осмотр Следа</string>
+    <string name="trail_preview_hint">Смотри на походку · Нажми, чтобы сменить</string>
 </resources>

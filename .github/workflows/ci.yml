@@ -53,6 +53,20 @@ jobs:
       - name: Check the inspection camera envelope
         run: python3 Tools/preview_cam.py
 
+      # Frames and trails are content, and content that only ever runs on a
+      # phone is content nobody checks. This asserts the properties the UI
+      # depends on — including that no frame's tube can close in over the
+      # portrait it surrounds, which is the fault that got the ring deleted
+      # from the avatar in the first place.
+      - name: Probe the cosmetic catalogue
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -I Backrooms/Source/Main/Native \
+            Tools/cosmetic_probe.cpp \
+            Backrooms/Source/Main/Native/Frame/Frame.cpp \
+            Backrooms/Source/Main/Native/Trail/Trail.cpp \
+            -o /tmp/cosmetic_probe
+          /tmp/cosmetic_probe
+
       # Floods the map from the spawn and proves the exit is actually reachable,
       # over many seeds. An unreachable exit is unwinnable and silent.
       - name: Probe the level generator

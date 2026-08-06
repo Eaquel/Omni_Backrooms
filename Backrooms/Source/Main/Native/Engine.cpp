@@ -23,6 +23,8 @@
 #include <functional>
 #include <limits>
 #include "Map/Level_0.h"
+#include "Frame/Frame.h"
+#include "Trail/Trail.h"
 
 // Cells per chunk edge. 24 keeps a chunk mesh small enough to build in a frame
 // while large enough that streaming happens rarely.
@@ -1336,6 +1338,142 @@ Java_com_omni_backrooms_NativeBridge_relocateExit(JNIEnv* env, jobject, jfloat p
 extern "C" JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_setCrouch(JNIEnv*, jobject, jboolean crouched) {
     gCamState.targetEyeHeight = crouched ? omni::core::kCrouchEye : omni::core::kStandEye;
+}
+
+// ---------------------------------------------------------------------------
+// Cosmetics: frames and trails.
+//
+// The catalogues live in Frame/ and Trail/. These calls are the whole of the
+// UI's access to them, so a cosmetic can be added, renamed or restyled without
+// anything in Kotlin knowing its name.
+// ---------------------------------------------------------------------------
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_omni_backrooms_NativeBridge_frameCount(JNIEnv*, jobject) {
+    return omni::cosmetic::frameCount();
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_omni_backrooms_NativeBridge_frameId(JNIEnv* env, jobject, jint index) {
+    const auto* spec = omni::cosmetic::frameAt(index);
+    return env->NewStringUTF(spec ? spec->id : "");
+}
+
+/** Palette and material, as 11 floats: base rgb, glow rgb, highlight rgb,
+ *  tube ratio, shininess. */
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_frameSpec(JNIEnv* env, jobject, jint index) {
+    const auto* s = omni::cosmetic::frameAt(index);
+    if (!s) return nullptr;
+    auto arr = env->NewFloatArray(11);
+    if (!arr) return nullptr;
+    const float out[11] = {
+        s->baseR, s->baseG, s->baseB,
+        s->glowR, s->glowG, s->glowB,
+        s->hiR,   s->hiG,   s->hiB,
+        s->tubeRatio, s->shininess
+    };
+    env->SetFloatArrayRegion(arr, 0, 11, out);
+    return arr;
+}
+
+/** Static silhouette: [samples] * 2 floats, (radius, thickness) per position. */
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_frameProfile(JNIEnv* env, jobject, jint index, jint samples) {
+    if (samples <= 0 || samples > 4096) return nullptr;
+    if (!omni::cosmetic::frameAt(index)) return nullptr;
+    std::vector<float> buf(static_cast<size_t>(samples) * 2, 0.0f);
+    omni::cosmetic::frameProfile(index, samples, buf.data());
+    auto arr = env->NewFloatArray(samples * 2);
+    if (!arr) return nullptr;
+    env->SetFloatArrayRegion(arr, 0, samples * 2, buf.data());
+    return arr;
+}
+
+/** Emission at time [t]: [samples] floats in 0..1. Called once per rendered
+ *  frame per visible ring, which is why it fills a caller-sized array in one
+ *  crossing rather than being queried per position. */
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_frameEmission(JNIEnv* env, jobject, jint index, jint samples, jfloat t) {
+    if (samples <= 0 || samples > 4096) return nullptr;
+    if (!omni::cosmetic::frameAt(index)) return nullptr;
+    std::vector<float> buf(static_cast<size_t>(samples), 0.0f);
+    omni::cosmetic::frameEmission(index, samples, t, buf.data());
+    auto arr = env->NewFloatArray(samples);
+    if (!arr) return nullptr;
+    env->SetFloatArrayRegion(arr, 0, samples, buf.data());
+    return arr;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_omni_backrooms_NativeBridge_trailCount(JNIEnv*, jobject) {
+    return omni::cosmetic::trailCount();
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_omni_backrooms_NativeBridge_trailId(JNIEnv* env, jobject, jint index) {
+    const auto* spec = omni::cosmetic::trailAt(index);
+    return env->NewStringUTF(spec ? spec->id : "");
+}
+
+/** Tint rgb, lifetime, scale, spread, mark kind — 7 floats. */
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_trailSpec(JNIEnv* env, jobject, jint index) {
+    const auto* s = omni::cosmetic::trailAt(index);
+    if (!s) return nullptr;
+    auto arr = env->NewFloatArray(7);
+    if (!arr) return nullptr;
+    const float out[7] = {
+        s->tintR, s->tintG, s->tintB,
+        s->lifetime, s->scale, s->spread,
+        static_cast<float>(s->mark)
+    };
+    env->SetFloatArrayRegion(arr, 0, 7, out);
+    return arr;
+}
+
+/** The player's own trail. One per process: there is one local walker. */
+static omni::cosmetic::TrailField gTrail;
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_omni_backrooms_NativeBridge_trailSetStyle(JNIEnv*, jobject, jint index) {
+    gTrail.setStyle(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_omni_backrooms_NativeBridge_trailStep(JNIEnv*, jobject, jfloat x, jfloat z, jfloat yaw, jfloat side) {
+    gTrail.step(x, z, yaw, side);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_omni_backrooms_NativeBridge_trailUpdate(JNIEnv*, jobject, jfloat dt) {
+    gTrail.update(dt);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_omni_backrooms_NativeBridge_trailClear(JNIEnv*, jobject) {
+    gTrail.clear();
+}
+
+/** Live stamps, five floats each: x, z, yaw, age, side. */
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_trailCollect(JNIEnv* env, jobject) {
+    omni::cosmetic::TrailStamp stamps[omni::cosmetic::TrailField::kCapacity];
+    const int n = gTrail.collect(stamps, omni::cosmetic::TrailField::kCapacity);
+    auto arr = env->NewFloatArray(n * 5);
+    if (!arr) return nullptr;
+    if (n > 0) {
+        std::vector<float> flat(static_cast<size_t>(n) * 5);
+        for (int i = 0; i < n; ++i) {
+            flat[i * 5 + 0] = stamps[i].x;
+            flat[i * 5 + 1] = stamps[i].z;
+            flat[i * 5 + 2] = stamps[i].yaw;
+            flat[i * 5 + 3] = stamps[i].age;
+            flat[i * 5 + 4] = stamps[i].side;
+        }
+        env->SetFloatArrayRegion(arr, 0, n * 5, flat.data());
+    }
+    return arr;
 }
 
 JNIEXPORT jfloat JNICALL

@@ -97,6 +97,29 @@ class NativeBridge @Inject constructor() {
     external fun physicsTick(dt: Float)
     external fun applyMovement(fx: Float, fy: Float, fz: Float)
     external fun setCrouch(crouched: Boolean)
+
+    // --- Cosmetics -------------------------------------------------------
+    // Frames and trails are defined in Native/Frame and Native/Trail. Nothing
+    // on this side knows a cosmetic's name, shape or behaviour; it asks.
+    external fun frameCount(): Int
+    external fun frameId(index: Int): String?
+    /** base rgb, glow rgb, highlight rgb, tube ratio, shininess. */
+    external fun frameSpec(index: Int): FloatArray?
+    /** (radius, thickness) per ring position. Static — fetch once and cache. */
+    external fun frameProfile(index: Int, samples: Int): FloatArray?
+    /** Emission per ring position at time [t], 0..1. */
+    external fun frameEmission(index: Int, samples: Int, t: Float): FloatArray?
+
+    external fun trailCount(): Int
+    external fun trailId(index: Int): String?
+    /** tint rgb, lifetime, scale, spread, mark kind. */
+    external fun trailSpec(index: Int): FloatArray?
+    external fun trailSetStyle(index: Int)
+    external fun trailStep(x: Float, z: Float, yaw: Float, side: Float)
+    external fun trailUpdate(dt: Float)
+    external fun trailClear()
+    /** x, z, yaw, age, side per live stamp. */
+    external fun trailCollect(): FloatArray?
     /** Returns [exitX, exitZ, relocated] in world metres; re-anchors the exit when
      *  the player has strayed further than [maxDistM] from it. */
     external fun relocateExit(px: Float, pz: Float, maxDistM: Float): FloatArray?
@@ -276,7 +299,12 @@ data class RoomPage(val rooms: List<RoomInfo>, val total: Int)
 data class GameSettings(
     val playerName        : String  = "Wanderer",
     val graphicsQuality   : String  = "medium",
-    val vhsEnabled        : Boolean = true,
+    // Off by default. It is a strong, permanently-on filter over the whole
+    // screen, and shipping it enabled meant every player's first impression of
+    // the level was through scanlines and chroma bleed they never asked for.
+    // Anyone who wants the look can switch it on; nobody should have to find
+    // the setting to switch it off.
+    val vhsEnabled        : Boolean = false,
     val resolutionScale   : Float   = 1f,
     val musicVolume       : Float   = 0.7f,
     val footstepVolume    : Float   = 0.8f,
@@ -1529,6 +1557,22 @@ class SaveGameStore @Inject constructor(@ApplicationContext private val ctx: Con
     suspend fun clear() {
         runCatching { ctx.identityStore.edit { it.remove(key) } }
     }
+
+    /**
+     * Fire-and-forget clear, for the same reason [saveDetached] exists.
+     *
+     * A finished run is wiped exactly when the game screen is going away, and a
+     * ViewModel-scoped coroutine is cancelled before it can touch the store —
+     * so the clear lost its race with the teardown save and the run the player
+     * had just lost stayed sitting behind "Continue".
+     */
+    fun clearDetached() {
+        ioScope.launch {
+            runCatching { ctx.identityStore.edit { it.remove(key) } }
+                .onSuccess { OmniLog.i("Save", "run cleared") }
+                .onFailure { OmniLog.e("Save", "clear failed", it) }
+        }
+    }
 }
 
 
@@ -1614,12 +1658,37 @@ class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Co
         val AVATAR_URI   = stringPreferencesKey("avatar_uri")
         val FRAME        = stringPreferencesKey("frame")
         val OWNED_FRAMES = stringPreferencesKey("owned_frames")
+        val TRAIL        = stringPreferencesKey("trail")
+        val OWNED_TRAILS = stringPreferencesKey("owned_trails")
         val BEST_SURVIVAL= longPreferencesKey("best_survival_ms")
         val OMNIUM       = longPreferencesKey("omnium_balance")
     }
 
     fun observeAvatarUri(): Flow<String?> = ctx.identityStore.data.map { it[Keys.AVATAR_URI] }
-    fun observeFrame(): Flow<String> = ctx.identityStore.data.map { it[Keys.FRAME] ?: "default" }
+
+    /**
+     * The equipped frame and trail.
+     *
+     * Both default to the first entry in the native catalogue rather than to a
+     * hardcoded name — the stored value is only ever an id from Native/Frame or
+     * Native/Trail, and a player who still has "halogen" or "default" written
+     * from an older build resolves to the first real cosmetic instead of to
+     * nothing at all.
+     */
+    fun observeFrame(): Flow<String> = ctx.identityStore.data.map {
+        it[Keys.FRAME] ?: defaultCosmetic(frames = true)
+    }
+    fun observeTrail(): Flow<String> = ctx.identityStore.data.map {
+        it[Keys.TRAIL] ?: defaultCosmetic(frames = false)
+    }
+    fun observeOwnedTrails(): Flow<List<String>> = ctx.identityStore.data.map { prefs ->
+        prefs[Keys.OWNED_TRAILS]?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
+    }
+
+    private fun defaultCosmetic(frames: Boolean): String = runCatching {
+        val b = NativeBridge()
+        (if (frames) b.frameId(0) else b.trailId(0))?.takeIf { it.isNotEmpty() }
+    }.getOrNull() ?: if (frames) "Face_Of_Darkness" else "Dust_Trail"
     fun observeBestSurvival(): Flow<Long> = ctx.identityStore.data.map { it[Keys.BEST_SURVIVAL] ?: 0L }
 
     /** The local Omnium wallet. Runs pay into this directly so surviving is worth
@@ -1647,13 +1716,21 @@ class CosmeticsStore @Inject constructor(@ApplicationContext private val ctx: Co
         runCatching { ctx.identityStore.edit { it[Keys.FRAME] = key } }
     }
 
-    suspend fun grantFrame(key: String) {
+    suspend fun grantFrame(key: String) = grant(Keys.OWNED_FRAMES, key)
+
+    suspend fun setTrail(key: String) {
+        runCatching { ctx.identityStore.edit { it[Keys.TRAIL] = key } }
+    }
+
+    suspend fun grantTrail(key: String) = grant(Keys.OWNED_TRAILS, key)
+
+    private suspend fun grant(key: Preferences.Key<String>, value: String) {
         runCatching {
             ctx.identityStore.edit { prefs ->
-                val cur = prefs[Keys.OWNED_FRAMES]?.split(',')?.filter { it.isNotBlank() }?.toMutableSet()
+                val cur = prefs[key]?.split(',')?.filter { it.isNotBlank() }?.toMutableSet()
                     ?: mutableSetOf()
-                cur.add(key)
-                prefs[Keys.OWNED_FRAMES] = cur.joinToString(",")
+                cur.add(value)
+                prefs[key] = cur.joinToString(",")
             }
         }
     }

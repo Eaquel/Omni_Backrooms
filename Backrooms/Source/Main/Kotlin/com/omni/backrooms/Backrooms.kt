@@ -1105,10 +1105,26 @@ class MarketVM @Inject constructor(
                     cosmetics.grantFrame(key)
                     cosmetics.setFrame(key)
                 }
-                item.id.startsWith("priv_") || item.category == "vip" -> {
-                    listOf("halogen", "signal", "threshold").forEach { cosmetics.grantFrame(it) }
+                item.id.startsWith("trail_") -> {
+                    val key = item.id.removePrefix("trail_")
+                    cosmetics.grantTrail(key)
+                    cosmetics.setTrail(key)
                 }
-                item.id == "daily_frame" -> cosmetics.grantFrame("halogen")
+                item.id.startsWith("priv_") || item.category == "vip" -> {
+                    // Straight from the native catalogue, so a frame added there
+                    // is covered without anyone remembering to update a list.
+                    runCatching {
+                        val b = NativeBridge()
+                        (0 until b.frameCount()).forEach { i ->
+                            b.frameId(i)?.takeIf { it.isNotEmpty() }?.let { cosmetics.grantFrame(it) }
+                        }
+                        (0 until b.trailCount()).forEach { i ->
+                            b.trailId(i)?.takeIf { it.isNotEmpty() }?.let { cosmetics.grantTrail(it) }
+                        }
+                    }
+                }
+                item.id == "daily_frame" -> cosmetics.grantFrame("Face_Of_Darkness")
+                item.id == "daily_trail" -> cosmetics.grantTrail("Dust_Trail")
                 else -> Unit
             }
         }.onFailure { OmniLog.e("Market", "local grant failed for ${item.id}", it) }
@@ -1142,35 +1158,50 @@ class MarketVM @Inject constructor(
         )
         // Frames are the one cosmetic that is visibly alive: each card renders the
         // real animated ring the player would equip, not a still of it.
+        // Three, not four. A "plain metal ring" entry used to sit at the end of
+        // this list and it was the one nobody would ever choose: it existed
+        // because the set had grown a default, and it made the tab read as
+        // three ideas and a spare. The ids match Native/Frame exactly.
         MarketTab.Frames -> listOf(
             MarketItemDto(
-                "frame_halogen", "Halojen", "Halogen",
-                "Tavandaki floresan gibi balast titreşimiyle yanıp söner",
-                "Flickers on a failing ballast, like the ceiling fixtures",
+                "frame_Face_Of_Darkness", "Karanlığın Yüzü", "Face of Darkness",
+                "Karanlıktan iki göz ve bir sırıtış yüzeye çıkar, sonra kaybolur",
+                "Two eyes and a grin surface out of the dark, then go",
                 "frames", 0, "omnium", null, false, false, false, null
             ),
             MarketItemDto(
-                "frame_signal", "Sinyal", "Signal",
-                "Dönen tarama başı ve statik parazit halkası",
-                "A sweeping scan head over a band of static",
+                "frame_Endless_Dimension", "Sonsuz Boyut", "Endless Dimension",
+                "İçeri doğru hiç bitmeyen darbeler — asla tekrar etmez",
+                "Pulses running inward without end — it never repeats",
                 "frames", 0, "omnium", null, false, false, false, null
             ),
             MarketItemDto(
-                "frame_threshold", "Eşik", "Threshold",
-                "Ters yönde dönen, hiç tam kapanmayan iki kapı yayı",
-                "Counter-rotating arcs of a door that never quite shuts",
+                "frame_Sound_Of_Rooms", "Odaların Sesi", "Sound of Rooms",
+                "Odaların sesini gösteren seviye göstergesi",
+                "A level meter reading the sound of the rooms",
                 "frames", 0, "soulium", null, false, false, true, null
-            ),
-            MarketItemDto(
-                "frame_default", "Standart", "Standard",
-                "Sade metal halka — her zaman senin",
-                "Plain metal ring — always yours",
-                "frames", 0, "soulium", null, false, false, false, null
             )
         )
+        // Ids match Native/Trail exactly.
         MarketTab.Trails -> listOf(
-            MarketItemDto("trail_dust","Toz İzi","Dust Trail","Arkanda asılı kalan ince toz","Fine dust hanging behind you","trails",0,"soulium",null,false,false,false,null),
-            MarketItemDto("trail_static","Statik İz","Static Trail","VHS parazit izi","VHS static wake","trails",0,"soulium",null,false,false,false,null)
+            MarketItemDto(
+                "trail_Dust_Trail", "Toz İzi", "Dust Trail",
+                "Halının tozu ayağının altında kalkar ve yavaşça geri iner",
+                "The carpet's dust, kicked up and settling back",
+                "trails", 0, "soulium", null, false, false, false, null
+            ),
+            MarketItemDto(
+                "trail_Static_Trail", "Statik İz", "Static Trail",
+                "Yürüdüğün yerde görüntüyü yırtarsın — kısa ömürlü, sert kenarlı",
+                "You tear the picture where you walk — short-lived, hard-edged",
+                "trails", 0, "omnium", null, false, false, false, null
+            ),
+            MarketItemDto(
+                "trail_Salt_Trail", "Tuz İzi", "Salt Trail",
+                "Üstünden dökülen bir şey. En uzun kalan iz",
+                "Something crystalline coming off you. The mark that lasts longest",
+                "trails", 0, "soulium", null, false, false, true, null
+            )
         )
         MarketTab.Vip -> listOf(
             MarketItemDto("priv_all","Tüm Ayrıcalıklar","All Privileges","Şu an ücretsiz — tüm görsel ayrıcalıklar açık","Free right now — every cosmetic privilege unlocked","vip",0,"soulium",null,false,false,true,null)
@@ -1344,6 +1375,16 @@ class GameVM @Inject constructor(
             val cfg = assetManager.getSpawnConfig(useDiff)
             spawnInitialEntities(bridge, world, cfg)
 
+            // Equip the trail and start it empty. Without the clear, a second
+            // run inherits the marks from the first and the player spawns
+            // standing in someone else's footprints.
+            runCatching {
+                bridge.trailClear()
+                val equipped = cosmetics.observeTrail().first()
+                val idx = (0 until bridge.trailCount()).firstOrNull { bridge.trailId(it) == equipped } ?: 0
+                bridge.trailSetStyle(idx)
+            }
+
             // Restore counters before the loops start reading them.
             elapsedMs = saved?.elapsedMs ?: 0L
             score     = saved?.score ?: 0L
@@ -1403,7 +1444,19 @@ class GameVM @Inject constructor(
                 if (_state.value.isPaused) { delay(16); continue }
                 val now = bridge.nowMs()
                 val dt  = ((now - lastTickMs).coerceIn(1, 100)).toFloat() / 1000f
-                lastTickMs = now; elapsedMs += (dt * 1000).toLong()
+                lastTickMs = now
+                // Whether the run has already ended — died, went mad, or got
+                // out. The clock stops when the run does; it used to keep
+                // counting behind the game-over overlay, so the survival time
+                // the player was being shown climbed for as long as they left
+                // the results on screen, and the Omnium award was computed off
+                // a number that no longer matched what they had survived.
+                val runOver = _state.value.let { it.isGameOver || it.isEscaped || it.isMadnessOver }
+                if (!runOver) elapsedMs += (dt * 1000).toLong()
+
+                // Marks on the floor age on their own clock in Native/Trail,
+                // whether or not the player is still walking.
+                runCatching { bridge.trailUpdate(dt) }
 
                 // Continuous movement: applied every tick from the held joystick
                 // vector, so holding a direction keeps the player moving.
@@ -1416,8 +1469,11 @@ class GameVM @Inject constructor(
                 val mag = kotlin.math.hypot(mx, mz).coerceAtMost(1f)
                 val snapshot = _state.value
                 val wantsSprint = sprinting && snapshot.stamina > SPRINT_FLOOR && !snapshot.isCrouching
-                // A body that is going down does not get to keep walking.
-                if (mag > 0.02f && !madnessRunning) {
+                // A body that is going down does not get to keep walking — and
+                // neither does one that has already stopped. Only the madness
+                // collapse was blocking movement, so a player on zero health
+                // could still stroll around underneath their own death screen.
+                if (mag > 0.02f && !madnessRunning && !runOver) {
                     val paceMult = when {
                         snapshot.isCrouching -> CROUCH_MULT
                         wantsSprint          -> SPRINT_MULT
@@ -1432,6 +1488,12 @@ class GameVM @Inject constructor(
                     if (footstepTimer <= 0f) {
                         footstepTimer = 0.45f
                         bridge.triggerFootstep(if (wantsSprint) 180f else 120f, 0.3f)
+                        // Leave a mark. Feet alternate, so prints land either
+                        // side of the line of travel instead of in one furrow.
+                        footSide = -footSide
+                        snapshot.camera?.let { c ->
+                            runCatching { bridge.trailStep(c.posX, c.posZ, c.yaw, footSide) }
+                        }
                     }
                 }
                 // Stamina is spent only on sprinting; walking is free. Recovery is
@@ -1525,6 +1587,8 @@ class GameVM @Inject constructor(
     @Volatile private var moveZ = 0f
     @Volatile private var sprinting = false
     private var footstepTimer = 0f
+    /** Which foot is next. Flips on every footfall so the trail has a gait. */
+    private var footSide = 1f
     private var pingSampleTimer = 0f
     private var exitCheckTimer = 0f
     /** Counts down once sanity hits zero. The break is deliberately not instant:
@@ -1609,7 +1673,19 @@ class GameVM @Inject constructor(
      *  without hitching the game loop. */
     private fun saveNow() {
         val s = _state.value
-        if (s.isGameOver || s.isEscaped) return
+        // A finished run must not be resumable, and simply declining to write
+        // was not enough: the last periodic autosave was still on disk, so
+        // "Continue" dropped the player back into the run a minute before they
+        // lost it. Wipe it here instead.
+        //
+        // isMadnessOver was missing from this guard entirely, which is the case
+        // that actually shipped. Sanity death sets isMadnessOver and leaves
+        // isGameOver false, so leaving the screen after one ran straight past
+        // both checks and wrote a fresh save of the lost run on the way out.
+        if (s.isGameOver || s.isEscaped || s.isMadnessOver) {
+            saveStore.clearDetached()
+            return
+        }
         if (!s.world.isValid) return   // nothing meaningful to resume yet
         // Detached on purpose: this is called while the screen is being torn
         // down, and a viewModelScope coroutine would be cancelled mid-write.
@@ -1760,8 +1836,10 @@ class GameVM @Inject constructor(
     private fun submitScoreToServer() {
         viewModelScope.launch {
             // The run is over, so a stale snapshot must not linger behind
-            // "Continue".
-            runCatching { saveStore.clear() }
+            // "Continue". Detached, because the player usually leaves the screen
+            // within a second of this firing and a viewModelScope clear gets
+            // cancelled on the way out.
+            saveStore.clearDetached()
             // Personal best is only meaningful for a completed run.
             runCatching { cosmetics.recordSurvival(elapsedMs) }
             val s = _state.value
@@ -4870,9 +4948,24 @@ private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: ()
                 close()
             }
             drawPath(body, Yellow.copy(0.8f))
-            // No frame ring here. It read as clutter around a small avatar and
-            // fought the portrait for attention; frames live in the market,
-            // where looking at them is the point.
+        }
+        // The equipped frame, drawn AROUND the portrait.
+        //
+        // This had been removed outright, which meant a player could buy a
+        // frame, equip it, and never see it anywhere — the cosmetic did not
+        // exist outside the store. It was taken out because it covered the
+        // picture, and the fix for covering the picture is to stop covering
+        // the picture, not to delete the feature.
+        //
+        // The photo occupies the middle 66% of the box, so its radius is 0.33
+        // of the width. The ring's centre line sits at 0.42, and Native/Frame
+        // caps every tube at kInnerClearance of the radius, which puts the
+        // innermost edge no closer than about 0.36 — clear of the portrait at
+        // every point of every silhouette. Tools/cosmetic_probe.cpp asserts
+        // that bound, so a newly authored frame cannot quietly break it.
+        val frameClock = rememberFrameClock()
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            drawFrame3D(frame, this.size.minDimension * 0.42f, frameClock)
         }
         // Decoded directly rather than via an image-loading library: it's one
         // small avatar, so pulling in a whole dependency for it isn't warranted.
@@ -4935,148 +5028,128 @@ private class TorusVertex(val x: Float, val y: Float, val z: Float,
                           val u: Float)
 
 /**
- * The path the frame's tube is swept along, as a radius at angle [a].
+ * The frame catalogue, as read from Native/Frame.
  *
- * This is what actually distinguishes the styles. They used to share one circle
- * and differ only in colour and in which lights ran round it, so all three read
- * as the same object in three finishes. A different silhouette is recognisable
- * across a grid of cards at thumbnail size; a different hue is not.
+ * Nothing here decides what a frame looks like. The silhouette the tube is
+ * swept along, how thick it is at each point, its palette and what lights up
+ * when all come out of the native table — so adding or restyling a cosmetic
+ * never means editing a Compose file.
+ *
+ * Every native call is guarded. A frame that fails to resolve falls back to a
+ * plain lit ring rather than to nothing: a cosmetic the player has paid
+ * attention to must never render as an empty box, which is exactly how the
+ * previews were failing.
  */
-private fun frameRadius(form: Int, a: Float): Float = when (form) {
-    // Rounded square. A superellipse rather than a real square: the corners
-    // still take a highlight, which a hard corner cannot.
-    FRAME_FORM_SQUARE -> {
-        val n = 5f
-        val c = kotlin.math.abs(cos(a)); val s = kotlin.math.abs(sin(a))
-        1f / Math.pow((Math.pow(c.toDouble(), n.toDouble()) +
-                       Math.pow(s.toDouble(), n.toDouble())), 1.0 / n).toFloat()
+private object FrameCatalog {
+
+    /** Ring positions. Matches the geometry's major resolution. */
+    const val SAMPLES = FRAME3D_MAJOR
+
+    class Entry(
+        val id: String,
+        val base: Color,
+        val glow: Color,
+        val highlight: Color,
+        /** Mean tube thickness as a fraction of the radius, for the lens fringe. */
+        val tubeRatio: Float,
+        val shininess: Float,
+        val geometry: Array<TorusVertex>,
+        /** -1 when this entry is the offline fallback. */
+        val nativeIndex: Int
+    )
+
+    private val bridge by lazy { runCatching { NativeBridge() }.getOrNull() }
+
+    val entries: List<Entry> by lazy { load() }
+
+    private fun load(): List<Entry> {
+        val b = bridge
+        val n = runCatching { b?.frameCount() ?: 0 }.getOrDefault(0)
+        if (b == null || n <= 0) return listOf(fallback())
+        return (0 until n).mapNotNull { i -> runCatching { entryAt(b, i) }.getOrNull() }
+            .ifEmpty { listOf(fallback()) }
     }
-    // Hexagon, flat-topped. Straight runs with hard vertices between them.
-    FRAME_FORM_HEX -> {
-        val sector = Math.PI.toFloat() / 3f
-        val local = a - sector * kotlin.math.floor(a / sector) - sector * 0.5f
-        cos(sector * 0.5f) / cos(local)
-    }
-    else -> 1f
-}
 
-/** How thick the tube is at [a]. Beading the profile gives a third silhouette
- *  without touching the outline at all. */
-private fun frameThickness(form: Int, minorRatio: Float, a: Float): Float = when (form) {
-    // A string of beads: the tube swells and pinches as it goes round.
-    FRAME_FORM_BEADED -> minorRatio * (1f + 0.85f * cos(a * 11f))
-    else -> minorRatio
-}
-
-private const val FRAME_FORM_ROUND  = 0
-private const val FRAME_FORM_SQUARE = 1
-private const val FRAME_FORM_BEADED = 2
-private const val FRAME_FORM_HEX    = 3
-
-/**
- * Sweeps the tube along the style's own path. Dimensionless — major radius 1 —
- * so the draw can scale the whole solid by one number. Built once per style
- * because the geometry never changes; only the transform applied to it does.
- */
-private fun buildFrameSolid(form: Int, minorRatio: Float): Array<TorusVertex> {
-    val out = ArrayList<TorusVertex>(FRAME3D_MAJOR * FRAME3D_MINOR)
-    for (i in 0 until FRAME3D_MAJOR) {
-        val u = i / FRAME3D_MAJOR.toFloat()
-        val a = u * 2f * Math.PI.toFloat()
-        val ca = cos(a); val sa = sin(a)
-        val pathR = frameRadius(form, a)
-        val minor = frameThickness(form, minorRatio, a)
-        for (j in 0 until FRAME3D_MINOR) {
-            val b = (j / FRAME3D_MINOR.toFloat()) * 2f * Math.PI.toFloat()
-            val cb = cos(b); val sb = sin(b)
-            val ringR = pathR + minor * cb
-            out.add(
-                TorusVertex(
-                    ringR * ca, ringR * sa, minor * sb,
-                    cb * ca, cb * sa, sb,
-                    u
-                )
-            )
-        }
-    }
-    return out.toTypedArray()
-}
-
-/** Geometry cache. Four styles, so this never grows. */
-private val frameGeometryCache = HashMap<String, Array<TorusVertex>>()
-
-private fun frameGeometry(key: String): Array<TorusVertex> = synchronized(frameGeometryCache) {
-    frameGeometryCache.getOrPut(key) {
-        val style = frameStyleFor(key)
-        buildFrameSolid(style.form, style.minorScale)
-    }
-}
-
-/** Palette and behaviour for one frame style. */
-private class FrameStyle(
-    val base: Color,
-    val highlight: Color,
-    /** Emissive band colour, used by the travelling pattern. */
-    val glow: Color,
-    val minorScale: Float,
-    val shininess: Float,
-    /** Which silhouette this style is swept along. */
-    val form: Int,
-    /** Extra brightness at a given ring position and time, 0..1. */
-    val pattern: (u: Float, t: Float) -> Float
-)
-
-private fun frameStyleFor(key: String): FrameStyle = when (key) {
-    // Fluorescent tube bent into a ring, running on a failing ballast — the
-    // same stutter the level's own fixtures have.
-    "halogen" -> FrameStyle(
-        base = Color(0xFF3A3222), highlight = CrtAmber, glow = Color(0xFFFFE9A8),
-        minorScale = 0.19f, shininess = 22f, form = FRAME_FORM_SQUARE
-    ) { u, t ->
-        val ballast = if (sin(t * 11f) * sin(t * 3.7f) > -0.72f) 1f else 0.30f
-        // Four tubes with dark end caps, so it reads as a fitting, not a hoop.
-        val seg = ((u * 4f) % 1f)
-        val body = if (seg > 0.06f && seg < 0.94f) 1f else 0.05f
-        body * ballast
-    }
-    // A radar return: a bright sweep head dragging a decaying tail.
-    "signal" -> FrameStyle(
-        base = Color(0xFF15303A), highlight = OmniumCol, glow = Color(0xFFB6F4FF),
-        minorScale = 0.10f, shininess = 42f, form = FRAME_FORM_BEADED
-    ) { u, t ->
-        val head = (t * 0.36f) % 1f
-        var d = u - head
-        if (d < 0f) d += 1f
-        val tail = (1f - d).let { it * it * it * it }
-        val static = if (sin(t * 9f + u * 41f) > 0.55f) 0.22f else 0f
-        (tail + static).coerceIn(0f, 1f)
-    }
-    // Two counter-rotating arcs of a door that never quite shuts.
-    "threshold" -> FrameStyle(
-        base = Color(0xFF241B3A), highlight = SouliumCol, glow = Color(0xFFD9C9FF),
-        minorScale = 0.16f, shininess = 30f, form = FRAME_FORM_HEX
-    ) { u, t ->
-        fun arc(centre: Float): Float {
-            var d = kotlin.math.abs(u - ((centre % 1f) + 1f) % 1f)
-            if (d > 0.5f) d = 1f - d
-            return (1f - smoothStep01(d / 0.16f)).coerceIn(0f, 1f)
-        }
-        maxOf(
-            arc(t * 0.14f), arc(t * 0.14f + 0.5f),
-            arc(-t * 0.11f + 0.25f) * 0.7f, arc(-t * 0.11f + 0.75f) * 0.7f
+    private fun entryAt(b: NativeBridge, i: Int): Entry {
+        val id = b.frameId(i).orEmpty().ifEmpty { "frame_$i" }
+        val s = b.frameSpec(i) ?: error("no spec for frame $i")
+        val prof = b.frameProfile(i, SAMPLES) ?: error("no profile for frame $i")
+        var tubeSum = 0f
+        for (k in 0 until SAMPLES) tubeSum += prof[k * 2 + 1]
+        return Entry(
+            id = id,
+            base      = Color(s[0], s[1], s[2], 1f),
+            glow      = Color(s[3], s[4], s[5], 1f),
+            highlight = Color(s[6], s[7], s[8], 1f),
+            tubeRatio = tubeSum / SAMPLES,
+            shininess = s[10],
+            geometry  = sweep(prof),
+            nativeIndex = i
         )
     }
-    // Plain machined steel. Nothing emissive; all of its life comes from the
-    // specular travelling round the tube as it turns.
-    else -> FrameStyle(
-        base = Color(0xFF4A4A4E), highlight = Color(0xFFCFD2D8), glow = Color(0xFFF2F4F8),
-        minorScale = 0.19f, shininess = 60f, form = FRAME_FORM_ROUND
-    ) { _, _ -> 0f }
-}
 
-private fun smoothStep01(x: Float): Float {
-    val t = x.coerceIn(0f, 1f)
-    return t * t * (3f - 2f * t)
+    /** A plain ring, used only when the native table is unreachable. */
+    private fun fallback(): Entry {
+        val prof = FloatArray(SAMPLES * 2)
+        for (i in 0 until SAMPLES) { prof[i * 2] = 1f; prof[i * 2 + 1] = 0.16f }
+        return Entry(
+            "Face_Of_Darkness",
+            Color(0.18f, 0.17f, 0.20f, 1f),
+            Color(0.90f, 0.35f, 0.28f, 1f),
+            Color(0.80f, 0.78f, 0.82f, 1f),
+            0.16f, 30f, sweep(prof), -1
+        )
+    }
+
+    /**
+     * Sweeps the tube along the native silhouette. Dimensionless — the widest
+     * radius is 1 — so the draw scales the whole solid by one number. Built
+     * once per frame; only the transform applied to it changes.
+     */
+    private fun sweep(profile: FloatArray): Array<TorusVertex> {
+        val out = ArrayList<TorusVertex>(SAMPLES * FRAME3D_MINOR)
+        for (i in 0 until SAMPLES) {
+            val u = i / SAMPLES.toFloat()
+            val a = u * 2f * Math.PI.toFloat()
+            val ca = cos(a); val sa = sin(a)
+            val pathR = profile[i * 2]
+            val minor = profile[i * 2 + 1]
+            for (j in 0 until FRAME3D_MINOR) {
+                val b = (j / FRAME3D_MINOR.toFloat()) * 2f * Math.PI.toFloat()
+                val cb = cos(b); val sb = sin(b)
+                val ringR = pathR + minor * cb
+                out.add(
+                    TorusVertex(ringR * ca, ringR * sa, minor * sb, cb * ca, cb * sa, sb, u)
+                )
+            }
+        }
+        return out.toTypedArray()
+    }
+
+    fun indexOf(id: String): Int =
+        entries.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
+
+    fun entryFor(id: String): Entry = entries[indexOf(id)]
+
+    /** Ids in catalogue order — the store's list and the picker's list. */
+    fun ids(): List<String> = entries.map { it.id }
+
+    /**
+     * Emission for one entry at time [t]. Reused scratch, because this runs on
+     * every drawn frame of every visible ring and a fresh array per draw is
+     * pure garbage on the UI thread — which is what made a grid of animated
+     * cards stutter badly enough to look like it had failed to load.
+     */
+    private val scratch = ThreadLocal.withInitial { FloatArray(SAMPLES) }
+
+    fun emission(entry: Entry, t: Float): FloatArray {
+        val buf = scratch.get()!!
+        if (entry.nativeIndex < 0) { java.util.Arrays.fill(buf, 0f); return buf }
+        val got = runCatching { bridge?.frameEmission(entry.nativeIndex, SAMPLES, t) }.getOrNull()
+        if (got == null || got.size < SAMPLES) { java.util.Arrays.fill(buf, 0f); return buf }
+        System.arraycopy(got, 0, buf, 0, SAMPLES)
+        return buf
+    }
 }
 
 /**
@@ -5090,8 +5163,9 @@ private fun DrawScope.drawFrame3D(
     radius: Float,
     t: Float
 ) {
-    val style = frameStyleFor(frame)
-    val geometry = frameGeometry(frame)
+    val style = FrameCatalog.entryFor(frame)
+    val geometry = style.geometry
+    val emission = FrameCatalog.emission(style, t)
 
     // Orientation. A fixed tilt away from the viewer is what exposes the tube's
     // roundness at all — face-on, a torus is indistinguishable from a flat
@@ -5157,7 +5231,10 @@ private fun DrawScope.drawFrame3D(
         // Rim: facets turning away from the eye pick up a cool edge, which is
         // what separates the silhouette from whatever is behind it.
         val rim = (1f - kotlin.math.abs(nz)).let { it * it } * 0.55f
-        val emissive = style.pattern(v.u, t)
+        // Emission comes from the native table, sampled at this vertex's own
+        // position around the ring.
+        val emissive = emission[(v.u * FrameCatalog.SAMPLES).toInt()
+            .coerceIn(0, FrameCatalog.SAMPLES - 1)]
 
         val ambient = 0.22f
         val kd = ambient + diffuse * 0.78f
@@ -5209,12 +5286,16 @@ private fun DrawScope.drawFrame3D(
     // Everything below sits in FRONT of the solid, so it reads as light and
     // matter in the air around the ring rather than as more of the ring. The
     // geometry alone was correct but inert; this is what gives it presence.
-    if (frame == "default") return
-
     // Halo. Two lobes at different radii, because a single gradient reads as a
     // flat glow sticker while a tight core inside a wide wash reads as light
     // falling off through air.
-    val glowAmount = style.pattern(0f, t)
+    //
+    // Averaged rather than sampled at one point: with the old catalogue this
+    // read position zero, which on a frame whose bright band happened to sit
+    // elsewhere left the halo dark while the ring itself was blazing.
+    var glowSum = 0f
+    for (e in emission) glowSum += e
+    val glowAmount = glowSum / FrameCatalog.SAMPLES
     drawCircle(
         Brush.radialGradient(
             listOf(Color.Transparent, style.glow.copy(0.22f + glowAmount * 0.14f), Color.Transparent),
@@ -5234,7 +5315,7 @@ private fun DrawScope.drawFrame3D(
     // warm and one cool. A lens does this to a bright object; faking it is the
     // cheapest thing that makes an effect look photographed rather than drawn.
     val fringe = radius * 0.030f
-    val fringeStroke = radius * style.minorScale * 0.9f
+    val fringeStroke = radius * style.tubeRatio * 0.9f
     drawCircle(
         style.glow.copy(0.16f), radius = radius,
         center = Offset(center.x - fringe, center.y - fringe * 0.5f),
@@ -5258,7 +5339,10 @@ private fun DrawScope.drawFrame3D(
         val wobble = sin(t * 2.1f + seed) * radius * 0.05f
         val px = center.x + cos(a) * drift + wobble
         val py = center.y + sin(a) * drift * 0.42f + sin(t * 1.6f + seed) * radius * 0.16f
-        val fade = (1f - life) * (1f - life) * style.pattern(i / sparks.toFloat(), t).coerceAtLeast(0.25f)
+        // Each spark takes its brightness from the part of the ring it was
+        // thrown off, so they flare where the frame is actually lit.
+        val born = emission[(i * FrameCatalog.SAMPLES / sparks).coerceIn(0, FrameCatalog.SAMPLES - 1)]
+        val fade = (1f - life) * (1f - life) * born.coerceAtLeast(0.25f)
         if (fade <= 0.01f) continue
         drawCircle(
             style.glow.copy((0.55f * fade).coerceIn(0f, 1f)),
@@ -5389,7 +5473,9 @@ private fun FramePickerSheet(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val all = listOf("default", "halogen", "signal", "threshold")
+    // Straight from the native catalogue, so the picker cannot drift out of step
+    // with what actually exists.
+    val all = remember { FrameCatalog.ids() }
     val pickerClock = rememberFrameClock()
     Box(
         Modifier
@@ -5450,11 +5536,28 @@ private fun FramePickerSheet(
     }
 }
 
+/**
+ * Human-readable name for a frame id.
+ *
+ * Ids are English and structural (Face_Of_Darkness); this is what the player
+ * reads. Unknown ids fall back to the id with its underscores opened out, so a
+ * cosmetic added natively still shows something sensible before anyone writes a
+ * translation for it.
+ */
+@Composable
 private fun frameDisplayName(key: String): String = when (key) {
-    "halogen"   -> "Halogen"
-    "signal"    -> "Signal"
-    "threshold" -> "Threshold"
-    else        -> "Default"
+    "Face_Of_Darkness"   -> stringResource(R.string.frame_face_of_darkness)
+    "Endless_Dimension"  -> stringResource(R.string.frame_endless_dimension)
+    "Sound_Of_Rooms"     -> stringResource(R.string.frame_sound_of_rooms)
+    else -> key.replace('_', ' ')
+}
+
+@Composable
+private fun trailDisplayName(key: String): String = when (key) {
+    "Dust_Trail"   -> stringResource(R.string.trail_dust)
+    "Static_Trail" -> stringResource(R.string.trail_static)
+    "Salt_Trail"   -> stringResource(R.string.trail_salt)
+    else -> key.replace('_', ' ')
 }
 
 private fun formatDuration(ms: Long): String {
@@ -6005,21 +6108,56 @@ private fun HudBadge(text: String, color: Color) {
 /** Fraction of the stick's travel that registers as "not moving". */
 private const val JOYSTICK_DEADZONE = 0.12f
 
+/** How far the ring itself may slide from home to chase the thumb, as a
+ *  multiple of the knob's travel. Enough to stay under a thumb that has run off
+ *  the control, not so much that the stick wanders across the HUD. */
+private const val JOYSTICK_BASE_FOLLOW = 1.4f
+
 @Composable
-fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
-    var knob by remember { mutableStateOf(Offset.Zero) }
+fun VirtualJoystick(
+    modifier: Modifier,
+    /** False in the layout editor, where dragging must move the whole control
+     *  rather than work it. The editor instantiates the real stick so the player
+     *  arranges what they will actually press — but a live stick swallows the
+     *  drag for its own knob, so the element could not be picked up and the
+     *  joystick appeared to wander on its own. */
+    interactive: Boolean = true,
+    onMove: (Float, Float) -> Unit
+) {
+    // The thumb's TRUE offset from the control's home centre, never clamped.
+    //
+    // This used to be kept only in clamped form and fed back into itself as the
+    // accumulator. Once the thumb had pushed past the rim, the very first pixel
+    // of movement back toward the middle pulled the knob off the edge — while
+    // the thumb was still far outside the ring. That is the disagreement
+    // between finger and stick: they were no longer measuring from the same
+    // place. Tracking the raw offset and deriving everything else from it keeps
+    // the knob out at the rim until the thumb genuinely comes back inside.
+    var raw by remember { mutableStateOf(Offset.Zero) }
     var dragging by remember { mutableStateOf(false) }
-    // While the finger is down the knob is pinned to it exactly; the spring is
-    // only for the snap back to centre on release. Animating it under the finger
-    // made the stick lag behind the thumb, which is what made the control feel
-    // like it was ignoring how far you had actually pushed it.
-    val released by animateOffsetAsState(
-        knob, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "joystick"
+
+    // Knob position relative to the ring, and how far the ring has slid to keep
+    // up. Both are pure functions of `raw` and the travel radius, resolved in
+    // the pointer block where the laid-out size is known.
+    var knob by remember { mutableStateOf(Offset.Zero) }
+    var base by remember { mutableStateOf(Offset.Zero) }
+
+    // While the finger is down both are pinned to it exactly; the springs are
+    // only for the snap home on release. Animating under the finger made the
+    // stick lag behind the thumb.
+    val knobReleased by animateOffsetAsState(
+        knob, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "joystickKnob"
     )
-    val knobAnim = if (dragging) knob else released
+    val baseReleased by animateOffsetAsState(
+        base, spring(dampingRatio = Spring.DampingRatioLowBouncy), label = "joystickBase"
+    )
+    val knobAnim = if (dragging) knob else knobReleased
+    val baseAnim = if (dragging) base else baseReleased
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
+            .offset { IntOffset(baseAnim.x.toInt(), baseAnim.y.toInt()) }
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
@@ -6027,14 +6165,27 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
                 )
             )
             .border(1.5.dp, YellowDim.copy(0.6f), CircleShape)
+            .then(if (!interactive) Modifier else Modifier
             .pointerInput(Unit) {
                 // Travel radius derived from the actual laid-out size, so the knob
                 // stays inside the ring on every screen density.
                 val travel = minOf(size.width, size.height) / 2f * 0.62f
-                fun emit(raw: Offset) {
-                    val len = kotlin.math.hypot(raw.x, raw.y)
-                    val clamped = if (len > travel && len > 0f) raw * (travel / len) else raw
+                val maxFollow = travel * JOYSTICK_BASE_FOLLOW
+
+                fun apply(next: Offset) {
+                    raw = next
+                    val len = kotlin.math.hypot(next.x, next.y)
+                    // The ring chases the thumb once the thumb leaves it, so the
+                    // knob stays under the finger instead of being abandoned at
+                    // the rim. Capped, or the control walks off its own corner.
+                    val over = (len - travel).coerceAtLeast(0f).coerceAtMost(maxFollow)
+                    base = if (len > 0f) next * (over / len) else Offset.Zero
+                    val local = next - base
+                    val localLen = kotlin.math.hypot(local.x, local.y)
+                    val clamped =
+                        if (localLen > travel && localLen > 0f) local * (travel / localLen) else local
                     knob = clamped
+
                     val nx = clamped.x / travel
                     val ny = clamped.y / travel
                     val mag = kotlin.math.hypot(nx, ny)
@@ -6045,19 +6196,23 @@ fun VirtualJoystick(modifier: Modifier, onMove: (Float, Float) -> Unit) {
                     val scaled = ((mag - JOYSTICK_DEADZONE) / (1f - JOYSTICK_DEADZONE)).coerceIn(0f, 1f)
                     onMove(nx / mag * scaled, ny / mag * scaled)
                 }
+                fun home() {
+                    dragging = false; raw = Offset.Zero
+                    knob = Offset.Zero; base = Offset.Zero; onMove(0f, 0f)
+                }
                 detectDragGestures(
                     onDragStart  = { pos ->
                         dragging = true
-                        emit(pos - Offset(size.width / 2f, size.height / 2f))
+                        apply(pos - Offset(size.width / 2f, size.height / 2f))
                     },
-                    onDragEnd    = { dragging = false; knob = Offset.Zero; onMove(0f, 0f) },
-                    onDragCancel = { dragging = false; knob = Offset.Zero; onMove(0f, 0f) },
+                    onDragEnd    = { home() },
+                    onDragCancel = { home() },
                     onDrag       = { change, drag ->
                         change.consume()
-                        emit(knob + drag)
+                        apply(raw + drag)
                     }
                 )
-            }
+            })
     ) {
         // Direction ticks so the stick reads as a physical control, not a plain dot.
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
@@ -6121,16 +6276,20 @@ fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit, settingsVm: SettingsV
                 // Only the settings that make sense to change without leaving a
                 // run: look/feel and audio. Anything needing a restart stays in
                 // the main settings screen.
+                //
+                // Full screen. As a 300dp card it was a postage stamp in the
+                // middle of the display with its own scrollbar, and every
+                // control inside it was squeezed into a third of the width the
+                // same controls get everywhere else in the game.
                 Column(
-                    Modifier.width(300.dp).clip(RoundedCornerShape(10.dp))
+                    Modifier.fillMaxSize()
                         .background(MetalBg)
-                        .border(1.dp, CrtAmber.copy(0.5f), RoundedCornerShape(10.dp))
-                        .padding(20.dp)
+                        .padding(horizontal = 24.dp, vertical = 18.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        stringResource(R.string.menu_settings), color = CrtAmber, fontSize = 13.sp,
+                        stringResource(R.string.menu_settings), color = CrtAmber, fontSize = 16.sp,
                         fontWeight = FontWeight.Bold, letterSpacing = 3.sp
                     )
                     DividerLine()
@@ -7368,9 +7527,12 @@ private fun LobbyAvatar(level: Int, frame: String, localUri: String?, onClick: (
                 close()
             }
             drawPath(body, Yellow.copy(0.8f))
-            // No frame ring here. It read as clutter around a small avatar and
-            // fought the portrait for attention; frames live in the market,
-            // where looking at them is the point.
+        }
+        // The equipped frame, drawn AROUND the portrait — see FramedAvatar for
+        // why the ring is back and how it is kept off the picture.
+        val frameClock = rememberFrameClock()
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            drawFrame3D(frame, this.size.minDimension * 0.42f, frameClock)
         }
         val ctx = LocalContext.current
         val bmp by produceState<ImageBitmap?>(null, localUri) {
@@ -8886,7 +9048,13 @@ fun CharacterPreviewSheet(onClose: () -> Unit) {
                 // tilts the camera, two fingers dolly in and out.
                 detectTransformGestures { _, pan, zoom, _ ->
                     turntable.holdOff = 2.5f
-                    renderer.yawDegrees -= pan.x * 0.4f
+                    // Plus, not minus. The model is spun about +Y, and by the
+                    // right-hand rule a positive angle carries the point facing
+                    // the camera (+Z) round to +X — the viewer's right. So a
+                    // rightward drag needs a positive delta to push her round to
+                    // the right; subtracting sent her the other way, which is
+                    // why dragging right turned her left.
+                    renderer.yawDegrees += pan.x * 0.4f
                     // Dragging down tips her top toward the viewer, which means
                     // the camera rises — the same way grabbing a real figure and
                     // pulling it forward shows you the top of its head.

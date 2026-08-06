@@ -22,11 +22,18 @@ add_library(
     SHARED
     Engine.cpp
     Map/Level_0.cpp
+    Frame/Frame.cpp
+    Trail/Trail.cpp
 )
 
 # Map/ holds level generation. Kept out of Engine.cpp because it is the part
 # most likely to be iterated on, and it has no business sharing a translation
 # unit with audio, netcode and the anti-tamper guard.
+#
+# Frame/ and Trail/ hold the cosmetics. A frame's silhouette and a trail's
+# ageing rules are content, and content that was previously a switch on a
+# string buried in a Compose file — so the identity of every cosmetic, its
+# English id included, now lives in one table per folder.
 target_include_directories(il2cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_include_directories(il2cpp PRIVATE
