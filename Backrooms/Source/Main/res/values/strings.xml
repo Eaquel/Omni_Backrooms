@@ -245,7 +245,7 @@
     <string name="room_server_unavailable">Sunucuya ulaşılamıyor. Çevrimiçi mod için sunucu henüz yayında değil — çevrimdışı oynayabilirsin.</string>
     <string name="market_tab_characters_new">Karakterler</string>
     <string name="char_preview_title">Karakter İncelemesi</string>
-    <string name="char_preview_rotate">Döndürmek için sürükle</string>
+    <string name="char_preview_rotate">Döndürmek için sürükle · Yakınlaştırmak için sıkıştır</string>
     <string name="char_preview_equip">Kuşan</string>
     <string name="char_preview_equipped">Kuşanıldı</string>
     <string name="char_anim_idle">Bekleme</string>

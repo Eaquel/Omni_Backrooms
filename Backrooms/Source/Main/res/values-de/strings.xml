@@ -215,7 +215,7 @@
     <string name="room_server_unavailable">Server nicht erreichbar. Der Online-Modus ist noch nicht aktiv — du kannst offline spielen.</string>
     <string name="market_tab_characters_new">Charaktere</string>
     <string name="char_preview_title">Charaktervorschau</string>
-    <string name="char_preview_rotate">Zum Drehen ziehen</string>
+    <string name="char_preview_rotate">Zum Drehen ziehen · Zum Zoomen zusammenziehen</string>
     <string name="char_preview_equip">Ausrüsten</string>
     <string name="char_preview_equipped">Ausgerüstet</string>
     <string name="char_anim_idle">Ruhe</string>

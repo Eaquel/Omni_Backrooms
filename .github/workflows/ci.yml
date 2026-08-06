@@ -46,6 +46,13 @@ jobs:
       - name: Compile every embedded shader
         run: python3 Tools/check_shaders.py
 
+      # Sweeps the market inspection camera over its whole orbit/dolly envelope
+      # and every plausible aspect ratio. A shot that runs off the end of the
+      # backdrop, or a camera that sinks under the floor, is pure geometry — no
+      # reason to find it on a phone.
+      - name: Check the inspection camera envelope
+        run: python3 Tools/preview_cam.py
+
       # Floods the map from the spawn and proves the exit is actually reachable,
       # over many seeds. An unreachable exit is unwinnable and silent.
       - name: Probe the level generator

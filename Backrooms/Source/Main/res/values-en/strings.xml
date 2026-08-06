@@ -242,7 +242,7 @@
     <string name="room_server_unavailable">Cannot reach the server. Online mode is not live yet — you can play offline.</string>
     <string name="market_tab_characters_new">Characters</string>
     <string name="char_preview_title">Character Preview</string>
-    <string name="char_preview_rotate">Drag to rotate</string>
+    <string name="char_preview_rotate">Drag to rotate · Pinch to zoom</string>
     <string name="char_preview_equip">Equip</string>
     <string name="char_preview_equipped">Equipped</string>
     <string name="char_anim_idle">Idle</string>

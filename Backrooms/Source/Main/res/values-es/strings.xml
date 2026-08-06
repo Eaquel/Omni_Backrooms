@@ -215,7 +215,7 @@
     <string name="room_server_unavailable">No se puede contactar con el servidor. El modo en línea aún no está activo; puedes jugar sin conexión.</string>
     <string name="market_tab_characters_new">Personajes</string>
     <string name="char_preview_title">Vista del personaje</string>
-    <string name="char_preview_rotate">Arrastra para girar</string>
+    <string name="char_preview_rotate">Arrastra para girar · Pellizca para acercar</string>
     <string name="char_preview_equip">Equipar</string>
     <string name="char_preview_equipped">Equipado</string>
     <string name="char_anim_idle">Reposo</string>

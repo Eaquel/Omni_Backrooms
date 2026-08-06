@@ -25,6 +25,7 @@ import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -2760,7 +2761,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var sMVP = 0; private var sFlicker = 0; private var sTint = 0
     private var cMVP = 0; private var cModel = 0; private var cTime = 0; private var cWalk = 0
     private var cTexU = 0; private var cIsChar = 0
-    private var cCrouch = 0; private var cAir = 0
+    private var cCrouch = 0; private var cAir = 0; private var cAnimate = 0
+    private var cSubject = 0
     private var cHeadYaw = 0; private var cHeadPitch = 0; private var cTorch = 0
 
     // The torch she carries in third person.
@@ -2972,6 +2974,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             cWalk = GLES30.glGetUniformLocation(charProgram, "uWalk")
             cTexU = GLES30.glGetUniformLocation(charProgram, "uTex")
             cIsChar = GLES30.glGetUniformLocation(charProgram, "uIsCharacter")
+            cAnimate = GLES30.glGetUniformLocation(charProgram, "uAnimate")
+            cSubject = GLES30.glGetUniformLocation(charProgram, "uSubject")
             cCrouch = GLES30.glGetUniformLocation(charProgram, "uCrouch")
             cAir = GLES30.glGetUniformLocation(charProgram, "uAir")
             cHeadYaw = GLES30.glGetUniformLocation(charProgram, "uHeadYaw")
@@ -3658,6 +3662,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // cutout, so the texture's transparent regions render as solid blocks,
         // and none of the cel banding that gives her form any read at all.
         GLES30.glUniform1f(cIsChar, 1f)
+        GLES30.glUniform1f(cAnimate, 1f)
+        // Only the studio backdrop reads this; in the corridors the
+        // character branch returns before it is touched.
+        GLES30.glUniform3f(cSubject, px, py, pz)
 
         Matrix.setIdentityM(avatarModelM, 0)
         Matrix.translateM(avatarModelM, 0, px, py, pz)
@@ -8252,6 +8260,17 @@ uniform float uHeadYaw;
 uniform float uHeadPitch;
 /** 0 torch stowed, 1 torch raised and pointing forward. */
 uniform float uTorch;
+/**
+ * 1 for the character, 0 for scenery.
+ *
+ * This program is shared with the preview's backdrop, and the whole rig below
+ * used to run on ANY geometry fed through it. The studio's floor and back wall
+ * were being given the character's breathing, her idle drift and — for every
+ * vertex above 0.9 — her head's look-around: the backdrop visibly swayed. The
+ * fragment shader had a uIsCharacter flag but that is a fragment uniform and
+ * could not gate a single line of this.
+ */
+uniform float uAnimate;
 out vec3 vNormal; out vec2 vUV; out vec3 vWorldPos;
 
 // Rotate a point about an arbitrary pivot on the Y axis.
@@ -8275,7 +8294,12 @@ vec3 rotZ(vec3 p, vec3 pivot, float a){
 
 void main(){
     vec3 p = aPos;
-    float h = clamp(p.y, 0.0, 1.0);
+    // Skinning weights belong to the REST pose. Reading p as it is progressively
+    // deformed makes each step's mask depend on the previous step's rotation,
+    // which is how a rigid part ends up sheared across a blend band.
+    vec3 rest = aPos;
+    float h = clamp(rest.y, 0.0, 1.0);
+    if (uAnimate > 0.5) {
     // uWalk is a continuous 0..1.6 gait blend (0 idle, 1 walk, >1 run), not a
     // yes/no flag. Everything below scales off it, which is what stops the
     // character snapping between two fixed poses.
@@ -8287,9 +8311,9 @@ void main(){
     // The source mesh is modelled arms-out. Rotate each arm down about its own
     // shoulder so the character rests naturally; without this she stands with
     // both arms straight out, which is what the in-game screenshot showed.
-    float armSide = sign(p.x);
-    float armReach = smoothstep(0.10, 0.30, abs(p.x));          // 0 at torso, 1 at hand
-    float armBand = smoothstep(0.58, 0.66, p.y) * (1.0 - smoothstep(0.80, 0.88, p.y));
+    float armSide = sign(rest.x);
+    float armReach = smoothstep(0.10, 0.30, abs(rest.x));       // 0 at torso, 1 at hand
+    float armBand = smoothstep(0.58, 0.66, rest.y) * (1.0 - smoothstep(0.80, 0.88, rest.y));
     float armMask = armReach * armBand;
     if (armMask > 0.001) {
         vec3 shoulder = vec3(armSide * 0.11, 0.74, 0.0);
@@ -8332,7 +8356,7 @@ void main(){
 
         // Elbow: same swing, delayed, applied only below the joint so the upper
         // arm keeps its own arc.
-        float forearm = smoothstep(0.20, 0.34, abs(p.x));
+        float forearm = smoothstep(0.20, 0.34, abs(rest.x));
         if (forearm > 0.001) {
             vec3 elbow = vec3(armSide * 0.21, 0.60, 0.0);
             float lag = sin(phase - 0.85);
@@ -8344,21 +8368,21 @@ void main(){
     }
 
     // --- 3. Legs ------------------------------------------------------------
-    float legMask = 1.0 - smoothstep(0.05, 0.48, p.y);
+    float legMask = 1.0 - smoothstep(0.05, 0.48, rest.y);
     if (legMask > 0.001) {
-        vec3 hip = vec3(sign(p.x) * 0.05, 0.48, 0.0);
-        float legPhase = stride + (p.x > 0.0 ? 0.0 : 3.14159);
+        vec3 hip = vec3(sign(rest.x) * 0.05, 0.48, 0.0);
+        float legPhase = stride + (rest.x > 0.0 ? 0.0 : 3.14159);
         p = rotX(p, hip, sin(legPhase) * (0.52 + 0.34 * run) * gait * legMask);
         // Knee bend on the recovery half of the stride only, which is what makes
         // the trailing foot clear the floor instead of scything through it.
-        float shin = 1.0 - smoothstep(0.02, 0.26, p.y);
+        float shin = 1.0 - smoothstep(0.02, 0.26, rest.y);
         float bend = max(0.0, -sin(legPhase - 0.6));
-        p = rotX(p, vec3(sign(p.x) * 0.05, 0.24, 0.0), -bend * (0.42 + 0.30 * run) * gait * shin);
+        p = rotX(p, vec3(sign(rest.x) * 0.05, 0.24, 0.0), -bend * (0.42 + 0.30 * run) * gait * shin);
         // Airborne: legs tuck up under the body rather than staying extended,
         // which is what makes a jump read as a jump and not as the whole model
         // being translated upward.
         p = rotX(p, hip, 0.70 * uAir * legMask);
-        p = rotX(p, vec3(sign(p.x) * 0.05, 0.24, 0.0), -0.95 * uAir * shin);
+        p = rotX(p, vec3(sign(rest.x) * 0.05, 0.24, 0.0), -0.95 * uAir * shin);
     }
 
     // --- 4. Crouch ----------------------------------------------------------
@@ -8378,7 +8402,7 @@ void main(){
         // Masks read yPre, the leg's height BEFORE any of this ran; using the
         // live p.y would make each step's mask depend on the previous step's
         // rotation and the joints would drift apart.
-        float yPre = p.y;
+        float yPre = rest.y;
         const float La = 0.22;                 // hip -> knee
         const float Lb = 0.24;                 // knee -> ankle
         const float standH = La + Lb;          // hip height standing
@@ -8391,7 +8415,7 @@ void main(){
         // Shin angle measured from vertical at the planted ankle.
         float shinAng = atan(La * sin(thigh), max(hipY - La * cos(thigh), 0.001));
 
-        float side = sign(p.x) * 0.05;
+        float side = sign(rest.x) * 0.05;
         vec3 ankle = vec3(side, 0.0, 0.0);
         vec3 hipAfter = vec3(side, hipY, 0.0);
 
@@ -8421,7 +8445,10 @@ void main(){
     // When the player is not turning, a slow idle scan takes over so she is
     // never completely still. Three detuned sines rather than one, so the scan
     // never repeats on an obvious beat.
-    float headMask = smoothstep(0.80, 0.90, p.y);
+    // Narrow band, so the SKULL is rigid and only the neck blends. A wide
+    // gradient rotates the top of the head further than the jaw and the face
+    // shears apart — which is what "her head goes crooked" was.
+    float headMask = smoothstep(0.845, 0.895, rest.y);
     if (headMask > 0.001) {
         vec3 neck = vec3(0.0, 0.83, 0.0);
         float idleYaw = sin(uTime * 0.42) * 0.34 + sin(uTime * 0.17) * 0.16 + sin(uTime * 0.83) * 0.06;
@@ -8460,6 +8487,7 @@ void main(){
     // sink into the carpet on the down phase of every stride. Clamped rather
     // than folded, so only the vertices that would have broken through move.
     p.y = max(p.y, 0.0);
+    }   // uAnimate
 
     vec4 world = uModel * vec4(p, 1.0);
     vWorldPos = world.xyz;
@@ -8469,47 +8497,101 @@ void main(){
 }
 """
 
+/**
+ * Inspection studio.
+ *
+ * Lit the way a product shot is, not the way a room is: a three-point rig with
+ * a warm key over the viewer's shoulder, a cool fill opposite it to keep the
+ * shadow side readable, and a hard rim behind to separate her from the
+ * backdrop. The backdrop itself is an infinity cove — a graded sweep with no
+ * visible horizon — plus a contact shadow so she is standing on it rather than
+ * hovering in front of it.
+ */
 private const val OMNI_PREVIEW_FRAG = """#version 300 es
 precision mediump float;
 in vec3 vNormal; in vec2 vUV; in vec3 vWorldPos;
 uniform sampler2D uTex;
 uniform float uIsCharacter;
+/** World-space footprint of the subject, for the contact shadow. */
+uniform vec3 uSubject;
 out vec4 fragColor;
+
 void main(){
     vec4 tex = texture(uTex, vUV);
     if (uIsCharacter > 0.5 && tex.a < 0.35) discard;
     vec3 n = normalize(vNormal);
-    vec3 key = normalize(vec3(-0.4, 0.9, 0.6));
-    float ndl = dot(n, key);
-    // Cel bands for the character; smooth shading for the room surfaces, which
-    // should recede rather than compete with the model.
-    float lit = uIsCharacter > 0.5
-        ? (ndl > 0.25 ? 1.0 : (ndl > -0.1 ? 0.74 : 0.55))
-        : (0.45 + max(ndl, 0.0) * 0.55);
     vec3 view = normalize(vec3(0.0, 0.15, 1.0));
-    float rim = pow(1.0 - max(dot(n, view), 0.0), 3.0) * (uIsCharacter > 0.5 ? 0.5 : 0.12);
-    vec3 col = tex.rgb * lit + vec3(rim) * vec3(1.0, 0.92, 0.75);
-    // Gentle vertical falloff so the backdrop sinks away behind the character.
-    if (uIsCharacter < 0.5) col *= 0.55 + 0.45 * clamp(vWorldPos.y * 0.35, 0.0, 1.0);
-    fragColor = vec4(col, 1.0);
+
+    if (uIsCharacter > 0.5) {
+        // --- Three-point rig ---------------------------------------------
+        vec3 keyDir  = normalize(vec3(-0.55, 0.82, 0.62));
+        vec3 fillDir = normalize(vec3( 0.78, 0.22, 0.42));
+        vec3 rimDir  = normalize(vec3( 0.15, 0.45, -0.92));
+
+        float key  = max(dot(n, keyDir), 0.0);
+        float fill = max(dot(n, fillDir), 0.0);
+        float rim  = pow(max(dot(n, rimDir), 0.0), 2.2);
+        // Wrapped diffuse on the key: light bends around a subject rather than
+        // terminating on the exact horizon, and a hard terminator is the single
+        // most plastic-looking thing a character render can have.
+        float wrapped = max((dot(n, keyDir) + 0.35) / 1.35, 0.0);
+
+        vec3 keyCol  = vec3(1.00, 0.95, 0.86) * (wrapped * 0.95 + key * 0.25);
+        vec3 fillCol = vec3(0.42, 0.52, 0.72) * fill * 0.38;
+        vec3 rimCol  = vec3(1.00, 0.92, 0.74) * rim * 0.85;
+
+        // Tight specular from the key, so skin and fabric read differently.
+        vec3 half0 = normalize(keyDir + view);
+        float spec = pow(max(dot(n, half0), 0.0), 34.0) * 0.28;
+
+        vec3 col = tex.rgb * (vec3(0.16, 0.17, 0.21) + keyCol + fillCol) + rimCol + spec;
+        fragColor = vec4(col, 1.0);
+        return;
+    }
+
+    // --- Infinity cove ---------------------------------------------------
+    // No texture and no horizon line: a smooth sweep from a pool of light at
+    // her feet out into darkness. The level's wall and floor swatches were
+    // being used here and they fought the subject for attention.
+    float radial = length(vWorldPos.xz - uSubject.xz);
+    float sweep = 1.0 - smoothstep(0.4, 3.4, radial);
+    float height = 1.0 - smoothstep(0.0, 2.6, vWorldPos.y);
+    vec3 cove = mix(vec3(0.030, 0.030, 0.036), vec3(0.155, 0.150, 0.140),
+                    max(sweep * 0.85, height * 0.35));
+
+    // Contact shadow: an elliptical pool directly under her, densest at the
+    // feet. Without it a figure on a graded backdrop reads as a cut-out.
+    float contact = 1.0 - smoothstep(0.0, 0.62, radial);
+    cove *= 1.0 - contact * 0.80 * (1.0 - smoothstep(0.0, 0.22, vWorldPos.y));
+
+    fragColor = vec4(cove, 1.0);
 }
 """
 
-/** Renders the character on a floor, against a wall, with no ceiling. */
+/** Renders the character alone on an infinity cove, lit like a product shot. */
 class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
-    @Volatile var yawDegrees: Float = 0f
+    // The model turns; the camera orbits and dollies. Turning the MODEL rather
+    // than the camera is what makes this read as a turntable — the studio lights
+    // stay put and sweep across her as she comes round, which is the whole
+    // reason to put something on a turntable in the first place.
+    @Volatile var yawDegrees: Float = 18f
     @Volatile var walkAmount: Float = 0f
+    /** Camera elevation. Positive looks down at her. */
+    @Volatile var pitchDegrees: Float = 7f
+    /** Camera distance from the framing target, in metres. */
+    @Volatile var distance: Float = 3.3f
 
     private var program = 0
     private var uMVP = 0; private var uModel = 0; private var uTime = 0
     private var uWalk = 0; private var uTex = 0; private var uIsChar = 0
+    private var uAnimate = 0; private var uSubject = 0
 
     private var charVbo = 0; private var charIbo = 0; private var charCount = 0
     private var roomVbo = 0; private var roomIbo = 0
     private var wallCount = 0; private var floorCount = 0
     private var wallVbo = 0; private var wallIbo = 0
-    private var charTex = 0; private var wallTex = 0; private var floorTex = 0
+    private var charTex = 0
 
     private val proj = FloatArray(16)
     private val view = FloatArray(16)
@@ -8518,8 +8600,18 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
     private val mvp = FloatArray(16)
     private val start = System.nanoTime()
 
+    companion object {
+        /** Close enough to read the face, far enough to hold the whole figure. */
+        const val MIN_DIST = 1.7f
+        const val MAX_DIST = 5.2f
+        const val MIN_PITCH = -10f
+        const val MAX_PITCH = 38f
+    }
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        GLES30.glClearColor(0.04f, 0.038f, 0.03f, 1f)
+        // Matches the cove's far tone, so anything past the backdrop's edge is
+        // indistinguishable from the backdrop itself.
+        GLES30.glClearColor(0.030f, 0.030f, 0.036f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         runCatching {
             program = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG)
@@ -8529,6 +8621,8 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
             uWalk = GLES30.glGetUniformLocation(program, "uWalk")
             uTex = GLES30.glGetUniformLocation(program, "uTex")
             uIsChar = GLES30.glGetUniformLocation(program, "uIsCharacter")
+            uAnimate = GLES30.glGetUniformLocation(program, "uAnimate")
+            uSubject = GLES30.glGetUniformLocation(program, "uSubject")
 
             CharacterMesh.load(appContext, "Models/Anime_Character.omesh")?.let { mesh ->
                 charVbo = genBuf(); charIbo = genBuf()
@@ -8543,36 +8637,64 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
                 charCount = mesh.indices.size
             }
 
-            // Floor plane at y=0 and a back wall at z=-1.6. No ceiling by design.
+            // Infinity cove. The graded sweep in the fragment shader fades out by
+            // about 3.4 m, so the geometry has to run far past that or the
+            // gradient ends on a visible plate edge instead of on nothing.
+            //
+            // Sized off the widest shot the camera can take: pulled fully back
+            // and tilted fully down, the top of the frame lands about 6 m up the
+            // back wall and 6 m out across the floor, and a wide tablet stretches
+            // that sideways again. 14 m clears all of it with room to spare, and
+            // two quads cost nothing.
             val floorQuad = quadMesh(
-                floatArrayOf(-2.2f, 0f, 1.6f), floatArrayOf(2.2f, 0f, 1.6f),
-                floatArrayOf(2.2f, 0f, -1.6f), floatArrayOf(-2.2f, 0f, -1.6f),
-                floatArrayOf(0f, 1f, 0f), 3.0f
+                floatArrayOf(-14f, 0f, 14f), floatArrayOf(14f, 0f, 14f),
+                floatArrayOf(14f, 0f, -14f), floatArrayOf(-14f, 0f, -14f),
+                floatArrayOf(0f, 1f, 0f), 1f
             )
             roomVbo = genBuf(); roomIbo = genBuf()
             uploadQuad(roomVbo, roomIbo, floorQuad)
             floorCount = 6
 
             val wallQuad = quadMesh(
-                floatArrayOf(-2.2f, 0f, -1.6f), floatArrayOf(2.2f, 0f, -1.6f),
-                floatArrayOf(2.2f, 2.8f, -1.6f), floatArrayOf(-2.2f, 2.8f, -1.6f),
-                floatArrayOf(0f, 0f, 1f), 2.4f
+                floatArrayOf(-14f, 0f, -14f), floatArrayOf(14f, 0f, -14f),
+                floatArrayOf(14f, 14f, -14f), floatArrayOf(-14f, 14f, -14f),
+                floatArrayOf(0f, 0f, 1f), 1f
             )
             wallVbo = genBuf(); wallIbo = genBuf()
             uploadQuad(wallVbo, wallIbo, wallQuad)
             wallCount = 6
 
+            // Only the character is textured. The cove is shaded procedurally —
+            // the level's own wall and floor swatches used to be pasted behind
+            // her and they competed with the subject for attention, which is
+            // the one thing a product shot must not do.
             charTex = loadTex("Models/Anime_Texture.png", 0xFFE8D5C8.toInt())
-            wallTex = loadTex("Level_0/Wall.png", 0xFF4A4030.toInt())
-            floorTex = loadTex("Level_0/Floor.png", 0xFF3A3020.toInt())
         }.onFailure { OmniLog.e("Preview", "setup failed", it) }
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
-        Matrix.perspectiveM(proj, 0, 38f, width.toFloat() / height.coerceAtLeast(1), 0.1f, 20f)
-        // Slightly raised three-quarter view, aimed at chest height.
-        Matrix.setLookAtM(view, 0, 0f, 1.15f, 3.15f, 0f, 0.92f, 0f, 0f, 1f, 0f)
+        // A long lens. Wide angles distort a face badly at inspection range, and
+        // the distortion lands exactly where the player is looking.
+        Matrix.perspectiveM(proj, 0, 34f, width.toFloat() / height.coerceAtLeast(1), 0.1f, 40f)
+    }
+
+    /**
+     * Orbits the camera around her, reframing as it dollies: pulled back it
+     * holds the whole figure, pushed in it settles on the head and shoulders.
+     * A fixed aim point would put her chin at the bottom of the frame the
+     * moment the player zoomed in on the face.
+     */
+    private fun updateView() {
+        val d = distance.coerceIn(MIN_DIST, MAX_DIST)
+        val far = ((d - MIN_DIST) / (MAX_DIST - MIN_DIST)).coerceIn(0f, 1f)
+        val targetY = 1.38f - 0.46f * far
+        val p = Math.toRadians(pitchDegrees.toDouble())
+        // Never let the eye drop through the cove floor; from underneath the
+        // backdrop swallows her completely.
+        val eyeY = (targetY + (sin(p) * d).toFloat()).coerceAtLeast(0.22f)
+        val eyeZ = (cos(p) * d).toFloat()
+        Matrix.setLookAtM(view, 0, 0f, eyeY, eyeZ, 0f, targetY, 0f, 0f, 1f, 0f)
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
     }
 
@@ -8580,6 +8702,7 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         if (program == 0) return
         val t = (System.nanoTime() - start) / 1_000_000_000f
+        updateView()
         GLES30.glUseProgram(program)
         GLES30.glUniform1f(uTime, t)
 
@@ -8589,10 +8712,16 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
         GLES30.glUniformMatrix4fv(uModel, 1, false, model, 0)
         GLES30.glUniform1f(uWalk, 0f)
         GLES30.glUniform1f(uIsChar, 0f)
-        drawIndexed(roomVbo, roomIbo, floorCount, floorTex)
-        drawIndexed(wallVbo, wallIbo, wallCount, wallTex)
+        // Scenery holds still.
+        GLES30.glUniform1f(uAnimate, 0f)
+        // She stands on the origin, so the cove's pool of light and the contact
+        // shadow are both centred there.
+        GLES30.glUniform3f(uSubject, 0f, 0f, 0f)
+        drawIndexed(roomVbo, roomIbo, floorCount, charTex)
+        drawIndexed(wallVbo, wallIbo, wallCount, charTex)
 
-        // Character, scaled to a believable 1.7 m against the 2.8 m wall.
+        // The mesh is authored unit-height, so this is literally her height in
+        // metres — the same 1.7 m the in-game avatar stands at.
         if (charCount > 0) {
             Matrix.setIdentityM(model, 0)
             Matrix.rotateM(model, 0, yawDegrees, 0f, 1f, 0f)
@@ -8602,6 +8731,7 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
             GLES30.glUniformMatrix4fv(uModel, 1, false, model, 0)
             GLES30.glUniform1f(uWalk, walkAmount)
             GLES30.glUniform1f(uIsChar, 1f)
+            GLES30.glUniform1f(uAnimate, 1f)
             drawIndexed(charVbo, charIbo, charCount, charTex)
         }
     }
@@ -8673,18 +8803,59 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
     }
 }
 
+/**
+ * Interaction state for the inspection sheet, deliberately outside Compose.
+ * The frame loop and the gesture detector both write to it every frame; nothing
+ * reads it during composition, so making it observable would only buy sixty
+ * needless recompositions a second.
+ */
+private class PreviewTurntable {
+    /** Seconds left before the automatic spin resumes. */
+    var holdOff: Float = 0f
+}
+
 /** Full-screen character inspection sheet, opened by tapping the market art. */
 @Composable
 fun CharacterPreviewSheet(onClose: () -> Unit) {
     val ctx = LocalContext.current
     val renderer = remember { CharacterPreviewRenderer(ctx.applicationContext) }
-    var yaw by remember { mutableStateOf(18f) }
     var walking by remember { mutableStateOf(false) }
     val walkAnim by animateFloatAsState(
         if (walking) 1f else 0f, tween(420, easing = EaseInOutCubic), label = "previewWalk"
     )
-    LaunchedEffect(yaw) { renderer.yawDegrees = yaw }
-    LaunchedEffect(walkAnim) { renderer.walkAmount = walkAnim }
+    // Camera angles live on the renderer and are written straight from the frame
+    // loop and the gesture detector. Holding them in Compose state instead meant
+    // a state write, a recomposition and a relaunched effect for every one of
+    // sixty frames a second, to move a number the UI never displays.
+    val turntable = remember { PreviewTurntable() }
+
+    // A display model that only moves when you touch it looks broken; a slow
+    // drift shows the silhouette from every side without being asked. It stands
+    // off for a beat after the last touch rather than snapping back into the
+    // spin the instant a finger lifts, which would drag the pose the player had
+    // just lined up out from under them.
+    LaunchedEffect(renderer) {
+        var last = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            val dt = ((now - last) / 1_000_000_000.0).toFloat().coerceIn(0f, 0.1f)
+            last = now
+            // Keep the angle bounded. A float that only ever grows loses
+            // precision, and a flick can add hundreds of degrees in a second.
+            renderer.yawDegrees = renderer.yawDegrees.mod(360f)
+            if (turntable.holdOff > 0f) {
+                turntable.holdOff -= dt
+            } else {
+                renderer.yawDegrees -= dt * 11f
+                // Ease the camera back to the house angle once she is spinning
+                // again, so an abandoned inspection tidies itself up.
+                val k = 1f - kotlin.math.exp(-dt * 1.6f)
+                renderer.pitchDegrees += (7f - renderer.pitchDegrees) * k
+                renderer.distance += (3.3f - renderer.distance) * k
+            }
+        }
+    }
+    SideEffect { renderer.walkAmount = walkAnim }
 
     val glView = remember {
         GLSurfaceView(ctx).apply {
@@ -8711,9 +8882,20 @@ fun CharacterPreviewSheet(onClose: () -> Unit) {
         AndroidView(
             factory = { glView },
             modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                detectDragGestures { change, drag ->
-                    change.consume()
-                    yaw -= drag.x * 0.4f
+                // One detector for all three axes: a single finger turns her and
+                // tilts the camera, two fingers dolly in and out.
+                detectTransformGestures { _, pan, zoom, _ ->
+                    turntable.holdOff = 2.5f
+                    renderer.yawDegrees -= pan.x * 0.4f
+                    // Dragging down tips her top toward the viewer, which means
+                    // the camera rises — the same way grabbing a real figure and
+                    // pulling it forward shows you the top of its head.
+                    renderer.pitchDegrees = (renderer.pitchDegrees + pan.y * 0.14f)
+                        .coerceIn(CharacterPreviewRenderer.MIN_PITCH, CharacterPreviewRenderer.MAX_PITCH)
+                    if (zoom != 0f) {
+                        renderer.distance = (renderer.distance / zoom)
+                            .coerceIn(CharacterPreviewRenderer.MIN_DIST, CharacterPreviewRenderer.MAX_DIST)
+                    }
                 }
             }
         )
