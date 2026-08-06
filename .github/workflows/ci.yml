@@ -86,6 +86,18 @@ jobs:
   # "skipped", and the Artifacts section was simply absent. The whole point of
   # CI on a branch is being able to put the thing on a phone before merging it.
   build-release:
+    # Waits for static-checks rather than racing it.
+    #
+    # This account gets one runner at a time. Started in parallel, build-release
+    # claimed it and static-checks sat in the queue with runner_id 0 and not a
+    # single step recorded until its own 15-minute timeout cancelled it. Three
+    # runs in a row reported failure that way while the APK built perfectly —
+    # the checks had not found anything, they had never run.
+    #
+    # Sequencing also puts them in the right order: the two-minute job that can
+    # say "this shader will not compile" should answer before the fifty-minute
+    # one that links the whole app.
+    needs: static-checks
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
