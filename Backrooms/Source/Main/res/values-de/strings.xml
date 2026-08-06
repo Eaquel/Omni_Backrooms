@@ -248,4 +248,5 @@
     <string name="profile_trail">Spur</string>
     <string name="trail_preview_title">Spur-Ansicht</string>
     <string name="trail_preview_hint">Den Gang beobachten · Tippen zum Wechseln</string>
+    <string name="guard_threat_reason">Grund</string>
 </resources>

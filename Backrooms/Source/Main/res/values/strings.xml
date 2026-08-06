@@ -278,4 +278,5 @@
     <string name="profile_trail">İz</string>
     <string name="trail_preview_title">İz İncelemesi</string>
     <string name="trail_preview_hint">Yürüyüşü izle · Dokun ve değiştir</string>
+    <string name="guard_threat_reason">Sebep</string>
 </resources>

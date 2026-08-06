@@ -248,4 +248,5 @@
     <string name="profile_trail">След</string>
     <string name="trail_preview_title">Осмотр Следа</string>
     <string name="trail_preview_hint">Смотри на походку · Нажми, чтобы сменить</string>
+    <string name="guard_threat_reason">Причина</string>
 </resources>

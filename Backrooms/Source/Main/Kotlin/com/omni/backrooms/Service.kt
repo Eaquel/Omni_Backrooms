@@ -1595,18 +1595,59 @@ object OmniLog {
 
     @Volatile private var sink: java.io.File? = null
 
-    /** Points the logger at app-private storage first (always writable, no
-     *  permission needed) so nothing is lost even if the public Documents copy
-     *  fails on a given device. */
+    const val LOG_DIR_NAME = "Backrooms_Log"
+
+    /**
+     * Opens the log file somewhere the player can actually reach.
+     *
+     * The old sink was ctx.filesDir, which is app-private: unreachable without
+     * root or adb, so a player who hit a problem had no way to send anything
+     * back. The candidates below are tried in order of how easy they are to
+     * find with an ordinary file manager, and the first writable one wins:
+     *
+     *   1. <shared storage>/Documents/Backrooms_Log  — top level, obvious.
+     *      Available without any permission on API 29+ via the app's own
+     *      external files being scoped; on older releases it needs the legacy
+     *      write permission, so it simply fails and we fall through.
+     *   2. Android/data/<pkg>/files/Backrooms_Log    — visible in every file
+     *      manager, no permission, works on every API level this app supports.
+     *   3. ctx.filesDir/Backrooms_Log                — last resort, private,
+     *      but never lets logging fail outright.
+     *
+     * Whichever wins is reported in the first line of the log and again on the
+     * settings screen, so there is no guessing about where to look.
+     */
     fun attach(ctx: Context) {
-        runCatching {
-            val dir = java.io.File(ctx.filesDir, "diagnostics").apply { if (!exists()) mkdirs() }
-            sink = java.io.File(dir, "session.log")
-            // Keep the private log from growing without bound across launches.
-            sink?.let { if (it.exists() && it.length() > 512 * 1024) it.delete() }
+        val candidates = buildList {
+            runCatching {
+                add(java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOCUMENTS), LOG_DIR_NAME))
+            }
+            runCatching { ctx.getExternalFilesDir(null) }.getOrNull()
+                ?.let { add(java.io.File(it, LOG_DIR_NAME)) }
+            add(java.io.File(ctx.filesDir, LOG_DIR_NAME))
         }
-        i("Log", "attached; app-private sink=${sink?.absolutePath}")
+
+        for (dir in candidates) {
+            val ok = runCatching {
+                if (!dir.exists()) dir.mkdirs()
+                val f = java.io.File(dir, "session.log")
+                // Prove it is writable before committing to it — a directory
+                // that mkdirs() reports as created can still reject writes.
+                f.appendText("")
+                if (f.length() > 512 * 1024) f.delete()
+                sink = f
+                true
+            }.getOrElse { false }
+            if (ok) break
+        }
+
+        i("Log", "attached; sink=${sink?.absolutePath ?: "none (in-memory only)"}")
     }
+
+    /** Where the log actually ended up, for the settings screen to show. */
+    fun sinkPath(): String? = sink?.absolutePath
 
     fun d(tag: String, msg: String) = write(Level.DEBUG, tag, msg, null)
     fun i(tag: String, msg: String) = write(Level.INFO,  tag, msg, null)
@@ -1782,9 +1823,30 @@ enum class AppLanguage(val tag: String, val endonym: String) {
 
         fun fromTag(tag: String?): AppLanguage? = entries.firstOrNull { it.tag == tag }
 
-        /** Resolves the device's own language to a supported one, or English. */
+        /**
+         * Resolves the DEVICE's own language to a supported one, or English.
+         *
+         * Read from the system resources, not from Locale.getDefault(). That
+         * distinction is the whole fix for "System" not going back to the
+         * device language: applyAppLanguage() calls Locale.setDefault() to make
+         * the app's own strings resolve, which overwrites the process default
+         * for good. So after a player picked English once, getDefault() was
+         * English forever, and asking for the device language returned English
+         * on a Turkish phone — the setting looked broken because it could never
+         * recover the value it was supposed to fall back to.
+         *
+         * Resources.getSystem() is the framework's own resource table and is
+         * unaffected by anything this app sets, so it still knows what the
+         * device is actually configured for.
+         */
         fun matchDevice(): AppLanguage {
-            val deviceTag = Locale.getDefault().language.lowercase(Locale.ROOT)
+            val deviceTag = runCatching {
+                val cfg = android.content.res.Resources.getSystem().configuration
+                @Suppress("DEPRECATION")
+                val loc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+                    cfg.locales.get(0) else cfg.locale
+                loc.language.lowercase(Locale.ROOT)
+            }.getOrElse { Locale.getDefault().language.lowercase(Locale.ROOT) }
             return fromTag(deviceTag) ?: ENGLISH
         }
     }

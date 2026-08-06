@@ -275,4 +275,5 @@
     <string name="profile_trail">Trail</string>
     <string name="trail_preview_title">Trail Inspection</string>
     <string name="trail_preview_hint">Watch the walk · Tap to switch</string>
+    <string name="guard_threat_reason">Reason</string>
 </resources>

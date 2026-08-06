@@ -413,7 +413,32 @@ private fun OmniBackroomsAppContent() {
             AlertDialog(
                 onDismissRequest = { showGuardDialog = false },
                 title    = { Text(stringResource(R.string.guard_threat_title)) },
-                text     = { Text(stringResource(R.string.guard_threat_message)) },
+                text     = {
+                    // The reason, on screen. Without it the player is told
+                    // their device is unauthorised and has nothing to report
+                    // back but the fact that it happened.
+                    val why = buildList {
+                        if (guardReport.isFrida) add("frida")
+                        if (guardReport.isHookDetected) add("hook")
+                        if (guardReport.isRooted) add("root")
+                        if (!guardReport.isSignatureValid) add("signature")
+                        if (guardReport.isMemoryTampered) add("memory")
+                        if (guardReport.flags != 0)
+                            add("flags=0x" + Integer.toHexString(guardReport.flags))
+                    }.joinToString(", ").ifEmpty { "—" }
+                    Column {
+                        Text(stringResource(R.string.guard_threat_message))
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "${stringResource(R.string.guard_threat_reason)}: $why",
+                            color = TextDim, fontSize = 11.sp
+                        )
+                        OmniLog.sinkPath()?.let { path ->
+                            Spacer(Modifier.height(6.dp))
+                            Text(path, color = TextDim, fontSize = 9.sp)
+                        }
+                    }
+                },
                 confirmButton = {
                     TextButton(onClick = { showGuardDialog = false }) { Text(stringResource(R.string.common_ok)) }
                 }
@@ -808,8 +833,10 @@ class GuardManager @Inject constructor(
         // rather than flag every legitimate install as tampered.
         val sigCheckOn = BuildConfig.EXPECTED_SIG_HASH.isNotBlank()
         val sigValid  = if (sigCheckOn) bridge.isSignatureValid() else true
-        val hook      = detectHooking()
-        val memTamper = detectMemoryTampering()
+        val hookEvidence = hookingEvidence()
+        val hook      = hookEvidence != null
+        val memEvidence = memoryTamperEvidence()
+        val memTamper = memEvidence != null
         val reportStr = bridge.getThreatReport()
 
         // Log every individual signal, always. Previously a warning appeared with
@@ -820,6 +847,11 @@ class GuardManager @Inject constructor(
             "debugged=$debugged emulator=$emulator sigCheckOn=$sigCheckOn sigValid=$sigValid " +
             "hook=$hook memTamper=$memTamper native='$reportStr'"
         )
+        // The evidence itself, not just the verdict. A boolean tells the player
+        // their device is unauthorised and tells us nothing about why; these two
+        // lines are what make a false positive diagnosable from a log file.
+        hookEvidence?.let { OmniLog.w("Guard", "hook evidence: $it") }
+        memEvidence?.let { OmniLog.w("Guard", "memory-map evidence: ${it.trim()}") }
 
         // `debugged` is deliberately NOT a threat: it trips on ordinary retail
         // devices whenever a debugger could attach (developer options enabled,
@@ -873,16 +905,43 @@ class GuardManager @Inject constructor(
         hash == BuildConfig.EXPECTED_SIG_HASH
     }.getOrElse { false }
 
-    private fun detectHooking(): Boolean = runCatching {
-        Thread.currentThread().stackTrace.any { el ->
-            listOf("xposed","substrate","lsposed","frida").any { el.className.contains(it, ignoreCase=true) }
-        }
-    }.getOrElse { false }
+    /** The offending frame, or null. Returned rather than a boolean so the log
+     *  can name what was actually found. */
+    private fun hookingEvidence(): String? = runCatching {
+        Thread.currentThread().stackTrace.firstOrNull { el ->
+            listOf("xposed", "substrate", "lsposed", "frida")
+                .any { el.className.contains(it, ignoreCase = true) }
+        }?.className
+    }.getOrNull()
 
-    private fun detectMemoryTampering(): Boolean = runCatching {
-        val content = File("/proc/self/maps").readText()
-        listOf("frida","gadget","inject","hook","substrate","xposed","lsposed").any { content.contains(it, ignoreCase=true) }
-    }.getOrElse { false }
+    /**
+     * Injected instrumentation, found by name in the process's own memory map.
+     *
+     * The patterns have to be specific, and this is why. The previous version
+     * searched the whole of /proc/self/maps for the bare substrings "hook",
+     * "inject" and "gadget". That file lists the path of every mapped file in
+     * the process — the framework, the vendor blobs, the webview, the app's own
+     * randomised install directory — and on a great many perfectly ordinary
+     * devices one of those paths contains one of those words. The result was
+     * memTamper = true on a clean phone, which escalated to HIGH, which put
+     * "unauthorised software detected" on the screen at every single launch.
+     *
+     * These match tool artefacts by their actual filenames instead, and the
+     * matching line is returned so the log says WHICH one fired rather than
+     * only that something did.
+     */
+    private fun memoryTamperEvidence(): String? = runCatching {
+        val markers = listOf(
+            "frida-agent", "frida-gadget", "libfrida", "re.frida.server",
+            "libsubstrate.so", "libsubstrate-dvm.so",
+            "XposedBridge.jar", "libxposed", "liblspd.so", "lspd/", "EdXposed"
+        )
+        File("/proc/self/maps").useLines { lines ->
+            lines.firstOrNull { line ->
+                markers.any { line.contains(it, ignoreCase = true) }
+            }
+        }
+    }.getOrNull()
 }
 
 @HiltViewModel
