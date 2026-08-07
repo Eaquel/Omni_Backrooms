@@ -54,7 +54,9 @@ jobs:
         run: python3 Tools/Shaders_Check.py
 
       # Drawables, mesher UVs, the inspection camera envelope, the cosmetic
-      # catalogue, asset duplication and Title Case.
+      # catalogue, asset duplication, Title Case, locale completeness, the Unity
+      # disguise's internal consistency, and the ten READMEs staying one
+      # document.
       - name: Assets
         run: python3 Tools/Assets_Check.py
 

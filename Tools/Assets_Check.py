@@ -508,6 +508,87 @@ def check_title_case() -> None:
 DISGUISE_BUDGET_BYTES = 50 * 1024
 
 
+README_LANGS = [
+    ("README.md",    "English"),
+    ("README.tr.md", "Türkçe"),
+    ("README.de.md", "Deutsch"),
+    ("README.es.md", "Español"),
+    ("README.fr.md", "Français"),
+    ("README.it.md", "Italiano"),
+    ("README.pt.md", "Português"),
+    ("README.ru.md", "Русский"),
+    ("README.ja.md", "日本語"),
+    ("README.zh.md", "中文"),
+]
+
+
+def check_readmes() -> None:
+    """
+    Ten READMEs that have to stay one document.
+
+    GitHub renders README.md and nothing else — no content negotiation, no way
+    to branch on Accept-Language — so a link bar is the only honest way to offer
+    a translated page. (The game itself does detect the device language. That
+    distinction is worth keeping straight and the English README states it.)
+
+    The failure mode of a link bar is quiet and total: one file gets a new
+    section, the other nine do not, and a reader in Japanese is looking at last
+    month's project without any way to know. So the bar is checked to be
+    complete and correctly self-marked in every file, and the section headings
+    are checked to match, which is the cheapest proxy for "these are still the
+    same document" that does not require reading the prose.
+    """
+    section("READMEs")
+    names = [n for n, _ in README_LANGS]
+    heads: dict[str, list[str]] = {}
+
+    for name, endonym in README_LANGS:
+        path = os.path.join(REPO, name)
+        if not os.path.exists(path):
+            failures.append(f"{name} is missing — the language bar links to it")
+            continue
+        text = open(path, encoding="utf-8").read()
+
+        # Every other language must be one click away.
+        for other, other_endonym in README_LANGS:
+            if other == name:
+                check(f"**{other_endonym}**" in text,
+                      f"{name} does not mark {other_endonym} as the current language")
+            else:
+                check(f"]({other})" in text,
+                      f"{name} does not link to {other} in its language bar")
+
+        heads[name] = re.findall(r"^## (.+)$", text, re.M)
+        print(f"   {name:14s} {len(text):6d} B  {len(heads[name])} sections")
+
+    if "README.md" in heads:
+        want = len(heads["README.md"])
+        for name in names:
+            if name in heads and len(heads[name]) != want:
+                failures.append(
+                    f"{name} has {len(heads[name])} sections, README.md has {want} "
+                    f"— the translations have drifted out of step")
+
+    fixes = {}
+    for name in names:
+        path = os.path.join(REPO, name)
+        if not os.path.exists(path):
+            continue
+        text = open(path, encoding="utf-8").read()
+        body = text.split("\n## ")
+        for part in body:
+            if part.startswith(("Recent fixes", "Son düzeltmeler", "Zuletzt behoben",
+                                "Correcciones recientes", "Corrections récentes",
+                                "Correzioni recenti", "Correções recentes",
+                                "Недавние исправления", "最近の修正", "近期修复")):
+                fixes[name] = len(re.findall(r"^- \*\*", part, re.M))
+    if fixes:
+        counts = set(fixes.values())
+        check(len(counts) == 1,
+              f"the fix lists are different lengths across languages: {fixes}")
+        print(f"   {len(fixes)} fix lists, {counts.pop()} entries each")
+
+
 def check_disguise() -> None:
     """
     Everything visible from outside must tell the same story.
@@ -821,6 +902,7 @@ def main() -> int:
     check_title_case()
     check_locales()
     check_disguise()
+    check_readmes()
 
     print()
     for f in failures:
