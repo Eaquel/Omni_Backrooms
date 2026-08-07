@@ -169,5 +169,8 @@
     <string name="trail_salt">盐痕足迹</string>
     <string name="trail_preview_title">足迹查看</string>
     <string name="trail_preview_hint">观察行走 · 点击切换</string>
+    <string name="trail_equip">装备</string>
+    <string name="trail_equipped">已装备</string>
+    <string name="trail_locked">未拥有</string>
     <string name="guard_threat_reason">原因</string>
 </resources>

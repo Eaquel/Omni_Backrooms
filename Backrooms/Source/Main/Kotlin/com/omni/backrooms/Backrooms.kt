@@ -1037,8 +1037,14 @@ data class MarketUiState(
     val charsLoading: Boolean             = false,
     val equipping   : String?             = null,
     /** Locally-owned item ids, so cards can show "Owned" immediately after a
-     *  purchase without waiting on a server round-trip. */
-    val ownedIds    : Set<String>         = emptySet()
+     *  purchase. Frames and trails both land here — it used to be assigned from
+     *  the frame list alone, which overwrote every trail the player owned and
+     *  left the trail cards permanently locked. */
+    val ownedIds    : Set<String>         = emptySet(),
+    /** The cosmetics actually worn, so a card can say so and the equip button
+     *  can turn itself off on the one already in use. */
+    val equippedFrame: String             = "",
+    val equippedTrail: String             = ""
 )
 
 @HiltViewModel
@@ -1052,9 +1058,21 @@ class MarketVM @Inject constructor(
 
     init {
         loadTab(MarketTab.Looks); loadDaily(); loadProfile()
+        // Frames and trails are two independent lists that share one owned-id
+        // set, so they have to be combined rather than assigned.
         viewModelScope.launch {
-            cosmetics.observeOwnedFrames().collect { frames ->
-                _state.update { it.copy(ownedIds = frames.map { f -> "frame_$f" }.toSet()) }
+            kotlinx.coroutines.flow.combine(
+                cosmetics.observeOwnedFrames(),
+                cosmetics.observeOwnedTrails()
+            ) { frames, trails ->
+                frames.map { "frame_$it" }.toSet() + trails.map { "trail_$it" }.toSet()
+            }.collect { owned -> _state.update { it.copy(ownedIds = owned) } }
+        }
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                cosmetics.observeFrame(), cosmetics.observeTrail()
+            ) { f, t -> f to t }.collect { (f, t) ->
+                _state.update { it.copy(equippedFrame = f, equippedTrail = t) }
             }
         }
         // Omnium earned by surviving is banked locally, so it has to be added to
@@ -1177,6 +1195,23 @@ class MarketVM @Inject constructor(
     }
 
     fun clearSuccess() { _state.update { it.copy(successMsg = null) } }
+
+    /**
+     * Wears an owned cosmetic.
+     *
+     * Buying one used to be the only way to end up wearing it, so a player who
+     * owned three trails was stuck in whichever they bought last with no way
+     * back. Refuses anything not owned rather than silently equipping it.
+     */
+    fun equipTrail(trailId: String) {
+        if ("trail_$trailId" !in _state.value.ownedIds) return
+        viewModelScope.launch { runCatching { cosmetics.setTrail(trailId) } }
+    }
+
+    fun equipFrame(frameId: String) {
+        if ("frame_$frameId" !in _state.value.ownedIds) return
+        viewModelScope.launch { runCatching { cosmetics.setFrame(frameId) } }
+    }
 
     /** Offline catalogue. Every entry is purely visual by design — no stat
      *  changes, no consumables, nothing that alters difficulty. */
@@ -1858,6 +1893,11 @@ class GameVM @Inject constructor(
     /** The live footstep marks. Called from the GL thread once a frame; the
      *  native side hands back a fresh array, so nothing is shared. */
     fun collectTrail(): FloatArray? = runCatching { bridge.trailCollect() }.getOrNull()
+
+    /** The trail the player is wearing, watched so the corridor can follow a
+     *  change made in the market without a restart. */
+    val equippedTrail: StateFlow<String> = cosmetics.observeTrail()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
 
     /** The equipped trail's own entry from Native/Trail — tint, size, mark. */
     fun trailStyleSpec(): FloatArray? = runCatching {
@@ -4956,7 +4996,11 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
     // Footsteps. The stamps live in Native/Trail and the renderer reads them
     // straight off the GL thread — the buffer is a plain fixed ring with no
     // allocation, so there is nothing to marshal and nothing to lock.
-    LaunchedEffect(renderer) {
+    // Keyed on the equipped trail, not just the renderer: this used to run once
+    // per screen, so equipping a different trail in the market changed nothing
+    // until the process was restarted.
+    val equippedTrail by vm.equippedTrail.collectAsState()
+    LaunchedEffect(renderer, equippedTrail) {
         renderer.trailSource = vm::collectTrail
         renderer.setTrailStyle(vm.trailStyleSpec())
     }
@@ -5051,7 +5095,13 @@ fun MarketScreen(onBack: () -> Unit, vm: MarketVM = hiltViewModel()) {
     // shouldn't fight the store chrome for attention.
     if (inspecting) {
         val trail = inspectTrail
-        if (trail != null) TrailPreviewSheet(trail) { inspecting = false; inspectTrail = null }
+        if (trail != null) TrailPreviewSheet(
+            trailId    = trail,
+            isOwned    = "trail_$trail" in s.ownedIds,
+            isEquipped = s.equippedTrail == trail,
+            onEquip    = { vm.equipTrail(trail) },
+            onClose    = { inspecting = false; inspectTrail = null }
+        )
         else CharacterPreviewSheet(onClose = { inspecting = false })
         return
     }
@@ -10118,7 +10168,13 @@ private class PreviewTurntable {
  * preview has no business writing to it.
  */
 @Composable
-fun TrailPreviewSheet(trailId: String, onClose: () -> Unit) {
+fun TrailPreviewSheet(
+    trailId   : String,
+    isOwned   : Boolean,
+    isEquipped: Boolean,
+    onEquip   : () -> Unit,
+    onClose   : () -> Unit
+) {
     val spec = remember(trailId) {
         runCatching {
             val b = NativeBridge()
@@ -10231,6 +10287,25 @@ fun TrailPreviewSheet(trailId: String, onClose: () -> Unit) {
                 stringResource(R.string.trail_preview_hint),
                 color = TextDim, fontSize = 10.sp, letterSpacing = 1.sp
             )
+            Spacer(Modifier.height(10.dp))
+            // Owning a trail and wearing one are different things. Before this
+            // the only way to end up wearing a trail was to buy it, so a player
+            // who owned three was stuck in whichever came last.
+            when {
+                isEquipped -> Text(
+                    stringResource(R.string.trail_equipped),
+                    color = SuccessGreen, fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+                )
+                isOwned -> AtmosphericButton(
+                    stringResource(R.string.trail_equip),
+                    Icons.Default.Check, tint, 170.dp, 44.dp, onEquip
+                )
+                else -> Text(
+                    stringResource(R.string.trail_locked),
+                    color = TextDim, fontSize = 11.sp, letterSpacing = 1.sp
+                )
+            }
         }
     }
 }

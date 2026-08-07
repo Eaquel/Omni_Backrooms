@@ -169,5 +169,8 @@
     <string name="trail_salt">Rastro de sal</string>
     <string name="trail_preview_title">Inspeção de rastros</string>
     <string name="trail_preview_hint">Veja a caminhada · Toque para trocar</string>
+    <string name="trail_equip">Equipar</string>
+    <string name="trail_equipped">Equipado</string>
+    <string name="trail_locked">Não Possuído</string>
     <string name="guard_threat_reason">Motivo</string>
 </resources>

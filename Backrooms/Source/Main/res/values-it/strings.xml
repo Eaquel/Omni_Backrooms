@@ -169,5 +169,8 @@
     <string name="trail_salt">Scia di sale</string>
     <string name="trail_preview_title">Ispezione delle scie</string>
     <string name="trail_preview_hint">Guarda la camminata · Tocca per cambiare</string>
+    <string name="trail_equip">Equipaggia</string>
+    <string name="trail_equipped">Equipaggiata</string>
+    <string name="trail_locked">Non Posseduta</string>
     <string name="guard_threat_reason">Motivo</string>
 </resources>

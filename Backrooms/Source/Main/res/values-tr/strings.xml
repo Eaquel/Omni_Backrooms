@@ -172,5 +172,8 @@
     <string name="trail_salt">Tuz İzi</string>
     <string name="trail_preview_title">İz İncelemesi</string>
     <string name="trail_preview_hint">Yürüyüşü izle · Dokun ve değiştir</string>
+    <string name="trail_equip">Kuşan</string>
+    <string name="trail_equipped">Kuşanıldı</string>
+    <string name="trail_locked">Sahip Değilsin</string>
     <string name="guard_threat_reason">Sebep</string>
 </resources>

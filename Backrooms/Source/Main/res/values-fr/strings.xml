@@ -169,5 +169,8 @@
     <string name="trail_salt">Traînée de sel</string>
     <string name="trail_preview_title">Inspection des traces</string>
     <string name="trail_preview_hint">Observez la marche · Appuyez pour changer</string>
+    <string name="trail_equip">Équiper</string>
+    <string name="trail_equipped">Équipé</string>
+    <string name="trail_locked">Non Possédé</string>
     <string name="guard_threat_reason">Motif</string>
 </resources>

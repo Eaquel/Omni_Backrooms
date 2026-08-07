@@ -145,5 +145,8 @@
     <string name="trail_salt">Соляной След</string>
     <string name="trail_preview_title">Осмотр Следа</string>
     <string name="trail_preview_hint">Смотри на походку · Нажми, чтобы сменить</string>
+    <string name="trail_equip">Надеть</string>
+    <string name="trail_equipped">Надет</string>
+    <string name="trail_locked">Нет В Наличии</string>
     <string name="guard_threat_reason">Причина</string>
 </resources>

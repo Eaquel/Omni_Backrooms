@@ -145,5 +145,8 @@
     <string name="trail_salt">Rastro de Sal</string>
     <string name="trail_preview_title">Inspección de Rastro</string>
     <string name="trail_preview_hint">Observa el paso · Toca para cambiar</string>
+    <string name="trail_equip">Equipar</string>
+    <string name="trail_equipped">Equipado</string>
+    <string name="trail_locked">No Lo Tienes</string>
     <string name="guard_threat_reason">Motivo</string>
 </resources>
