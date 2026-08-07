@@ -44,7 +44,7 @@ non richiede nulla in più.
 
 ## I controlli
 
-Sei degli otto strumenti in `Tools/` girano a ogni push. Esistono perché
+Sette degli otto strumenti in `Tools/` girano a ogni push. Esistono perché
 ciascuno protegge qualcosa che la build Gradle semplicemente non può vedere:
 
 | Strumento | Cosa intercetta |
@@ -52,6 +52,7 @@ ciascuno protegge qualcosa che la build Gradle semplicemente non può vedere:
 | `Shaders_Check.py` | Il GLSL vive dentro stringhe grezze Kotlin: uno shader che non compila resta invisibile finché non si apre la schermata che lo usa e resta nera. Ognuno viene compilato con `glslangValidator`. |
 | `Assets_Check.py` | Icone vettoriali scritte a mano che `aapt2` accetta e disegna storte; UV di mesh che non corrispondono più alla posizione nel mondo; la telecamera d'ispezione che esce dal fondale; risorse duplicate e mai referenziate; una lingua rimasta indietro; il travestimento Unity che si contraddice. Inoltre `--optimise`, un ricodificatore PNG senza perdita. |
 | `Native_Check.py` | Il contratto JNI. Kotlin dichiara `external fun`, il C++ definisce `Java_..._name`, e in fase di build **niente** collega i due lati: né il compilatore Kotlin, né quello C++, né il linker. Rinominare da una parte sola è un `UnsatisfiedLinkError` alla prima chiamata; cambiare il numero di argomenti è peggio, perché JNI collega per nome e legge gli argomenti in eccesso dallo stack senza protestare. |
+| `Kotlin_Check.py` | Ogni import contro la dipendenza che lo sostiene, in entrambe le direzioni. Il Kotlin qui compila senza il classpath Android, quindi una libreria davvero rimossa è indistinguibile da una solo fuori dal percorso — così togliere Firebase si è portato via `androidx.media3`. |
 | `Level_0_Check.py` | Inonda il mondo dal punto di comparsa su molti semi e dimostra che l'uscita è raggiungibile. Un'uscita irraggiungibile è una partita invincibile, ed è del tutto silenziosa. |
 | `Entity_Check.py` | Compila l'IA vera, mette una creatura nel Livello 0 vero e osserva: vista bloccata dai muri, udito che scala con il rumore, e il ciclo ritirata-ritorno che non deve mai bloccarsi. |
 | `Code_To_Sound.py` | Riproduce i generatori C++ effettivamente distribuiti e li confronta campione per campione con un riferimento Python. Scrive anche dei WAV, così suoni che esistono solo come codice si possono davvero ascoltare. |
@@ -59,7 +60,7 @@ ciascuno protegge qualcosa che la build Gradle semplicemente non può vedere:
 Eseguirli tutti:
 
 ```bash
-for t in Shaders Assets Native Entity; do python3 Tools/${t}_Check.py; done
+for t in Shaders Assets Native Entity Kotlin; do python3 Tools/${t}_Check.py; done
 python3 Tools/Level_0_Check.py 40
 python3 Tools/Code_To_Sound.py
 ```
@@ -88,6 +89,23 @@ Tools/                           gli otto controlli
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
 
+- **Firebase non ha mai funzionato, e si è portato via molto.** Qui non c'è
+  google-services.json e la CI inietta un segnaposto: ogni log Crashlytics, ogni
+  scrittura Firestore e ogni lettura Remote Config falliva a runtime dentro un
+  `runCatching` che se la mangiava. La REST API era la stessa storia su
+  api.omnibackrooms.com, che non risolve, e il netcode sotto svuotava un socket
+  a cui nessuno scriveva — chat vocale inclusa. Tutto via, insieme a Room,
+  Billing e Credential Manager, che nulla referenziava.
+- **La torcia era un cerchio al centro dello schermo.** Disegnato a uv
+  (0.5, 0.47) nel passaggio post, senza posizione nel mondo: ecco perché la luce
+  sembrava uscirle dal petto. Ora è un vero faretto nello shader di scena, dalla
+  lente del modello.
+- **Le scie possedute non si potevano equipaggiare.** Tre errori di fila.
+- **Il permesso notifiche veniva chiesto sopra l'intro.** Il gate stava accanto
+  al NavHost invece che dentro.
+- **Due texture non erano potenze di due.** 1536x1024 e 1448x1086, quindi niente
+  catena di mipmap. Tutte e quattro sono 1024x1024; gli asset passano da 6,0 MB
+  a 4,7 MB.
 - **Il personaggio aveva quattro braccia.** La mesh ne conteneva due paia: un
   corpo con le braccia lungo i fianchi e un vestito le cui maniche uscivano
   dritte in T-pose. Le ossa erano state posate sulle maniche, quindi il rig

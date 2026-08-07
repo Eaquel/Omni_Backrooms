@@ -41,7 +41,7 @@ cd Omni_Backrooms
 
 ## 各项检查
 
-`Tools/` 里八个工具中的六个会在每次 push 时运行。它们存在，是因为每一个都守着
+`Tools/` 里八个工具中的七个会在每次 push 时运行。它们存在，是因为每一个都守着
 Gradle 构建根本看不见的东西：
 
 | 工具 | 它能抓到什么 |
@@ -49,6 +49,7 @@ Gradle 构建根本看不见的东西：
 | `Shaders_Check.py` | GLSL 写在 Kotlin 的原始字符串里，所以一个编译不过的着色器在使用它的界面打开并变黑之前都是不可见的。每一个都用 `glslangValidator` 编译。 |
 | `Assets_Check.py` | `aapt2` 接受却画得乱七八糟的手写矢量图标；不再与世界坐标对应的网格 UV；跑出背景的观赏相机；重复以及从未被引用的资源；落后的语言；自相矛盾的 Unity 伪装。还有 `--optimise`——一个无损的 PNG 重编码器。 |
 | `Native_Check.py` | JNI 契约。Kotlin 声明 `external fun`，C++ 定义 `Java_..._name`，而在构建期**没有任何东西**把两边连起来——Kotlin 编译器不会，C++ 编译器不会，链接器也不会。单边改名意味着首次调用时的 `UnsatisfiedLinkError`；参数个数变了更糟，因为 JNI 按名字绑定，会一声不吭地从栈上读走多出来的参数。 |
+| `Kotlin_Check.py` | 把每一个 import 与其背后的依赖双向核对。这里的 Kotlin 在没有 Android classpath 的情况下编译，所以真正被删掉的库和只是不在路径上的库看起来一模一样——移除 Firebase 时 `androidx.media3` 就这样被悄悄带走了。 |
 | `Level_0_Check.py` | 用大量种子从出生点淹没整个世界，证明出口确实可达。不可达的出口意味着一局无法通关，而且它完全无声。 |
 | `Entity_Check.py` | 编译真正的 AI，把一只怪物放进真正的第0层并观察：被墙挡住的视线、随噪音变化的听觉，以及绝不能卡死的撤退—回归循环。 |
 | `Code_To_Sound.py` | 渲染真正发布出去的那份 C++ 生成器，并与 Python 参考实现逐个采样比对。它还会写出 WAV，让只以代码形式存在的声音真的能被听到。 |
@@ -56,7 +57,7 @@ Gradle 构建根本看不见的东西：
 全部运行：
 
 ```bash
-for t in Shaders Assets Native Entity; do python3 Tools/${t}_Check.py; done
+for t in Shaders Assets Native Entity Kotlin; do python3 Tools/${t}_Check.py; done
 python3 Tools/Level_0_Check.py 40
 python3 Tools/Code_To_Sound.py
 ```
@@ -85,6 +86,18 @@ Tools/                           八项检查
 
 最新的在最上面。每次修复都会更新这份列表。
 
+- **Firebase 从来没有工作过，还带走了不少东西。** 这里没有 google-services.json，
+  CI 注入的是占位文件：每一条 Crashlytics 日志、每一次 Firestore 写入、每一次
+  Remote Config 拉取都在运行时失败，然后被 `runCatching` 吞掉。REST API 也是同样的
+  故事，api.omnibackrooms.com 根本解析不出来；底下的网络代码在清空一个没人往里发东西
+  的 socket——语音聊天就在那里。全部删除，连同没有任何引用的 Room、Billing 和
+  Credential Manager。
+- **手电筒是屏幕正中的一个圆。** 画在后处理的 uv (0.5, 0.47) 上，在世界里没有位置，
+  这正是光看起来从她胸口射出的原因。现在它是场景着色器里真正的聚光灯，从模型的镜头射出。
+- **已拥有的足迹无法装备。** 接连三个缺陷。
+- **通知权限是压在开场动画上问的。** 那道门在 NavHost 旁边而不是里面。
+- **两张贴图不是二的幂。** 1536x1024 和 1448x1086，因此无法携带 mipmap 链。四张都改成
+  1024x1024；资源从 6.0MB 降到 4.7MB。
 - **角色有四条手臂。** 网格里装着两对：一个双臂垂在身侧的身体，以及一件袖子以 T 字姿势笔直
   伸出的连衣裙。骨骼被摆在袖子上，于是绑定挥动的是空布料，而玩家看得见的手臂始终焊在胯部。
   现在袖子落在手臂上，绑定沿表面而非穿过空气来量距离——裙摆从手边 4 厘米处经过，任何直线

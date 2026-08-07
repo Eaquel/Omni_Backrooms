@@ -45,7 +45,7 @@ besoin de rien de plus.
 
 ## Les vérifications
 
-Six des huit outils de `Tools/` s'exécutent à chaque push. Ils existent parce
+Sept des huit outils de `Tools/` s'exécutent à chaque push. Ils existent parce
 que chacun protège quelque chose que la compilation Gradle ne peut tout
 simplement pas voir :
 
@@ -54,6 +54,7 @@ simplement pas voir :
 | `Shaders_Check.py` | Le GLSL vit à l'intérieur de chaînes brutes Kotlin : un shader qui ne compile pas reste invisible jusqu'à ce que l'écran qui l'utilise s'ouvre et reste noir. Chacun est compilé avec `glslangValidator`. |
 | `Assets_Check.py` | Des icônes vectorielles écrites à la main qu'`aapt2` accepte et dessine de travers ; des UV de maillage qui ne correspondent plus à la position monde ; la caméra d'inspection qui sort de son décor ; des ressources dupliquées ou jamais référencées ; une langue restée en arrière ; le déguisement Unity qui se contredit. Et aussi `--optimise`, un ré-encodeur PNG sans perte. |
 | `Native_Check.py` | Le contrat JNI. Kotlin déclare `external fun`, le C++ définit `Java_..._name`, et **rien** ne relie les deux à la compilation — ni le compilateur Kotlin, ni celui du C++, ni l'éditeur de liens. Un renommage d'un seul côté donne un `UnsatisfiedLinkError` au premier appel ; un nombre d'arguments modifié est pire, car JNI lie par le nom et lit les arguments en trop sur la pile sans broncher. |
+| `Kotlin_Check.py` | Chaque import face à la dépendance qui le porte, dans les deux sens. Le Kotlin ici compile sans le classpath Android : une bibliothèque réellement supprimée ressemble à s'y méprendre à une simplement absente du chemin — c'est ainsi que retirer Firebase a emporté `androidx.media3`. |
 | `Level_0_Check.py` | Inonde le monde depuis le point d'arrivée sur de nombreuses graines et prouve que la sortie est atteignable. Une sortie inatteignable est une partie ingagnable, et c'est parfaitement silencieux. |
 | `Entity_Check.py` | Compile la vraie IA, place une créature dans le vrai Niveau 0 et regarde : la vue bloquée par les murs, l'ouïe qui suit le bruit, et le cycle retraite-retour qui ne doit jamais se bloquer. |
 | `Code_To_Sound.py` | Restitue les générateurs C++ effectivement livrés et les compare échantillon par échantillon à une référence Python. Écrit aussi des WAV, pour que des sons qui n'existent que sous forme de code puissent vraiment être écoutés. |
@@ -61,7 +62,7 @@ simplement pas voir :
 Tout lancer :
 
 ```bash
-for t in Shaders Assets Native Entity; do python3 Tools/${t}_Check.py; done
+for t in Shaders Assets Native Entity Kotlin; do python3 Tools/${t}_Check.py; done
 python3 Tools/Level_0_Check.py 40
 python3 Tools/Code_To_Sound.py
 ```
@@ -90,6 +91,25 @@ Tools/                           les huit vérifications
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
 
+- **Firebase n'a jamais fonctionné, et a emporté beaucoup avec lui.** Il n'y a
+  pas de google-services.json ici et la CI injecte un substitut : chaque journal
+  Crashlytics, chaque écriture Firestore et chaque lecture Remote Config
+  échouait à l'exécution dans un `runCatching` qui l'avalait. L'API REST était
+  la même histoire sur api.omnibackrooms.com, qui ne résout pas, et le netcode
+  en dessous vidait une socket où personne n'écrivait — chat vocal compris.
+  Tout est parti, avec Room, Billing et le Credential Manager, que rien
+  n'utilisait.
+- **La lampe était un cercle au milieu de l'écran.** Dessiné en uv (0.5, 0.47)
+  dans la passe post, sans position dans le monde : d'où la lumière qui semblait
+  sortir de sa poitrine. C'est un vrai spot dans le shader de scène désormais,
+  depuis la lentille du modèle.
+- **Les traces possédées ne pouvaient pas être équipées.** Trois fautes de
+  suite.
+- **La permission de notification était demandée par-dessus l'intro.** La porte
+  était à côté du NavHost au lieu d'être dedans.
+- **Deux textures n'étaient pas des puissances de deux.** 1536x1024 et
+  1448x1086, donc pas de chaîne de mipmaps. Les quatre font 1024x1024 ; les
+  ressources passent de 6,0 Mo à 4,7 Mo.
 - **Le personnage avait quatre bras.** Le maillage en contenait deux paires : un
   corps aux bras le long du buste, et une robe dont les manches partaient droit
   en T-pose. Les os avaient été posés sur les manches, si bien que le rig

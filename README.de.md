@@ -45,7 +45,7 @@ werden mit einem Keystore signiert, der nicht in diesem Repository liegt;
 
 ## Die Prüfungen
 
-Sechs der acht Werkzeuge in `Tools/` laufen bei jedem Push. Es gibt sie, weil
+Sieben der acht Werkzeuge in `Tools/` laufen bei jedem Push. Es gibt sie, weil
 jedes etwas absichert, das der Gradle-Build schlicht nicht sehen kann:
 
 | Werkzeug | Was es findet |
@@ -53,6 +53,7 @@ jedes etwas absichert, das der Gradle-Build schlicht nicht sehen kann:
 | `Shaders_Check.py` | GLSL steht in Kotlin-Rohstrings. Ein Shader, der nicht kompiliert, bleibt unsichtbar, bis der Bildschirm, der ihn nutzt, sich öffnet und schwarz bleibt. Jeder wird mit `glslangValidator` übersetzt. |
 | `Assets_Check.py` | Handgeschriebene Vektor-Icons, die `aapt2` annimmt und verzerrt zeichnet; Mesh-UVs, die nicht mehr zur Weltposition passen; die Inspektionskamera, die ihren Hintergrund verlässt; doppelte und nie referenzierte Assets; eine zurückgefallene Sprache; eine Unity-Tarnung, die sich selbst widerspricht. Außerdem `--optimise`, ein verlustfreier PNG-Neucodierer. |
 | `Native_Check.py` | Der JNI-Vertrag. Kotlin deklariert `external fun`, C++ definiert `Java_..._name`, und zur Bauzeit verbindet die beiden **nichts** — weder der Kotlin-Compiler noch der C++-Compiler noch der Linker. Eine einseitige Umbenennung ist ein `UnsatisfiedLinkError` beim ersten Aufruf; eine geänderte Argumentzahl ist schlimmer, denn JNI bindet über den Namen und liest die überzähligen Argumente kommentarlos vom Stack. |
+| `Kotlin_Check.py` | Jeden Import gegen die Abhängigkeit dahinter, in beide Richtungen. Das Kotlin hier kompiliert ohne Android-Classpath, also sieht eine wirklich entfernte Bibliothek genauso aus wie eine, die nur nicht im Pfad liegt — so nahm das Entfernen von Firebase still `androidx.media3` mit. |
 | `Level_0_Check.py` | Flutet die Welt vom Startpunkt aus über viele Seeds und beweist, dass der Ausgang erreichbar ist. Ein unerreichbarer Ausgang ist ein ungewinnbarer Durchgang, und er ist völlig lautlos. |
 | `Entity_Check.py` | Kompiliert die echte KI, setzt eine Kreatur in die echte Ebene 0 und schaut zu: von Wänden blockierte Sicht, mit Lautstärke skalierendes Gehör, der Rückzug-und-Rückkehr-Zyklus, der niemals hängen bleiben darf. |
 | `Code_To_Sound.py` | Rendert die ausgelieferten C++-Generatoren und vergleicht sie Sample für Sample mit einer Python-Referenz. Schreibt außerdem WAVs, damit Klänge, die nur als Code existieren, tatsächlich hörbar werden. |
@@ -60,7 +61,7 @@ jedes etwas absichert, das der Gradle-Build schlicht nicht sehen kann:
 Alle ausführen:
 
 ```bash
-for t in Shaders Assets Native Entity; do python3 Tools/${t}_Check.py; done
+for t in Shaders Assets Native Entity Kotlin; do python3 Tools/${t}_Check.py; done
 python3 Tools/Level_0_Check.py 40
 python3 Tools/Code_To_Sound.py
 ```
@@ -90,6 +91,22 @@ Tools/                           die acht Prüfungen
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
 
+- **Firebase hat nie funktioniert und nahm vieles mit.** Es gibt hier keine
+  google-services.json, CI spielt einen Platzhalter ein: jedes Crashlytics-Log,
+  jeder Firestore-Schreibvorgang und jeder Remote-Config-Abruf scheiterte zur
+  Laufzeit in einem `runCatching`, das es verschluckte. Die REST-API war dasselbe
+  unter api.omnibackrooms.com, das nicht auflöst, und der Netzcode darunter
+  leerte einen Socket, an den niemand sendete — Sprachchat inklusive. Alles weg,
+  samt Room, Billing und Credential Manager, die nichts referenzierte.
+- **Die Taschenlampe war ein Kreis in der Bildmitte.** Bei uv (0.5, 0.47) im
+  Post-Pass gezeichnet, ohne Position in der Welt — genau deshalb schien das
+  Licht aus ihrer Brust zu kommen. Jetzt ein echter Spot im Szenen-Shader, aus
+  der Linse des Lampenmodells.
+- **Besessene Spuren ließen sich nicht anlegen.** Drei Fehler hintereinander.
+- **Benachrichtigungen wurden über dem Intro erfragt.** Das Gate stand neben dem
+  NavHost statt darin.
+- **Zwei Texturen waren keine Zweierpotenzen.** 1536x1024 und 1448x1086, also
+  keine Mipmap-Kette. Alle vier sind 1024x1024; Assets 6,0 MB auf 4,7 MB.
 - **Die Figur hatte vier Arme.** Das Mesh enthielt zwei Paare: einen Körper mit
   den Armen an den Seiten und ein Kleid, dessen Ärmel in T-Pose gerade
   abstanden. Die Knochen lagen auf den Ärmeln, das Rig schwang also leeren Stoff,

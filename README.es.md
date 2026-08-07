@@ -45,7 +45,7 @@ release se firman con un almacén de claves que no está en este repositorio;
 
 ## Las comprobaciones
 
-Seis de las ocho herramientas de `Tools/` se ejecutan en cada push. Existen
+Siete de las ocho herramientas de `Tools/` se ejecutan en cada push. Existen
 porque cada una protege algo que la compilación de Gradle sencillamente no puede
 ver:
 
@@ -54,6 +54,7 @@ ver:
 | `Shaders_Check.py` | El GLSL vive dentro de cadenas literales de Kotlin, así que un shader que no compila es invisible hasta que se abre la pantalla que lo usa y se queda en negro. Todos se compilan con `glslangValidator`. |
 | `Assets_Check.py` | Iconos vectoriales escritos a mano que `aapt2` acepta y dibuja mal; UVs de malla que ya no coinciden con la posición en el mundo; la cámara de inspección saliéndose del fondo; recursos duplicados y nunca referenciados; un idioma que se ha quedado atrás; el disfraz de Unity contradiciéndose. También `--optimise`, un recodificador PNG sin pérdida. |
 | `Native_Check.py` | El contrato JNI. Kotlin declara `external fun`, C++ define `Java_..._name`, y en tiempo de compilación **nada** conecta ambos lados: ni el compilador de Kotlin, ni el de C++, ni el enlazador. Un renombrado en un solo lado es un `UnsatisfiedLinkError` en la primera llamada; cambiar el número de argumentos es peor, porque JNI enlaza por nombre y lee los argumentos sobrantes de la pila sin quejarse. |
+| `Kotlin_Check.py` | Cada import contra la dependencia que lo respalda, en ambos sentidos. El Kotlin aquí compila sin el classpath de Android, así que una biblioteca realmente eliminada es idéntica a una que solo no está en la ruta: así quitar Firebase se llevó `androidx.media3` sin decir nada. |
 | `Level_0_Check.py` | Inunda el mundo desde el punto de aparición con muchas semillas y demuestra que la salida es alcanzable. Una salida inalcanzable es una partida imposible de ganar, y es completamente silenciosa. |
 | `Entity_Check.py` | Compila la IA real, pone una criatura en el Nivel 0 real y observa: visión bloqueada por paredes, oído que escala con el ruido, y el ciclo de retirada y regreso que jamás debe bloquearse. |
 | `Code_To_Sound.py` | Renderiza los generadores de C++ que se distribuyen y los compara muestra a muestra con una referencia en Python. También escribe WAVs, para que sonidos que solo existen como código puedan escucharse de verdad. |
@@ -61,7 +62,7 @@ ver:
 Ejecutarlas todas:
 
 ```bash
-for t in Shaders Assets Native Entity; do python3 Tools/${t}_Check.py; done
+for t in Shaders Assets Native Entity Kotlin; do python3 Tools/${t}_Check.py; done
 python3 Tools/Level_0_Check.py 40
 python3 Tools/Code_To_Sound.py
 ```
@@ -91,6 +92,22 @@ Tools/                           las ocho comprobaciones
 
 Lo más nuevo primero. Esta lista se actualiza con cada corrección.
 
+- **Firebase nunca funcionó, y se llevó mucho consigo.** Aquí no hay
+  google-services.json y CI inyecta un marcador de posición, así que cada log de
+  Crashlytics, escritura en Firestore y consulta de Remote Config fallaba en
+  ejecución dentro de un `runCatching` que se lo tragaba. La API REST era lo
+  mismo en api.omnibackrooms.com, que no resuelve, y el netcode debajo vaciaba
+  un socket al que nadie enviaba —chat de voz incluido—. Todo fuera, junto con
+  Room, Billing y Credential Manager, que nada referenciaba.
+- **La linterna era un círculo en el centro de la pantalla.** Dibujado en uv
+  (0.5, 0.47) en el pase de post, sin posición en el mundo: por eso la luz
+  parecía salir de su pecho. Ahora es un foco real en el shader de escena, desde
+  la lente del modelo.
+- **Los rastros en posesión no se podían equipar.** Tres fallos seguidos.
+- **El permiso de notificaciones se pedía sobre la intro.** La puerta estaba
+  junto al NavHost en vez de dentro.
+- **Dos texturas no eran potencia de dos.** 1536x1024 y 1448x1086, sin cadena de
+  mipmaps. Las cuatro son 1024x1024; los recursos pasan de 6,0 MB a 4,7 MB.
 - **El personaje tenía cuatro brazos.** La malla contenía dos pares: un cuerpo
   con los brazos a los costados y un vestido cuyas mangas salían rectas en
   T-pose. Los huesos se habían colocado sobre las mangas, así que el rig

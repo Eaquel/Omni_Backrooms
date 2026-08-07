@@ -61,7 +61,7 @@ nothing extra.
 
 ## The checks
 
-Six of the eight tools in `Tools/` run on every push. They exist because each
+Seven of the eight tools in `Tools/` run on every push. They exist because each
 guards something the Gradle build genuinely cannot see:
 
 | Tool | What it catches |
@@ -69,6 +69,7 @@ guards something the Gradle build genuinely cannot see:
 | `Shaders_Check.py` | GLSL lives inside Kotlin raw strings, so a shader that will not compile is invisible until the screen using it opens and goes black. Every one is compiled with `glslangValidator`. |
 | `Assets_Check.py` | Hand-written vector icons that `aapt2` accepts and renders garbled; mesh UVs that no longer match world position; the inspection camera leaving its backdrop; duplicate and unreferenced assets; a locale that fell behind; the Unity build contradicting itself; a character rig whose bones are not on the geometry they claim to drive, proved by animating it and measuring the seams. Also `--optimise`, a lossless PNG re-encoder. |
 | `Native_Check.py` | The JNI contract. Kotlin declares `external fun`, C++ defines `Java_..._name`, and **nothing** connects them at build time — not the Kotlin compiler, not the C++ compiler, not the linker. A rename on one side is an `UnsatisfiedLinkError` on first call; a changed argument count is worse, because JNI binds by name and reads the extra arguments off the stack without complaining. |
+| `Kotlin_Check.py` | Every import against the dependency behind it, both ways. The Kotlin here compiles without the Android classpath, so a library that is genuinely gone looks exactly like one that is merely off the path — which is how removing Firebase quietly took `androidx.media3` with it and only surfaced ninety seconds into a Gradle build. |
 | `Level_0_Check.py` | Floods the world from the spawn over many seeds and proves the exit is reachable. An unreachable exit is an unwinnable run and it is completely silent. |
 | `Entity_Check.py` | Compiles the real AI, puts a creature in the real Level 0, and watches: sight blocked by walls, hearing that scales with noise, the retreat-and-return cycle that must never latch. |
 | `Code_To_Sound.py` | Renders the shipped C++ generators and compares them against a Python reference sample for sample. Also writes WAVs, so sounds that exist only as code can actually be listened to. |
@@ -76,7 +77,7 @@ guards something the Gradle build genuinely cannot see:
 Run them all:
 
 ```bash
-for t in Shaders Assets Native Entity; do python3 Tools/${t}_Check.py; done
+for t in Shaders Assets Native Entity Kotlin; do python3 Tools/${t}_Check.py; done
 python3 Tools/Level_0_Check.py 40
 python3 Tools/Code_To_Sound.py
 ```
@@ -105,6 +106,27 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **Firebase never worked, and took a lot with it.** There is no
+  google-services.json here and CI injects a placeholder, so every Crashlytics
+  log, Firestore write and Remote Config fetch failed at runtime inside a
+  `runCatching` that swallowed it. The REST API was the same story at
+  api.omnibackrooms.com, which does not resolve, and the netcode under it drained
+  a socket nothing sent to — voice chat included. All of it is gone, with Room,
+  Billing and the Credential Manager, which nothing referenced at all. Kotlin
+  drops 2824 lines.
+- **The flashlight was a circle in the middle of the screen.** Drawn at uv
+  (0.5, 0.47) in the post pass, with no position in the world, which is exactly
+  why the beam looked like it came out of her chest. It is a real spotlight in
+  the scene shader now, cast from the lens of the torch model.
+- **Owned trails could not be worn.** Three faults in a row: the owned-id set
+  was assigned from frames alone and overwrote every trail, nothing but buying
+  one could equip it, and the corridor read the equipped id once per screen.
+- **Notifications were asked for over the intro.** The permission gate sat
+  beside the NavHost rather than inside it. It is behind the intro now, and the
+  settings toggle can request the permission instead of only linking out.
+- **Two textures were not powers of two.** 1536x1024 and 1448x1086, so neither
+  could carry a mipmap chain and both shimmered at a distance. All four are
+  1024x1024; assets go 6.0MB to 4.7MB.
 - **The character had four arms.** The mesh held two pairs: a body with its arms
   at its sides, and a dress whose sleeves stood straight out in a T-pose. The
   bones had been laid along the sleeves, so the rig swung empty cloth while the

@@ -44,7 +44,7 @@ fazladan bir şey gerekmiyor.
 
 ## Kontroller
 
-`Tools/` içindeki sekiz aracın altısı her push'ta çalışıyor. Her biri Gradle
+`Tools/` içindeki sekiz aracın yedisi her push'ta çalışıyor. Her biri Gradle
 derlemesinin gerçekten göremediği bir şeyi koruduğu için varlar:
 
 | Araç | Ne yakalar |
@@ -52,6 +52,7 @@ derlemesinin gerçekten göremediği bir şeyi koruduğu için varlar:
 | `Shaders_Check.py` | GLSL, Kotlin ham dizelerinin içinde yaşıyor. Derlenmeyecek bir shader, onu kullanan ekran açılıp siyaha dönene kadar görünmez. Hepsi `glslangValidator` ile derleniyor. |
 | `Assets_Check.py` | `aapt2`'nin kabul edip bozuk çizdiği elle yazılmış vektör ikonlar; artık dünya konumuyla eşleşmeyen mesh UV'leri; fon dışına çıkan inceleme kamerası; tekrarlanan ve hiç kullanılmayan varlıklar; geride kalmış bir dil; kendi kendisiyle çelişen Unity kamuflajı; sürdüğünü iddia ettiği geometrinin üzerinde olmayan kemiklere sahip bir karakter rig'i — animasyonu oynatıp dikişleri ölçerek kanıtlanır. Ayrıca `--optimise`: kayıpsız bir PNG yeniden kodlayıcı. |
 | `Native_Check.py` | JNI sözleşmesi. Kotlin `external fun` bildiriyor, C++ `Java_..._name` tanımlıyor ve derleme anında ikisini **hiçbir şey** bağlamıyor — ne Kotlin derleyicisi, ne C++ derleyicisi, ne bağlayıcı. Tek taraflı bir isim değişikliği ilk çağrıda `UnsatisfiedLinkError` demek; argüman sayısı değişirse daha kötü, çünkü JNI isimle bağlar ve fazla argümanları yığından şikâyet etmeden okur. |
+| `Kotlin_Check.py` | Her import'u ardındaki bağımlılıkla, iki yönlü karşılaştırır. Buradaki Kotlin Android classpath'i olmadan derlendiği için gerçekten silinmiş bir kütüphane ile sadece yolda olmayan biri aynı görünür — Firebase'i kaldırırken `androidx.media3`'ün sessizce onunla gitmesi ve ancak Gradle derlemesinin doksanıncı saniyesinde ortaya çıkması böyle oldu. |
 | `Level_0_Check.py` | Dünyayı doğuş noktasından birçok tohumla tarayıp çıkışın gerçekten erişilebilir olduğunu kanıtlıyor. Erişilemez bir çıkış, kazanılamaz bir tur demek ve tamamen sessiz. |
 | `Entity_Check.py` | Gerçek yapay zekâyı derliyor, gerçek Seviye 0'a bir canavar koyup izliyor: duvarların engellediği görüş, gürültüyle ölçeklenen duyma, asla kilitlenmemesi gereken kaç-ve-dön döngüsü. |
 | `Code_To_Sound.py` | Dağıtılan C++ üreticilerini çalıştırıp Python referansıyla örnek örnek karşılaştırıyor. Ayrıca WAV yazıyor, böylece yalnızca kod olarak var olan sesler gerçekten dinlenebiliyor. |
@@ -59,7 +60,7 @@ derlemesinin gerçekten göremediği bir şeyi koruduğu için varlar:
 Hepsini çalıştırmak:
 
 ```bash
-for t in Shaders Assets Native Entity; do python3 Tools/${t}_Check.py; done
+for t in Shaders Assets Native Entity Kotlin; do python3 Tools/${t}_Check.py; done
 python3 Tools/Level_0_Check.py 40
 python3 Tools/Code_To_Sound.py
 ```
@@ -88,6 +89,27 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Firebase hiç çalışmadı ve yanında çok şey götürdü.** Burada
+  google-services.json yok, CI bir yer tutucu enjekte ediyor; yani her
+  Crashlytics kaydı, Firestore yazımı ve Remote Config isteği çalışma anında
+  hata veriyor, `runCatching` de yutuyordu. REST API'si de aynı hikâyeydi:
+  api.omnibackrooms.com diye bir adres çözülmüyor. Altındaki netcode kimsenin
+  veri göndermediği bir soketi boşaltıyordu — sesli sohbet dahil. Hepsi gitti;
+  hiç kullanılmayan Room, Billing ve Credential Manager da öyle. Kotlin 2824
+  satır eksildi.
+- **El feneri ekranın ortasındaki bir daireydi.** Post aşamasında uv
+  (0.5, 0.47) noktasına çiziliyordu ve dünyada hiçbir konumu yoktu; ışığın
+  göğsünden çıkıyormuş gibi görünmesinin sebebi tam olarak buydu. Artık sahne
+  shader'ında gerçek bir spot ışığı ve fenerin merceğinden çıkıyor.
+- **Sahip olunan izler kuşanılamıyordu.** Arka arkaya üç hata: sahip olunan id
+  kümesi yalnız çerçevelerden atanıp her izi eziyordu, bir izi kuşanmanın tek
+  yolu satın almaktı, ve koridor kuşanılan id'yi ekran başına bir kez okuyordu.
+- **Bildirim izni intronun üstüne biniyordu.** İzin kapısı NavHost'un içinde
+  değil yanındaydı. Artık intronun arkasında, ve ayarlardaki anahtar izni
+  yalnızca sistem ekranına yönlendirmek yerine kendisi isteyebiliyor.
+- **İki doku ikinin kuvveti değildi.** 1536x1024 ve 1448x1086; ikisi de mipmap
+  zinciri taşıyamıyor, uzakta titriyordu. Dördü de 1024x1024 oldu; varlıklar
+  6.0MB'tan 4.7MB'a indi.
 - **Karakterin dört kolu vardı.** Mesh iki çift taşıyordu: kolları yanında duran
   bir gövde, ve yenleri T-pozunda dümdüz uzanan bir elbise. Kemikler kolların
   değil yenlerin üzerine konmuştu, yani rig boş kumaşı sallarken oyuncunun
