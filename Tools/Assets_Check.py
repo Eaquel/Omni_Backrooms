@@ -665,7 +665,7 @@ def check_readmes() -> None:
         print(f"   {len(fixes)} fix lists, {counts.pop()} entries each")
 
 
-def check_disguise() -> None:
+def check_shield() -> None:
     """
     Everything visible from outside must tell the same story.
 
@@ -674,21 +674,22 @@ def check_disguise() -> None:
     global-metadata.dat whose magic number is wrong, is louder than no disguise
     at all: it says somebody tried, which is an invitation.
 
-    So: one version string, defined once in Disguise/Unity.h, and asserted to
+    So: one version string, defined once in Shield/Unity.h, and asserted to
     appear byte for byte in every decoy. Plus the structural things a
     fingerprinting tool actually reads — the IL2CPP sanity magic, the presence
     of both libraries in the CMake build, the il2cpp_* export surface.
 
-    None of this is protection and the note at the top of Unity.cpp says so.
+    None of this is protection and the note at the top of Shield/Unity.cpp
+    says so. The detectors that ARE protection live beside it in Shield/.
     It is a filter on the front door, and a filter with a hole in it is a door.
     """
-    section("Unity disguise")
-    header = os.path.join(NATIVE, "Disguise/Unity.h")
+    section("Shield — Unity costume")
+    header = os.path.join(NATIVE, "Shield/Unity.h")
     if not os.path.exists(header):
-        failures.append("Disguise/Unity.h is missing")
+        failures.append("Shield/Unity.h is missing")
         return
     m = re.search(r'kUnityVersion\s*=\s*"([^"]+)"', open(header, encoding="utf-8").read())
-    check(m is not None, "Disguise/Unity.h does not define kUnityVersion")
+    check(m is not None, "Shield/Unity.h does not define kUnityVersion")
     if not m:
         return
     version = m.group(1).encode()
@@ -720,15 +721,15 @@ def check_disguise() -> None:
 
     # The C++ side has to claim it too, or `strings` on the binary contradicts
     # the files sitting next to it.
-    unity_cpp = open(os.path.join(NATIVE, "Disguise/Unity.cpp"), encoding="utf-8").read()
+    unity_cpp = open(os.path.join(NATIVE, "Shield/Unity.cpp"), encoding="utf-8").read()
     check(version.decode() in unity_cpp,
-          "Disguise/Unity.cpp does not embed the version from Unity.h")
+          "Shield/Unity.cpp does not embed the version from Unity.h")
     exports = re.findall(r"OMNI_EXPORT[^\n]*?\b(il2cpp_[a-z0-9_]+)\s*\(", unity_cpp)
     check(len(exports) >= 12,
           f"only {len(exports)} il2cpp_* exports; a real libil2cpp.so exports the whole C API")
 
-    player = os.path.join(NATIVE, "Disguise/Player.cpp")
-    check(os.path.exists(player), "Disguise/Player.cpp is missing — there is no libunity.so")
+    player = os.path.join(NATIVE, "Shield/Player.cpp")
+    check(os.path.exists(player), "Shield/Player.cpp is missing — there is no libunity.so")
     cmake = open(os.path.join(NATIVE, "CMakeLists.txt"), encoding="utf-8").read()
     check("unity" in re.findall(r"add_library\(\s*(\w+)", cmake),
           "CMakeLists.txt does not build a libunity.so target")
@@ -977,7 +978,7 @@ def main() -> int:
     check_inventory()
     check_title_case()
     check_locales()
-    check_disguise()
+    check_shield()
     check_story()
     check_readmes()
 

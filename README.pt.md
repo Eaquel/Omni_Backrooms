@@ -79,7 +79,7 @@ Backrooms/Source/Main/
     Sound/      todos os geradores; não há arquivos de áudio
     Frame/      cosméticos de moldura de perfil
     Trail/      cosméticos de rastro de passos
-    Disguise/   o que o binário aparenta ser
+    Shield/     os detectores, e o que o binário aparenta ser
   Assets/                        texturas, malhas, história
   res/values*/                   dez idiomas
 Tools/                           as oito verificações

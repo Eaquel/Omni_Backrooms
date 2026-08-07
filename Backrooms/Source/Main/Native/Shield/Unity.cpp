@@ -28,7 +28,7 @@
 // both stay in step.
 // ============================================================================
 
-#include "Disguise/Unity.h"
+#include "Shield/Unity.h"
 
 namespace {
 
@@ -92,11 +92,11 @@ OMNI_EXPORT unsigned il2cpp_gc_get_used_size()            { return 0; }
 OMNI_EXPORT unsigned il2cpp_gc_get_heap_size()            { return 0; }
 
 namespace omni {
-namespace disguise {
+namespace shield {
 
 const char* buildInfo() noexcept    { return kBuildInfo; }
 const char* runtimeStrings() noexcept { return kRuntimeStrings; }
 const char* unityVersion() noexcept { return kUnityVersion; }
 
-} // namespace disguise
+} // namespace shield
 } // namespace omni

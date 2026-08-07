@@ -26,7 +26,8 @@ add_library(
     Trail/Trail.cpp
     Entity/Entity.cpp
     Sound/Synth.cpp
-    Disguise/Unity.cpp
+    Shield/Shield.cpp
+    Shield/Unity.cpp
 )
 
 # Map/ holds level generation. Kept out of Engine.cpp because it is the part
@@ -43,10 +44,13 @@ add_library(
 # this exact translation unit, so the waveform that is asserted on is the one
 # that plays.
 #
-# Disguise/ makes the binary present as an ordinary Unity 2022 LTS build. Read
-# the note at the top of Unity.cpp before touching it — it is a filter on the
-# front door, not protection, and it is only worth anything while everything
-# visible from outside tells the same story.
+# Shield/ is everything that defends the build: the root/Frida/debugger/emulator
+# detectors that used to sit in the middle of Engine.cpp, and the Unity costume
+# that used to sit in Disguise/. Splitting them meant neither could be compiled
+# without the NDK and neither had ever been run by a tool; together they build
+# on a host, so Native_Check.py compiles them with warnings as errors like every
+# other module. The one piece that could not move is the signature check, which
+# calls PackageManager over JNI and so stays in Engine.cpp.
 #
 # Frame/ and Trail/ hold the cosmetics. A frame's silhouette and a trail's
 # ageing rules are content, and content that was previously a switch on a
@@ -129,7 +133,7 @@ set_target_properties(il2cpp PROPERTIES
 add_library(
     unity
     SHARED
-    Disguise/Player.cpp
+    Shield/Player.cpp
 )
 
 target_include_directories(unity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

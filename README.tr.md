@@ -78,7 +78,7 @@ Backrooms/Source/Main/
     Sound/      bütün üreticiler; ses dosyası yok
     Frame/      profil çerçevesi kozmetikleri
     Trail/      ayak izi kozmetikleri
-    Disguise/   ikilinin kendini ne olarak gösterdiği
+    Shield/     dedektörler, ve ikilinin kendini ne olarak gösterdiği
   Assets/                        dokular, meshler, hikâye
   res/values*/                   on dil
 Tools/                           sekiz kontrol

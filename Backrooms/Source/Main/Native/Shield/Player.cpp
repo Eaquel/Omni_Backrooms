@@ -16,7 +16,7 @@
 // "nothing happened".
 // ============================================================================
 
-#include "Disguise/Unity.h"
+#include "Shield/Unity.h"
 
 #include <jni.h>
 
@@ -57,7 +57,7 @@ OMNI_EXPORT void UnityPlayerPause()                    {}
 OMNI_EXPORT void UnityPlayerResume()                   {}
 OMNI_EXPORT void UnityPlayerQuit()                     {}
 OMNI_EXPORT void UnitySendMessage(const char*, const char*, const char*) {}
-OMNI_EXPORT const char* UnityGetVersion()              { return omni::disguise::kUnityVersion; }
+OMNI_EXPORT const char* UnityGetVersion()              { return omni::shield::kUnityVersion; }
 OMNI_EXPORT const char* UnityPlayerStrings()           { return kPlayerStrings; }
 
 OMNI_EXPORT jint JNI_OnLoad(JavaVM*, void*) { return JNI_VERSION_1_6; }

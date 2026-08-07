@@ -78,7 +78,7 @@ Backrooms/Source/Main/
     Sound/      すべての生成器。音声ファイルは存在しません
     Frame/      プロフィールフレームの装飾
     Trail/      足あとの装飾
-    Disguise/   バイナリが自分を何と名乗るか
+    Shield/     検知器と、バイナリが自分を何と名乗るか
   Assets/                        テクスチャ、メッシュ、ストーリー
   res/values*/                   10言語
 Tools/                           8つのチェック

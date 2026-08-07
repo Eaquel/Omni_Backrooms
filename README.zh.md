@@ -75,7 +75,7 @@ Backrooms/Source/Main/
     Sound/      全部生成器；不存在音频文件
     Frame/      头像框外观
     Trail/      足迹外观
-    Disguise/   这个二进制对外自称是什么
+    Shield/     各类检测，以及这个二进制对外自称是什么
   Assets/                        贴图、网格、故事
   res/values*/                   十种语言
 Tools/                           八项检查

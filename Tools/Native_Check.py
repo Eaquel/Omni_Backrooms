@@ -37,7 +37,7 @@ KOTLIN = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms")
 # Modules with no Android dependency, so they can be compiled on the host.
 HOST_MODULES = ["Map/Level_0.cpp", "Frame/Frame.cpp", "Trail/Trail.cpp",
                 "Entity/Entity.cpp", "Sound/Synth.cpp",
-                "Disguise/Unity.cpp"]
+                "Shield/Unity.cpp", "Shield/Shield.cpp"]
 
 JNI_PREFIX = "Java_com_omni_backrooms_NativeBridge_"
 

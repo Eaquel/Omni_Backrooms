@@ -95,7 +95,7 @@ Backrooms/Source/Main/
     Sound/      every generator; there are no audio files
     Frame/      profile frame cosmetics
     Trail/      footstep trail cosmetics
-    Disguise/   what the binary presents itself as
+    Shield/     the detectors, and what the binary claims to be
   Assets/                        textures, meshes, story
   res/values*/                   ten languages
 Tools/                           the eight checks

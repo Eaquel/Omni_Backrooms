@@ -78,7 +78,7 @@ Backrooms/Source/Main/
     Sound/      tutti i generatori; non ci sono file audio
     Frame/      cosmetici delle cornici del profilo
     Trail/      cosmetici delle scie di passi
-    Disguise/   ciò che il binario dichiara di essere
+    Shield/     i rilevatori, e ciò che il binario dichiara di essere
   Assets/                        texture, mesh, storia
   res/values*/                   dieci lingue
 Tools/                           gli otto controlli

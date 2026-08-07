@@ -80,7 +80,7 @@ Backrooms/Source/Main/
     Sound/      alle Generatoren; es gibt keine Audiodateien
     Frame/      Profilrahmen-Kosmetik
     Trail/      Fußspuren-Kosmetik
-    Disguise/   als was sich die Binärdatei ausgibt
+    Shield/     die Detektoren, und als was sich die Binärdatei ausgibt
   Assets/                        Texturen, Meshes, Story
   res/values*/                   zehn Sprachen
 Tools/                           die acht Prüfungen

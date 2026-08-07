@@ -80,7 +80,7 @@ Backrooms/Source/Main/
     Sound/      tous les générateurs ; il n'y a aucun fichier audio
     Frame/      cosmétiques de cadre de profil
     Trail/      cosmétiques de traces de pas
-    Disguise/   ce que le binaire prétend être
+    Shield/     les détecteurs, et ce que le binaire prétend être
   Assets/                        textures, maillages, histoire
   res/values*/                   dix langues
 Tools/                           les huit vérifications
