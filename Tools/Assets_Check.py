@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import glob
 import hashlib
+import json
 import math
 import os
 import re
@@ -508,6 +509,12 @@ def check_title_case() -> None:
 DISGUISE_BUDGET_BYTES = 50 * 1024
 
 
+README_LANGS_TAGS = [
+    ("en", "English"), ("tr", "Türkçe"), ("de", "Deutsch"), ("es", "Español"),
+    ("fr", "Français"), ("it", "Italiano"), ("pt", "Português"), ("ru", "Русский"),
+    ("ja", "日本語"), ("zh", "中文"),
+]
+
 README_LANGS = [
     ("README.md",    "English"),
     ("README.tr.md", "Türkçe"),
@@ -520,6 +527,68 @@ README_LANGS = [
     ("README.ja.md", "日本語"),
     ("README.zh.md", "中文"),
 ]
+
+
+def check_story() -> None:
+    """
+    Every story file that exists must be the same story.
+
+    The loader merges per chapter against English, so a translation missing a
+    chapter does not crash — it silently serves that one chapter in English in
+    the middle of a Japanese read-through, which is the kind of thing nobody
+    reports because it looks deliberate.
+
+    `meta` is deliberately not compared: StoryFileMono declares only `version`
+    and `chapters`, and the parser ignores unknown keys, so nothing in the game
+    ever reads it. Three of these files have never had one and it has never
+    mattered — asserting on it would be inventing work.
+
+    A language with no file at all is a different matter and is NOT a failure:
+    the fallback is by design and the loader logs which language it could not
+    find. It is printed here so the gap stays visible instead of being forgotten.
+    """
+    section("Story")
+    story = os.path.join(ASSETS, "Story")
+    base_path = os.path.join(story, "en.json")
+    if not os.path.exists(base_path):
+        failures.append("Story/en.json is missing — there is nothing to fall back to")
+        return
+    base = json.load(open(base_path, encoding="utf-8"))
+
+    def shape(doc):
+        return {c["id"]: (len(c.get("paragraphs", [])), tuple(sorted(c)),
+                          len(c.get("survival_tips", [])), len(c.get("entities", [])),
+                          len(c.get("dialogues", [])), c.get("unlocked"))
+                for c in doc["chapters"]}
+
+    want = shape(base)
+    present = set()
+    for path in sorted(glob.glob(os.path.join(story, "*.json"))):
+        tag = os.path.splitext(os.path.basename(path))[0]
+        present.add(tag)
+        try:
+            doc = json.load(open(path, encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            failures.append(f"Story/{tag}.json does not parse — {e}")
+            continue
+        got = shape(doc)
+        check(doc.get("language") == tag,
+              f"Story/{tag}.json declares language '{doc.get('language')}'")
+        missing = sorted(set(want) - set(got))
+        if missing:
+            failures.append(f"Story/{tag}.json is missing chapter(s) {missing}")
+        for cid in sorted(set(want) & set(got)):
+            if want[cid] != got[cid]:
+                failures.append(
+                    f"Story/{tag}.json chapter {cid} does not match English: "
+                    f"{got[cid]} vs {want[cid]}")
+        print(f"   {tag}  {len(got)} chapters"
+              f"{'' if not missing and all(want[c] == got[c] for c in set(want) & set(got)) else '  ← see failures'}")
+
+    absent = sorted({t for t, _ in README_LANGS_TAGS} - present)
+    if absent:
+        print(f"   no story yet for {', '.join(absent)} — these read in English, "
+              f"which the loader logs")
 
 
 def check_readmes() -> None:
@@ -902,6 +971,7 @@ def main() -> int:
     check_title_case()
     check_locales()
     check_disguise()
+    check_story()
     check_readmes()
 
     print()
