@@ -3321,6 +3321,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     @Volatile var renderSettings: RenderSettings = RenderSettings()
     /** "first" or "third". Third pulls the camera back and draws the avatar. */
     @Volatile var cameraView: String = "first"
+    /** 0 standing, 1 flat on the floor. Drives both the collapse and the
+     *  arrival's recovery, since they are one motion run in two directions. */
+    private var avatarCollapse = 0f
 
     // Avatar resources, loaded only when third person is actually available.
     private var charProgram = 0
@@ -3754,7 +3757,14 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             // up vector, because a tilted up vector degenerates when the player
             // is also looking straight down — which is exactly where a body that
             // has just hit the floor ends up.
-            smoothTilt += (state.cameraTilt - smoothTilt) * chase
+            // Rolling the camera is right in first person — the camera IS the
+            // head, and a head that has hit the floor is on its side. In third
+            // person it is wrong in a way that reads instantly as a bug: the
+            // body stays upright in frame and the whole SCREEN rotates around
+            // it. The collapse now happens in the skeleton instead, so third
+            // person watches her go down rather than watching the picture spin.
+            val wantTilt = if (thirdPerson) 0f else state.cameraTilt
+            smoothTilt += (wantTilt - smoothTilt) * chase
             if (kotlin.math.abs(smoothTilt) > 0.01f) {
                 Matrix.setIdentityM(rollM, 0)
                 Matrix.rotateM(rollM, 0, smoothTilt, 0f, 0f, 1f)
@@ -3807,10 +3817,34 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     .coerceIn(-0.40f, 0.40f)
 
                 val walkBlend = (avatarSpeed / 3.6f).coerceIn(0f, 1.6f)
+
+                // On the floor, or getting off it.
+                //
+                // The arrival already eases eyeOffset from -1.45 back to 0 while
+                // the body picks itself up, and the sanity collapse already eases
+                // it the other way. Reading the collapse off that number rather
+                // than starting a second timer is what keeps the body and the
+                // camera on the same schedule — two independent easings of the
+                // same event drift, and a body that stands up before the view
+                // does is worse than no animation at all.
+                val collapseTarget = when {
+                    state.isMadnessOver || state.isGameOver -> 1f
+                    state.spawnPhase == SpawnPhase.LANDED ->
+                        (state.eyeOffset / -1.45f).coerceIn(0f, 1f)
+                    else -> 0f
+                }
+                // The arrival's value is already eased by the view model; only
+                // the death needs easing here, and easing it twice would make
+                // the recovery lag the camera by a visible fraction of a second.
+                avatarCollapse =
+                    if (state.spawnPhase == SpawnPhase.LANDED) collapseTarget
+                    else avatarCollapse + (collapseTarget - avatarCollapse) * (1f - kotlin.math.exp(-dt * 3.2f))
+
                 drawAvatar(
                     vpM, smoothX, feetY, smoothZ, smoothYaw,
                     timeSec, walkBlend,
-                    avatarCrouch, avatarAir, headYaw, headPitch, torchRaise
+                    avatarCrouch, avatarAir, headYaw, headPitch, torchRaise,
+                    avatarCollapse
                 )
                 drawTorch(
                     vpM, smoothX, feetY, smoothZ, smoothYaw,
@@ -4370,7 +4404,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private fun drawAvatar(
         vp: FloatArray, px: Float, py: Float, pz: Float, yawDeg: Float,
         timeSec: Float, walk: Float,
-        crouch: Float, air: Float, headYawRad: Float, headPitchRad: Float, torch: Float
+        crouch: Float, air: Float, headYawRad: Float, headPitchRad: Float, torch: Float,
+        collapse: Float
     ) {
         if (charIndexCount <= 0) return
         GLES30.glUseProgram(charProgram)
@@ -4395,7 +4430,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
         GLES30.glUniformMatrix4fv(cMVP, 1, false, avatarMvpM, 0)
         GLES30.glUniformMatrix4fv(cModel, 1, false, avatarModelM, 0)
-        charPose.build(timeSec, walk, crouch, air, headYawRad, headPitchRad, torch)
+        charPose.build(timeSec, walk, crouch, air, headYawRad, headPitchRad, torch, collapse)
         GLES30.glUniformMatrix4fv(cBones, Skeleton.BONES, false, charPose.matrices, 0)
 
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, charVbo)
@@ -9225,21 +9260,27 @@ internal class PoseBuilder {
      * [crouch], [air] and [torch] are 0..1. [headYaw]/[headPitch] are radians.
      * [death] 0..1 collapses her; [getUp] 0..1 is the reverse, used on spawn.
      */
+    /**
+     * [collapse] is how far down the body is: 0 standing, 1 flat on the floor.
+     *
+     * One number rather than the `death` and `getUp` pair it replaces. That pair
+     * had a trap in it — `getUp` of exactly 0 fell through to `death`, so the
+     * first frame of standing up was indistinguishable from dying — and worse,
+     * it let a caller ask for both at once and get whichever the branch happened
+     * to pick. A collapse and a recovery are the same poses in opposite
+     * directions, so they should be the same number in opposite directions.
+     */
     fun build(
         time: Float, walk: Float, crouch: Float, air: Float,
         headYaw: Float, headPitch: Float, torch: Float,
-        death: Float = 0f, getUp: Float = 0f
+        collapse: Float = 0f
     ) {
         val gait = walk.coerceIn(0f, 1.6f)
         val run = ((gait - 1f) / 0.6f).coerceIn(0f, 1f)
         val stride = time * 6.4f
         val deg = 57.29578f
 
-        // Down is the collapse; getUp runs it backwards, so one set of poses
-        // serves both and they cannot drift apart.
-        val down = (death + getUp * 0f).coerceIn(0f, 1f).let {
-            if (getUp > 0f) (1f - getUp).coerceIn(0f, 1f) else it
-        }
+        val down = collapse.coerceIn(0f, 1f)
 
         // --- Root -----------------------------------------------------------
         // Breathing, the vertical bob of a stride, and the crouch drop.
@@ -9818,9 +9859,25 @@ precision mediump float;
 in vec3 vNormal; in vec2 vUV; in vec3 vWorldPos;
 uniform sampler2D uTex;
 uniform float uIsCharacter;
+uniform float uTime;
 /** World-space footprint of the subject, for the contact shadow. */
 uniform vec3 uSubject;
 out vec4 fragColor;
+
+float pHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+
+float pNoise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(pHash(i), pHash(i + vec2(1.0, 0.0)), f.x),
+               mix(pHash(i + vec2(0.0, 1.0)), pHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+float pFbm(vec2 p){
+    float v = 0.0, a = 0.5;
+    for (int i = 0; i < 5; i++) { v += a * pNoise(p); p *= 2.03; a *= 0.5; }
+    return v;
+}
 
 void main(){
     vec4 tex = texture(uTex, vUV);
@@ -9864,6 +9921,52 @@ void main(){
     float height = 1.0 - smoothstep(0.0, 2.6, vWorldPos.y);
     vec3 cove = mix(vec3(0.030, 0.030, 0.036), vec3(0.155, 0.150, 0.140),
                     max(sweep * 0.85, height * 0.35));
+
+    // --- What is behind the dark ------------------------------------------
+    // A flat grade is a backdrop; it reads as a wall two feet behind her no
+    // matter how far the numbers say it is. Structure at a scale much larger
+    // than the subject is what tells the eye there is distance there, so this
+    // is deliberately low-frequency, very dim, and slow — three octaves of it
+    // moving against each other, warped by a fourth so it never resolves into
+    // a pattern you can name.
+    //
+    // Two layers drifting at different rates give parallax for free: the far
+    // one barely moves, the near one visibly does, and the eye reads the gap
+    // between them as depth without a single extra triangle.
+    vec2 sky = vec2(vWorldPos.x * 0.34, vWorldPos.y * 0.30) + vec2(uTime * 0.011, uTime * 0.004);
+    float warp = pFbm(sky * 0.7 + vec2(uTime * 0.006, 0.0));
+    float far  = pFbm(sky * 0.9 + warp * 0.85);
+    float near = pFbm(sky * 1.9 - vec2(uTime * 0.019, uTime * 0.007) + warp * 0.4);
+
+    // Cold, and barely there. The subject is warm-lit by the key, so the space
+    // behind her has to sit on the other side of the colour wheel or she stops
+    // separating from it — which is the actual job of a backdrop.
+    vec3 deep  = vec3(0.055, 0.042, 0.098);
+    vec3 glow  = vec3(0.030, 0.088, 0.115);
+    vec3 cosmic = mix(deep, glow, smoothstep(0.35, 0.85, far));
+    cosmic += glow * smoothstep(0.55, 0.95, near) * 0.55;
+
+    // Only in the dark. Where the cove is lit it stays a clean studio sweep;
+    // the cosmos is what the darkness turns out to have been all along.
+    float dark = 1.0 - max(sweep * 0.85, height * 0.35);
+    cove += cosmic * dark * dark * 0.9;
+
+    // --- Dust -------------------------------------------------------------
+    // Motes hanging in the light. They exist everywhere, but you only ever see
+    // the ones a beam catches, so the whole field is multiplied by how lit that
+    // part of the cove is — dust in the dark is not dust, it is noise.
+    //
+    // Two sheets at different scales and speeds, both drifting upward and
+    // sideways the way real dust does in still air: never falling, never quite
+    // still. The pow() is what keeps them as separate specks instead of a haze.
+    float lit = max(sweep, height * 0.5);
+    vec2 d0 = vec2(vWorldPos.x * 7.0, vWorldPos.y * 7.0 - uTime * 0.09);
+    vec2 d1 = vec2(vWorldPos.x * 13.0 + 31.7, vWorldPos.y * 13.0 - uTime * 0.16);
+    float motes = pow(pNoise(d0), 15.0) * 1.6 + pow(pNoise(d1), 19.0) * 1.1;
+    // Each mote breathes on its own clock, so the field twinkles rather than
+    // pulsing as one sheet.
+    motes *= 0.65 + 0.35 * sin(uTime * 1.7 + pHash(floor(d0)) * 24.0);
+    cove += vec3(1.00, 0.96, 0.88) * motes * lit * 0.85;
 
     // Contact shadow: an elliptical pool directly under her, densest at the
     // feet. Without it a figure on a graded backdrop reads as a cut-out.
