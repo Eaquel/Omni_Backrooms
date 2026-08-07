@@ -4521,28 +4521,68 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     wallFace(x1, z1, x0, z1, floatArrayOf(0f, 0f, -1f), c11, c01, u1, u0)
                 }
 
-                // Door frame. A threshold with no ceiling tile over it is just a
-                // hole; a lintel and two jambs turn the same gap into a doorway,
-                // and doorways are the strongest reading of "this is a building"
-                // the level has.
+                // Door frame.
+                //
+                // This used to be a single horizontal quad at 0.82 of the wall
+                // height, spanning most of the cell, with both of its long
+                // edges ending in open air — a slab hanging in the middle of
+                // the corridor with nothing holding it up. It is the "texture
+                // suspended in mid-air" the level kept showing. The comment
+                // above it promised "a lintel and two jambs"; neither was ever
+                // written.
+                //
+                // A doorway is only ever tagged where the field found solid on
+                // two OPPOSITE sides (see Level0Field::featureAt), so the frame
+                // can be built in the plane across the passage and every piece
+                // of it lands on something: the header's top edge meets the
+                // ceiling and its ends meet both walls, and each jamb runs from
+                // the floor to the header against one wall.
                 if (feature == 1) {
-                    val jamb = cs * 0.10f
-                    val head = hgt * 0.82f
-                    val alongX = chunk.solidAt(lx, lz - 1) || chunk.solidAt(lx, lz + 1)
-                    val frameLit = (c00 + c10 + c01 + c11) * 0.25f * 0.55f
-                    if (alongX) {
-                        // Opening runs along X: jambs face each other across it.
+                    val jamb = cs * 0.13f
+                    val head = hgt * 0.78f
+                    // Solid to the north or south means the passage runs along
+                    // X, so the frame stands across X.
+                    val acrossX = chunk.solidAt(lx, lz - 1) || chunk.solidAt(lx, lz + 1)
+                    val frameLit = (c00 + c10 + c01 + c11) * 0.25f * 0.62f
+                    val midX = (x0 + x1) * 0.5f
+                    val midZ = (z0 + z1) * 0.5f
+
+                    if (acrossX) {
+                        val n = floatArrayOf(1f, 0f, 0f)
+                        // Header: head height to the ceiling, wall to wall.
                         wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(x0 + jamb, head, z0), floatArrayOf(x1 - jamb, head, z0),
-                            floatArrayOf(x1 - jamb, head, z1), floatArrayOf(x0 + jamb, head, z1),
-                            floatArrayOf(0f, -1f, 0f),
-                            frameLit, frameLit, frameLit, frameLit, u0, v0, u1, v1)
+                            floatArrayOf(midX, head, z0), floatArrayOf(midX, head, z1),
+                            floatArrayOf(midX, hgt, z1), floatArrayOf(midX, hgt, z0),
+                            n, frameLit, frameLit, frameLit, frameLit,
+                            v0, head, v1, hgt)
+                        // Jambs: floor to header, one against each wall.
+                        wallB = quad(wallV, wallI, wallB,
+                            floatArrayOf(midX, 0f, z0), floatArrayOf(midX, 0f, z0 + jamb),
+                            floatArrayOf(midX, head, z0 + jamb), floatArrayOf(midX, head, z0),
+                            n, frameLit, frameLit, frameLit, frameLit,
+                            v0, 0f, v0 + jamb, head)
+                        wallB = quad(wallV, wallI, wallB,
+                            floatArrayOf(midX, 0f, z1 - jamb), floatArrayOf(midX, 0f, z1),
+                            floatArrayOf(midX, head, z1), floatArrayOf(midX, head, z1 - jamb),
+                            n, frameLit, frameLit, frameLit, frameLit,
+                            v1 - jamb, 0f, v1, head)
                     } else {
+                        val n = floatArrayOf(0f, 0f, 1f)
                         wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(x0, head, z0 + jamb), floatArrayOf(x0, head, z1 - jamb),
-                            floatArrayOf(x1, head, z1 - jamb), floatArrayOf(x1, head, z0 + jamb),
-                            floatArrayOf(0f, -1f, 0f),
-                            frameLit, frameLit, frameLit, frameLit, u0, v0, u1, v1)
+                            floatArrayOf(x0, head, midZ), floatArrayOf(x1, head, midZ),
+                            floatArrayOf(x1, hgt, midZ), floatArrayOf(x0, hgt, midZ),
+                            n, frameLit, frameLit, frameLit, frameLit,
+                            u0, head, u1, hgt)
+                        wallB = quad(wallV, wallI, wallB,
+                            floatArrayOf(x0, 0f, midZ), floatArrayOf(x0 + jamb, 0f, midZ),
+                            floatArrayOf(x0 + jamb, head, midZ), floatArrayOf(x0, head, midZ),
+                            n, frameLit, frameLit, frameLit, frameLit,
+                            u0, 0f, u0 + jamb, head)
+                        wallB = quad(wallV, wallI, wallB,
+                            floatArrayOf(x1 - jamb, 0f, midZ), floatArrayOf(x1, 0f, midZ),
+                            floatArrayOf(x1, head, midZ), floatArrayOf(x1 - jamb, head, midZ),
+                            n, frameLit, frameLit, frameLit, frameLit,
+                            u1 - jamb, 0f, u1, head)
                     }
                 }
 

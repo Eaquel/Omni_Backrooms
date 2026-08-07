@@ -257,6 +257,95 @@ int main(int argc, char** argv) {
                 if (boxed) { cz = spawnZ + 70; break; }
             }
         }
+
+        // ---- What the mesher is allowed to assume --------------------------
+        //
+        // The chunk mesher builds geometry per cell, and every piece of it has
+        // to land on something. Floors and ceilings do by construction, and a
+        // wall face is emitted exactly where an open cell meets a solid one, so
+        // those cannot float. The door frame is the one piece that is placed
+        // rather than derived: it stands in the plane ACROSS the passage, and
+        // it only meets a wall at each end because featureAt tags a doorway
+        // only where solid sits on two opposite sides.
+        //
+        // That assumption used to be unstated, and the frame that relied on it
+        // was a single horizontal slab at 0.82 of the wall height whose two
+        // long edges ended in open air — the texture left hanging in mid-air.
+        // Stating it here means the mesher can be trusted to build against it.
+        for (int cz = spawnZ - 90; cz < spawnZ + 90; ++cz) {
+            for (int cx = spawnX - 90; cx < spawnX + 90; ++cx) {
+                const uint8_t f = field.featureAt(cx, cz);
+                if (f == omni::map::kFeatureNone) continue;
+
+                if (f == omni::map::kFeaturePillar) {
+                    check(!field.isOpen(cx, cz),
+                          "a column is tagged on open floor, so it has no volume", seed);
+                    continue;
+                }
+
+                // Everything else is a feature of a cell you can stand in.
+                check(field.isOpen(cx, cz),
+                      "a floor feature is tagged inside solid rock", seed);
+
+                if (f == omni::map::kFeatureDoorway) {
+                    const bool acrossX = !field.isOpen(cx, cz - 1) && !field.isOpen(cx, cz + 1);
+                    const bool acrossZ = !field.isOpen(cx - 1, cz) && !field.isOpen(cx + 1, cz);
+                    check(acrossX || acrossZ,
+                          "a doorway with no wall on either side — its frame would "
+                          "hang in the air with nothing to meet", seed);
+                }
+                if (f == omni::map::kFeatureAlcove) {
+                    int walls = 0;
+                    if (!field.isOpen(cx - 1, cz)) walls++;
+                    if (!field.isOpen(cx + 1, cz)) walls++;
+                    if (!field.isOpen(cx, cz - 1)) walls++;
+                    if (!field.isOpen(cx, cz + 1)) walls++;
+                    check(walls >= 3, "an alcove that is not a dead end", seed);
+                }
+            }
+        }
+
+        // ---- The two copies of the rule must agree -------------------------
+        //
+        // featureAt() answers one cell; sampleChunk() fills a whole chunk and
+        // carries its own copy of the same conditions, because five isOpen()
+        // calls per cell was the most expensive thing in the generator. The
+        // mesher reads sampleChunk. Every assertion above reads featureAt.
+        //
+        // So a rule changed in one and not the other is invisible: the audit
+        // keeps passing while the geometry is built from something else. That
+        // is not hypothetical — injecting a bad doorway rule into sampleChunk
+        // alone, to test the check above, passed cleanly.
+        {
+            const int cells = 24;
+            // sampleChunk emits the chunk PLUS a one-cell apron, so the buffer
+            // is (cells+2)^2 and local cell (lx,lz) sits at (lz+1)*side+(lx+1).
+            // Sizing it cells*cells overruns the vector, which is how the first
+            // run of this check ended in a heap corruption rather than a
+            // finding.
+            const int side = cells + 2;
+            std::vector<omni::map::CellSample> chunk(side * side);
+            for (int chz = -2; chz <= 2; ++chz) {
+                for (int chx = -2; chx <= 2; ++chx) {
+                    const int cxi = spawnX / cells + chx;
+                    const int czi = spawnZ / cells + chz;
+                    const int bx = cxi * cells, bz = czi * cells;
+                    field.sampleChunk(cxi, czi, cells, chunk.data());
+                    for (int lz = 0; lz < cells; ++lz) {
+                        for (int lx = 0; lx < cells; ++lx) {
+                            const auto& c = chunk[(lz + 1) * side + (lx + 1)];
+                            const int cx = bx + lx, cz = bz + lz;
+                            check(bool(c.solid) == !field.isOpen(cx, cz),
+                                  "sampleChunk and isOpen disagree about solid", seed);
+                            check(c.feature == field.featureAt(cx, cz),
+                                  "sampleChunk and featureAt disagree about a cell's "
+                                  "feature — the mesher builds from one and every check "
+                                  "here reads the other", seed);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     std::printf("\nopen fraction    avg %.3f\n", openSum / seedCount);
