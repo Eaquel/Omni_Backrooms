@@ -543,9 +543,12 @@ def check_story() -> None:
     ever reads it. Three of these files have never had one and it has never
     mattered — asserting on it would be inventing work.
 
-    A language with no file at all is a different matter and is NOT a failure:
-    the fallback is by design and the loader logs which language it could not
-    find. It is printed here so the gap stays visible instead of being forgotten.
+    A language with no file used to be tolerated here, because four of them
+    legitimately had none and the per-chapter fallback covered it. All ten now
+    exist, so that allowance has outlived its reason: a deleted file would be a
+    regression, and the check that was written to keep the gap visible would
+    have quietly welcomed it back. The story ships in the same ten languages the
+    interface does, and that is now asserted.
     """
     section("Story")
     story = os.path.join(ASSETS, "Story")
@@ -585,10 +588,14 @@ def check_story() -> None:
         print(f"   {tag}  {len(got)} chapters"
               f"{'' if not missing and all(want[c] == got[c] for c in set(want) & set(got)) else '  ← see failures'}")
 
-    absent = sorted({t for t, _ in README_LANGS_TAGS} - present)
-    if absent:
-        print(f"   no story yet for {', '.join(absent)} — these read in English, "
-              f"which the loader logs")
+    wanted = {t for t, _ in README_LANGS_TAGS}
+    for tag in sorted(wanted - present):
+        failures.append(
+            f"Story/{tag}.json is missing — the interface ships in {tag} but the "
+            f"story would silently read in English")
+    for tag in sorted(present - wanted):
+        failures.append(f"Story/{tag}.json is a language the interface does not offer")
+    print(f"   {len(present)} languages, {len(want)} chapters each")
 
 
 def check_readmes() -> None:

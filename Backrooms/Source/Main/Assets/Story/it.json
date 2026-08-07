@@ -1,0 +1,308 @@
+{
+  "version": 2,
+  "language": "it",
+  "meta": {
+    "title": "Omni Backrooms: Diari dei Vaganti",
+    "author": "Eaquel",
+    "description": "Testimonianze di sopravvissuti alle Backrooms. Una storia di esistenza che comincia al Livello 0 e avanza per corridoi senza fine.",
+    "last_updated": "Giorno Ignoto"
+  },
+  "chapters": [
+    {
+      "id": 1,
+      "title": "L'Inizio",
+      "subtitle": "Livello 0 — L'Atrio",
+      "unlocked": true,
+      "level_info": {
+        "level_id": 0,
+        "code_name": "L'Inferno Giallo",
+        "danger_class": "Classe 1 — Sicuro / Stabile / Entità Minime",
+        "entity_rate": "0,05%",
+        "description": "Uno spazio infinito e non euclideo che ricorda i retrobottega di un negozio fuori moda. Carta da parati gialla, moquette umida, neon disposti senza criterio. Entrarci è facile; uscirne è teorico."
+      },
+      "paragraphs": [
+        "Sei passato dall'altra parte. La realtà ti ha abbandonato per un istante — ti sei appoggiato a un muro, hai continuato a camminare, o hai semplicemente smesso di esistere — e adesso sei qui. Nelle Omni Backrooms. Corridoi infiniti dalle pareti gialle, l'odore di moquette umida e il ronzio incessante dei neon ti accolgono. Nessun orario. Nessuna direzione. C'è un'uscita?",
+        "Le Backrooms sono uno spazio parallelo che esiste sotto l'universo conosciuto. Gli scienziati lo chiamano «effetto tunnel quantistico» o «fenomeno del no-clip» — la condizione di cadere attraverso i confini rigidi del reale fino a questa dimensione. Ma tu non sei uno scienziato. Sei un vagante. E qui, al Livello 0, tutto sembra insieme semplicissimo e pericolosissimo.",
+        "Il Livello 0 — noto anche come «L'Atrio» — è il primo livello delle Backrooms e il più documentato. Secondo gli archivi del M.E.G. (Major Explorer Group) si tratta di un complesso infinito di retrocorridoi che ricorda un ufficio fuori moda: ogni stanza rivestita di carta da parati gialla, moquette umida di un liquido non identificato, e luci sempre tremolanti. Non ci sono due stanze uguali — eppure tutte condividono la stessa monotonia inquietante.",
+        "Un avvertimento: non bere il liquido della moquette. Non è acqua. Non è Acqua di Mandorla. La sua natura è ignota — ma uccide.",
+        "Esiste un fenomeno chiamato Effetto Isolamento. Anche se entri al Livello 0 in gruppo — vi separate. Questo livello esiste in una dimensione distinta per ogni vagante. Perciò se incontri qualcuno nei corridoi — potrebbe non essere reale. I rapporti del M.E.G. sono chiari: «Se credi di vedere un essere umano, probabilmente non lo è.» Fai attenzione.",
+        "I neon ronzano a una frequenza costante — molto più forte delle lampade normali. Questo suono porta al mal di testa, e poi alle allucinazioni. Sentirai: rumori di insetti dietro i muri. Rumori di porte. A volte il tuo stesso nome. Non seguirne nessuno.",
+        "Sei partito dal Livello 0. Ogni tentativo può portarti a un livello diverso — alcuni silenziosi, altri… no. Trova un muro che trema. Attraversalo. Spera.",
+        "«Se stai leggendo questo, hai ancora una possibilità. Corri. Fermati. Ascolta. E non voltarti mai indietro.»\n— Vagante Anonimo, Data di No-Clip Ignota"
+      ],
+      "survival_tips": [
+        "Non bere mai il liquido della moquette.",
+        "Conserva la tua fonte di luce — il buio attira gli Smiler.",
+        "Un muro che trema può indicare un passaggio al livello successivo.",
+        "In caso di allucinazioni: fermati, respira a fondo, chiudi gli occhi e conta.",
+        "Se credi di vedere un essere umano — allontanati in fretta e non guardare."
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Solitudine",
+      "subtitle": "Il fenomeno dell'isolamento e le prime ore",
+      "unlocked": true,
+      "paragraphs": [
+        "La prima ora è la peggiore. Perché il tuo cervello ancora non ci crede. «È un sogno», dici. «Se apro gli occhi passerà», dici. Ma apri gli occhi e la carta da parati gialla è ancora lì. Le luci ronzano ancora. E tu sei ancora qui.",
+        "Capire l'Effetto Isolamento è vitale. Il Livello 0 esiste separatamente per ogni vagante — non è una semplice teoria, è un fenomeno provato da decenni di osservazioni del M.E.G. Anche se qualcuno ha fatto no-clip insieme a te, è perduto nel proprio Livello 0, e tu nel tuo. Le vostre strade potrebbero non incrociarsi mai.",
+        "Ma io sono stato fortunato. O almeno così ho creduto.",
+        "Alla quarta ora — o forse alla quinta, perché qui il tempo scorre diversamente — ho visto un biglietto. Sulla moquette, a inchiostro rosso, con una calligrafia curata: «Sorveglia il muro a nord. Quando comincia a vibrare, attraversalo.» Sotto non c'era firma. Solo un piccolo disegno: la sagoma di una porta.",
+        "Quel biglietto mi ha salvato. Voleva dire che a un certo punto qualcuno era stato in questo stesso corridoio e aveva lasciato quell'informazione. Forse se n'era già andato. Forse era morto. Forse vagava ancora da qualche altra parte in questo labirinto giallo. Ma almeno aveva lasciato una traccia.",
+        "Ho deciso di lasciarne una anch'io. Quel momento è l'inizio di questi diari.",
+        "«La parte più difficile del sopravvivere al Livello 0 non sono le entità. La parte più difficile è la tua stessa mente. La solitudine uccide più in fretta del buio.»\n— Archivio del M.E.G., Rapporto di Psicologia del Vagante nº7"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Primo Incontro",
+      "subtitle": "Smiler — Entità nº003",
+      "unlocked": true,
+      "entity_log": {
+        "entity_no": "E-003",
+        "scientific_name": "Subridens tenebris bestia",
+        "threat_level": "Letale",
+        "habitat": "Angoli bui, corridoi in penombra, zone a luce tremolante",
+        "behavior": "Passivo-aggressivo — attende immobile, insegue se provocato",
+        "weakness": "Luce diretta e potente",
+        "protocol": "Mantieni il contatto visivo, indietreggia lentamente, non fare rumore"
+      },
+      "paragraphs": [
+        "Quando li ho visti la prima volta erano solo ombre. In fondo al corridoio, nel punto in cui il neon tremolava… Erano in piedi. Aspettavano. E sorridevano.",
+        "Smiler. Il nome è azzeccatissimo. Sorridono, sì — ma il loro sorriso non arriva mai agli occhi. I loro occhi sono chiari, bianchi e infinitamente vuoti. Non se ne vede il corpo; il buio è il loro corpo. Solo quel sorriso luminescente e due punti bianchi — gli occhi — fluttuano dentro l'oscurità.",
+        "Gli scienziati del M.E.G. hanno studiato queste creature per anni. Il loro nome scientifico è Subridens tenebris bestia — il mostro sorridente del buio. Cambiano forma, assumendo aspetto sia umano sia canino. Ma due tratti restano costanti: il sorriso luminoso e gli occhi bianchi.",
+        "L'unico modo per sfuggirgli: non farsi prendere dal panico. Restare in silenzio. E — questa è la parte più difficile — mantenere il contatto visivo. Sì, dentro di te si gela tutto quando guardi. Ma se non guardi, non puoi sapere se ti stanno seguendo. Indietreggia lentamente. Non fare rumore. Non spegnere la luce — il buio è casa loro.",
+        "Ho passato la prima notte — o quel che ne faceva le veci, visto che qui non c'è orario — nascosto dietro uno scaffale. Ho cercato di trattenere il respiro. Sono passati. Ma li sentivo ancora dall'altro capo del corridoio: un fruscio lieve, quasi umano.",
+        "Gli Smiler si nutrono di paura. Più precisamente — è la «paura dell'ignoto» ad attirarli. Un vagante appena entrato al Livello 0, in preda al panico, per loro brilla come una lanterna. Resta calmo. È insieme la regola più semplice e la più difficile.",
+        "«Non distogliere lo sguardo. Ma non fissarlo mai — un secondo di troppo e fra voi si forma un legame, il che vuol dire che ti ha già scelto.»\n— Sopravvissuto nº7, Archivio del M.E.G."
+      ]
+    },
+    {
+      "id": 4,
+      "title": "La Fisica del No-Clip",
+      "subtitle": "Come si entra nelle Backrooms e come se ne esce",
+      "unlocked": true,
+      "paragraphs": [
+        "No-clip. Un termine preso in prestito dai videogiochi — la condizione di cadere attraverso i confini rigidi del reale. Ma non è solo una metafora. È un processo fisico.",
+        "Quando Mia me lo spiegò la prima volta non volli crederci. Mia è una fisica quantistica — o lo era, nel mondo reale. «La trama dell'universo», disse, «non ha lo stesso spessore ovunque. In certi punti, soprattutto dove le persone passano pochissimo tempo — corridoi di uffici, ingressi di servizio dei centri commerciali, parcheggi vuoti — la trama si assottiglia. E a volte, con l'angolazione giusta, alla velocità giusta, nello stato psicologico giusto — ci si cade dentro.»",
+        "Il M.E.G. chiama questi «punti sottili» Soglie. Esistono in tutto il mondo. Il più delle volte ci passiamo accanto senza accorgercene. Ma ogni tanto — soprattutto sotto stress, con poco sonno o in uno strano momento di distrazione — ci cadiamo dentro.",
+        "La via d'uscita dal Livello 0: trova un muro che trema. Quel tremolio indica la presenza di un altro livello dall'altra parte. Devi attraversarlo di corsa — se esiti, riemergi da dove sei entrato. E ogni passaggio ti porta a un livello a caso.",
+        "«A caso?» chiesi a Mia. «No», disse piano. «Le Backrooms hanno una logica. Semplicemente non l'abbiamo ancora capita.»",
+        "Carlos non crede a niente di tutto questo. Continua a dire «È una maledizione. Non fisica, una maledizione.» Forse sono vere entrambe le cose.",
+        "«Il no-clip è teoricamente reversibile. In pratica — nessuno di quelli che sono tornati ci ha mai detto cosa ha provato davvero. Forse non possono dirlo. Forse non vogliono.»\n— Mia, Appunti sull'Effetto Tunnel Quantistico"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Fra i Livelli",
+      "subtitle": "Il passaggio dal Livello 0 al Livello 1",
+      "unlocked": false,
+      "paragraphs": [
+        "Passare da un livello delle Backrooms a un altro non è casuale. O almeno voglio crederlo. I muri a volte assumono una texture diversa; la moquette sparisce e lascia il posto al cemento o al metallo. Le luci tremolano ancora di più — finché si spengono.",
+        "Il Livello 1 è più buio. Secondo gli archivi del M.E.G. ricorda enormi complessi di magazzini — corridoi lunghi, scaffali alti, luce opprimente. Ci sono più entità. E la base principale del M.E.G. è da queste parti: Base Alpha. È lì che ho sentito una voce umana per la prima volta.",
+        "Alcuni sopravvissuti hanno disegnato mappe. Corridoi, stanze, vicoli ciechi. Ma la geografia delle Backrooms cambia. Sempre. Perfino il sistema di navigazione del M.E.G. — lo chiamano MajorNav — non è preciso. Solo una stima.",
+        "Eppure speriamo. Perché la speranza è l'unica cosa costante che abbiamo in questi corridoi.",
+        "Quando Jin trovò il primo biglietto cifrato al Livello 0 ci guardò tutti. Era inciso nel muro: coordinate e numeri. «È un frammento di mappa», disse. «Qualcuno sta cercando di portarci da qualche parte.» Chi? Non lo sappiamo. Ma anche quella è una forma di speranza.",
+        "«Ascolta i muri. A volte vogliono dirti qualcosa. Soprattutto al Livello 0 — a volte i muri parlano. Non parole. Ma una sensazione. Una direzione. Fidati.»\n— Sopravvissuto nº12, Storia Orale del M.E.G."
+      ],
+      "survival_tips": [
+        "Al Livello 1 porta sempre una fonte di luce — gli Smiler qui sono più attivi.",
+        "Cerca di raggiungere Base Alpha del M.E.G. — lì ci sono altre persone.",
+        "Non fidarti della mappa. Fidati del tuo senso dell'orientamento.",
+        "Nascondersi dietro gli scaffali del magazzino funziona con gli Smiler."
+      ]
+    },
+    {
+      "id": 6,
+      "title": "I Sopravvissuti",
+      "subtitle": "La squadra: Mia, Carlos, Jin, Yuki e io",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "Mia",
+          "text": "Non è una punizione. È un'anomalia. E ogni anomalia ha una soluzione.",
+          "context": "Livello 1, corridoio del magazzino, giorno 3"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "La tua «anomalia» stanotte per poco non mi mangiava. Tienti la tua teoria quantistica.",
+          "context": "In risposta alla spiegazione di Mia"
+        },
+        {
+          "speaker": "Jin",
+          "text": "Potete stare zitti voi due? Sto cercando di risolvere il cifrario su quel muro e il rumore mi spezza la concentrazione.",
+          "context": "Davanti a uno scaffale, taccuino in mano"
+        },
+        {
+          "speaker": "Yuki",
+          "text": "...",
+          "context": "Yuki non parla mai. Ma rallenta prima di ogni pericolo. Abbiamo imparato a leggerlo."
+        }
+      ],
+      "paragraphs": [
+        "Li abbiamo trovati al Livello 1 — o sono stati loro a trovare noi. Un piccolo gruppo; cinque persone. Ognuna con una storia diversa, un punto d'ingresso diverso, una vita precedente diversa.",
+        "Mia è una fisica quantistica. Vede le Backrooms come un sistema, un'equazione da risolvere. Prende appunti dal primo giorno — passaggi fra livelli, comportamento degli Smiler, texture dei muri. «Quando si sarà accumulato abbastanza materiale», dice, «troveremo una via d'uscita.» Ho voglia di crederle.",
+        "Carlos è un musicista. Prima delle Backrooms gestiva un jazz bar a Istanbul. Adesso canticchia perfino mentre scappiamo dalle entità — a volte quella musica ci calma, a volte temiamo che attiri gli Smiler. «Se abbandono la musica, dimenticherò chi sono», dice. Non posso dargli torto.",
+        "Jin è un crittografo. Risolve i cifrari sui muri fin dal Livello 0. A ogni punto di passaggio c'è un biglietto, una coordinata, un segno. «Le Backrooms parlano una lingua tutta loro», dice. «Dobbiamo solo imparare ad ascoltarla.»",
+        "Yuki non parla mai. Ma sente il pericolo prima di chiunque altro. I suoi passi rallentano, il respiro si ferma — e noi ci fermiamo. Ha ragione ogni volta. L'istinto di Yuki ci ha salvati molte volte.",
+        "Io tengo i diari. È il mio ruolo. Forse qualcuno troverà questi appunti. Forse serviranno. Forse scrivo solo per me — per dimostrare che sono ancora vivo.",
+        "Insieme siamo più forti. Mentre uno fa la guardia, gli altri dormono. Quando uno si perde, gli altri cercano. Ma le Backrooms cambiano le persone. Lentamente. In silenzio.",
+        "«Perdere qualcuno qui è più terrificante che essere sconfitti da un'entità. Perché un'entità ti prende solo il corpo. Ma questo posto — questo posto giallo e infinito — ti prende la mente.»\n— Mia, giorno 47"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Contatto con il M.E.G.",
+      "subtitle": "Major Explorer Group — Base Alpha",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "Guardia del M.E.G.",
+          "text": "Fermi. Avanzate lentamente. Mani in vista. Avete Smiler alle spalle?",
+          "context": "Ingresso di Base Alpha, Livello 1"
+        },
+        {
+          "speaker": "Mia",
+          "text": "No. Siamo puliti. Siamo in cinque. Veniamo dal Livello 0, camminiamo da quattro giorni.",
+          "context": "Mani alzate, con calma"
+        },
+        {
+          "speaker": "Guardia del M.E.G.",
+          "text": "Quattro giorni? Al Livello 0? E siete tutti vivi?",
+          "context": "Uno sguardo incredulo"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "Tutti. Ma meglio non chiederlo di nuovo — fa male al morale.",
+          "context": "Con un sorriso stanco"
+        }
+      ],
+      "paragraphs": [
+        "Il M.E.G. — il Major Explorer Group — è la più grande organizzazione umana delle Backrooms. Fondato nel 2002, anche se certi archivi lo fanno risalire al 1885. La loro base principale è al Livello 1: Base Alpha. Circa 25.000 membri, 30.000 civili. Una vera società.",
+        "La prima volta che sono entrato a Base Alpha ho pianto. Per la prima volta dopo tanto tempo vedevo luce elettrica — non il neon tremolante delle Backrooms, ma una luce calda, gialla, fatta da mani umane. Per la prima volta sentivo la voce di altre persone. Per la prima volta qualcuno diceva «avanti» quando bussavi a una porta.",
+        "Il M.E.G. ha una missione: esplorare, documentare e tenere in vita i vaganti dentro le Backrooms. Hanno classificato le entità — come «numeri E». Hanno mappato livelli — centinaia. Distribuiscono l'Acqua di Mandorla — l'unica bevanda sicura qui. E soprattutto: vendono speranza.",
+        "«C'è un'uscita?» chiesi all'Archivista del M.E.G. Mi guardò a lungo. «Teoricamente sì», disse alla fine. «In pratica — nessuno è tornato a dircelo. Ma questo non significa che abbiano fallito.» Quella frase mi tiene in piedi da allora.",
+        "«Il M.E.G. non è un'organizzazione di soccorso. È un'organizzazione di sopravvivenza. La differenza sembra sottile ma qui cambia tutto.»\n— Archivista del M.E.G., Base Alpha"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Enciclopedia delle Entità",
+      "subtitle": "Le minacce dei Livelli 0 e 1",
+      "unlocked": false,
+      "entities": [
+        {
+          "id": "E-001",
+          "name": "Duller",
+          "threat": "Media",
+          "habitat": "Livello 0, Livello 1",
+          "description": "Entità umanoide lenta, dall'aspetto smussato. Può attraversare i muri. Non attacca direttamente, ma restarle vicino è pericoloso — provoca poco a poco un deterioramento mentale.",
+          "protocol": "Mantieni grande distanza. Usa una fonte di luce. Per fuggire conta più la direzione della velocità."
+        },
+        {
+          "id": "E-002",
+          "name": "Clump",
+          "threat": "Alta",
+          "habitat": "Livello 0 (raro), Livello 1",
+          "description": "Più corpi fusi insieme. Il suono che produce muovendosi è strano e organico. Reagisce alla luce.",
+          "protocol": "Quando la senti, fermati e aspetta. Se resti immobile di solito tira dritto."
+        },
+        {
+          "id": "E-003",
+          "name": "Smiler",
+          "threat": "Letale",
+          "habitat": "Tutte le zone buie",
+          "description": "Un sorriso e occhi luminosi nel buio. Cambia forma — assume aspetto umano o canino. Si nutre di paura.",
+          "protocol": "Mantieni il contatto visivo. Indietreggia lentamente. Non fare rumore. Non correre mai — il movimento li attiva."
+        },
+        {
+          "id": "E-004",
+          "name": "Howler",
+          "threat": "Molto alta",
+          "habitat": "Livello 1, Livello 2",
+          "description": "Un'entità che produce suono. Il suo urlo attiva le altre entità nei paraggi. Pericolosa da sola, ma quando urla si svegliano tutte le entità della zona.",
+          "protocol": "Decidi in anticipo la via di fuga. Quando la senti è già tardi — ma corri lo stesso."
+        },
+        {
+          "id": "E-005",
+          "name": "Faceling",
+          "threat": "Bassa",
+          "habitat": "Livello 0 (tane), Livello 1",
+          "description": "Ha aspetto umano, ma il volto è nudo — nessun tratto. Secondo gli archivi del M.E.G. di norma non attacca. Ma stare vicino a qualcosa che ti osserva con un volto senza occhi… logora.",
+          "protocol": "Ignoralo. Se ti ha già visto, continua a camminare; non fermarti."
+        },
+        {
+          "id": "E-006",
+          "name": "Partygoer",
+          "threat": "Incerta",
+          "habitat": "Level Fun, Livello 1 (raro)",
+          "description": "Una creatura apparentemente innocua che porta un palloncino colorato. Ha un cappellino da festa. Ride. Vuole unirsi a te. Ma non puoi mai sapere quando la festa finirà.",
+          "protocol": "Rifiuta con garbo. Non correre — accende la sua curiosità. Protocollo di cortesia."
+        }
+      ],
+      "paragraphs": [
+        "Ho messo a punto un sistema per documentare le entità incontrate. Ispirandomi ai cifrari di Jin ho dato a ciascuna un numero di classificazione. Parallelo al sistema ufficiale del M.E.G. ma più personale — a ognuna ho aggiunto le mie note di comportamento.",
+        "Lo Smiler è quello che si incontra più spesso. Il Duller è il più insidioso — perché quando ti accorgi che è vicino, potresti essere già sotto la sua influenza. L'Howler innesca una vera reazione a catena — se ne senti uno, abbandona la zona in cui ti trovi.",
+        "Ma il più spaventoso è il Faceling. Perché sembra umano. E qualcosa di non umano che sembra umano — è lo scherzo più crudele delle Backrooms.",
+        "«Capire le entità è molto più difficile che averne paura. Ma salva delle vite.»\n— Archivio dei Sopravvissuti, giorno 134"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "La Teoria dell'Uscita",
+      "subtitle": "I cifrari di Jin e il significato della luce",
+      "unlocked": false,
+      "dialogues": [
+        {
+          "speaker": "Jin",
+          "text": "Questa è una coordinata. Guardate — questi numeri sono scritti nella lingua stessa delle Backrooms. A ogni passaggio di livello è stato aggiunto un pezzo. È una mappa.",
+          "context": "Mostrando il taccuino alla squadra, giorno 72"
+        },
+        {
+          "speaker": "Carlos",
+          "text": "E dove porta, questa mappa?",
+          "context": "Con scetticismo"
+        },
+        {
+          "speaker": "Jin",
+          "text": "Da qualche parte. E nelle Backrooms, «da qualche parte» significa… tutto.",
+          "context": "Piano"
+        },
+        {
+          "speaker": "Yuki",
+          "text": "Quando?",
+          "context": "Ha parlato per la prima volta. La voce bassissima, ma l'abbiamo sentita tutti."
+        }
+      ],
+      "paragraphs": [
+        "Dopo aver attraversato centinaia di corridoi ho capito una cosa: le Backrooms sono un sistema. Sembra caotico ma ha una logica. Un labirinto dentro un labirinto.",
+        "I cifrari che Jin cerca di risolvere non sono casuali. A ogni passaggio di livello, incise in ogni muro, nascoste al margine di ogni biglietto — coordinate. Numeri. Direzioni. Una mappa scritta nella lingua stessa delle Backrooms. E quella mappa indica un luogo.",
+        "Il M.E.G. lo registra come «Teoria del Punto d'Uscita». Ogni labirinto deve avere un'uscita. È necessario. La geometria fondamentale dell'universo lo richiede. E se le Backrooms sono davvero un sistema — deve esistere anche un modo di uscirne.",
+        "In fondo al corridoio l'ho vista — una luce fioca. Non artificiale. Non naturale. Qualcos'altro. Come se lì la realtà stessa si fosse un po' assottigliata. Mia mi è venuta accanto e ha guardato. «Questa è una Soglia», ha detto. «Ma in quale direzione?» Non lo sappiamo. Verso fuori? Verso un altro livello?",
+        "Quando l'ho detto a Mia le si sono riempiti gli occhi di lacrime. Carlos si è alzato. Jin ha chiuso il codice. Yuki ha parlato per la prima volta: «Quando?»",
+        "Non ho risposto. Perché non conoscevo la risposta. Ma per la prima volta — davvero la prima volta — ho sentito che era possibile.",
+        "«L'uscita esiste in teoria. Esiste anche in pratica. Basta restare vivi abbastanza a lungo per trovarla.»\n— Jin, giorno 89"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "L'Ultimo Messaggio",
+      "subtitle": "Da Eaquel a te",
+      "unlocked": false,
+      "paragraphs": [
+        "Se sei arrivato fin qui, vuol dire che i miei diari sono serviti a qualcosa. Bene.",
+        "Non cercare di trovarmi. Probabilmente non sono più qui. O ne sono uscito — o sono stato inghiottito. Sono entrambe una forma di fine.",
+        "Ma sappi questo: le Backrooms si possono battere. Se ne impari le regole. Se continui a pensare nonostante la paura. Se non sei solo. Queste tre cose — sapere, ragione, legame — ti tengono in piedi in questo inferno giallo.",
+        "Mia prenderà ancora appunti. Carlos canticchierà ancora. Jin risolverà ancora cifrari. Yuki sentirà ancora il pericolo. E io — sto scrivendo queste righe sperando che qualcuno le legga.",
+        "Quando le luci si spegneranno, quando quel ronzio si fermerà — non farti prendere dal panico. Sappi che quel momento passerà. Tutti i momenti passano. Anche al Livello 0. Forse soprattutto al Livello 0.",
+        "E quando vedrai la luce dell'uscita, qualunque cosa accada, fermati. Respira. Perché devi assicurarti che quella luce sia reale. Le Backrooms ti mentono. Vedi porte — non ci sono. Vedi scale — non ci sono. Vedi luci. Quasi tutte non ci sono.",
+        "Ma alcune sì.",
+        "Se è reale: attraversala.",
+        "Se no: corri.",
+        "E se hai dubbi — appoggia la mano al muro. Un'uscita vera vibra. Quando senti calore — è reale.",
+        "Buona fortuna, vagante. Questi corridoi sono infiniti ma tu no. Non è una debolezza — è ciò che ti rende umano. E nelle Backrooms, essere umano — a volte è l'arma più potente.\n— Eaquel, Giorno Ignoto",
+        "«Corri per sopravvivere. Fermati per restare umano. L'equilibrio fra le due cose — quello è il vero labirinto.»\n— Nota Finale, Incisione Murale, Livello 0 Corridoio 7-G"
+      ]
+    }
+  ]
+}
