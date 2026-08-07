@@ -84,10 +84,6 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.credentials.CredentialManager
-import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.GetCredentialException
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
@@ -97,26 +93,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.firebase.analytics.FirebaseAnalytics
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.crashlytics.FirebaseCrashlytics
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
-import com.google.firebase.messaging.FirebaseMessaging
-import com.google.firebase.remoteconfig.FirebaseRemoteConfig
-import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -131,11 +111,6 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import okhttp3.Interceptor
-import okhttp3.OkHttpClient
-import okhttp3.MediaType.Companion.toMediaType
-import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -200,15 +175,14 @@ class App : Application() {
             val flags = bridge.getGuardFlags()
             if (flags != 0) {
                 val report = bridge.getThreatReport()
-                FirebaseCrashlytics.getInstance().log("APP_START_THREAT flags=$flags report=$report")
+                OmniLog.w("Guard", "APP_START_THREAT flags=$flags report=$report")
             }
-            FirebaseMessaging.getInstance().subscribeToTopic("backrooms_global")
         }
     }
 
     /** Writes every uncaught exception to Documents/OmniBackrooms/crash.txt so
      *  crashes can be read off the device directly, then delegates to the
-     *  previous handler so Crashlytics still records it. */
+     *  previous handler so the platform still gets its turn. */
     private fun installCrashLogger() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
@@ -300,45 +274,9 @@ object AppModule {
     fun provideJson(): Json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
 
     @Provides @Singleton
-    fun provideAuthInterceptor(@ApplicationContext ctx: Context): Interceptor = Interceptor { chain ->
-        val prefs = ctx.getSharedPreferences("omni_auth", Context.MODE_PRIVATE)
-        val token = prefs.getString("access_token", "") ?: ""
-        val req = if (token.isNotEmpty())
-            chain.request().newBuilder().addHeader("Authorization", "Bearer $token").build()
-        else chain.request()
-        chain.proceed(req)
-    }
-
-    @Provides @Singleton
-    fun provideOkHttp(authInterceptor: Interceptor): OkHttpClient =
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor(authInterceptor)
-            .build()
-
-    @Provides @Singleton
-    fun provideRetrofit(okHttp: OkHttpClient, json: Json): Retrofit =
-        Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
-            .client(okHttp)
-            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
-            .build()
-
-    @Provides @Singleton
-    fun provideApiService(retrofit: Retrofit): ApiService = retrofit.create(ApiService::class.java)
-
-    @Provides @Singleton
-    fun provideRoomRepository(api: ApiService): RoomRepository = RoomRepository(api)
-
-    @Provides @Singleton
     fun provideSettingsRepository(store: DataStore<Preferences>, bridge: NativeBridge): SettingsRepository =
         SettingsRepository(store, bridge)
 
-    @Provides @Singleton
-    fun provideGoogleAuthManager(@ApplicationContext ctx: Context): GoogleAuthManager =
-        GoogleAuthManager(ctx)
 }
 
 @AndroidEntryPoint
@@ -572,8 +510,6 @@ private object Route {
     const val SETTINGS    = "settings"
     const val STORY       = "story"
     const val MARKET      = "market"
-    const val ROOM        = "room"
-    const val CREATE_ROOM = "create_room"
     const val LEADERBOARD = "leaderboard"
     const val PROFILE     = "profile"
     const val UI_EDITOR   = "ui_editor"
@@ -661,7 +597,6 @@ private fun OmniBackroomsAppContent() {
             ) {
                 MainMenu(
                     onPlay        = { resume -> nav.navigate("${Route.GAME}?resume=$resume") },
-                    onOnline      = { nav.navigate(Route.ROOM) },
                     onSettings    = { nav.navigate(Route.SETTINGS) },
                     onStory       = { nav.navigate(Route.STORY) },
                     onMarket      = { nav.navigate(Route.MARKET) },
@@ -699,16 +634,6 @@ private fun OmniBackroomsAppContent() {
             // routes used to cut with no transition at all, which read as the
             // app dropping frames rather than as a deliberate change of screen.
             composable(
-                Route.ROOM,
-                enterTransition = { slideInHorizontally(tween(400)) { it } + fadeIn(tween(400)) },
-                exitTransition  = { slideOutHorizontally(tween(300)) { it } + fadeOut(tween(300)) }
-            ) { Room(onJoined = { nav.navigate("${Route.GAME}?resume=false") }, onBack = { nav.popBackStack() }, onCreate = { nav.navigate(Route.CREATE_ROOM) }) }
-            composable(
-                Route.CREATE_ROOM,
-                enterTransition = { slideInVertically(tween(380)) { it } + fadeIn(tween(380)) },
-                exitTransition  = { slideOutVertically(tween(280)) { it } + fadeOut(tween(280)) }
-            ) { CreateRoom(onCreated = { nav.popBackStack() }, onBack = { nav.popBackStack() }) }
-            composable(
                 Route.LEADERBOARD,
                 enterTransition = { slideInHorizontally(tween(400)) { it } + fadeIn(tween(400)) },
                 exitTransition  = { slideOutHorizontally(tween(300)) { it } + fadeOut(tween(300)) }
@@ -727,108 +652,6 @@ private fun OmniBackroomsAppContent() {
                 exitTransition  = { scaleOut(tween(260), targetScale = 0.94f) + fadeOut(tween(260)) }
             ) { UiEditor(onSave = { nav.popBackStack() }) }
         }
-    }
-}
-
-@Singleton
-class GoogleAuthManager @Inject constructor(
-    @ApplicationContext private val ctx: Context
-) {
-    private val credentialManager = CredentialManager.create(ctx)
-    private val auth = FirebaseAuth.getInstance()
-
-    val currentUser get() = auth.currentUser
-    val isSignedIn  get() = auth.currentUser != null
-
-    suspend fun signIn(activity: android.app.Activity): Result<com.google.firebase.auth.FirebaseUser> {
-        return runCatching {
-            val nonce      = SecureRandom().let { r -> ByteArray(16).also { r.nextBytes(it) } }
-                .joinToString("") { "%02x".format(it) }
-            val hashedNonce = MessageDigest.getInstance("SHA-256")
-                .digest(nonce.toByteArray()).joinToString("") { "%02x".format(it) }
-
-            val googleIdOption = GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(ctx.getString(R.string.default_web_client_id))
-                .setAutoSelectEnabled(false)
-                .setNonce(hashedNonce)
-                .build()
-
-            val request = GetCredentialRequest.Builder()
-                .addCredentialOption(googleIdOption)
-                .build()
-
-            val result = credentialManager.getCredential(activity, request)
-            val credential = result.credential
-
-            check(credential is CustomCredential &&
-                    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                "Unexpected credential type"
-            }
-
-            val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-            val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
-            val authResult = auth.signInWithCredential(firebaseCredential).await()
-            authResult.user!!
-        }
-    }
-
-    fun signOut() { auth.signOut() }
-}
-
-data class GoogleAuthState(
-    val isSignedIn   : Boolean = false,
-    val displayName  : String  = "",
-    val email        : String  = "",
-    val photoUrl     : String? = null,
-    val isLoading    : Boolean = false,
-    val error        : String? = null
-)
-
-@HiltViewModel
-class GoogleAuthVM @Inject constructor(
-    private val googleAuthManager: GoogleAuthManager
-) : ViewModel() {
-    private val _state = MutableStateFlow(GoogleAuthState())
-    val state: StateFlow<GoogleAuthState> = _state.asStateFlow()
-
-    init { refreshState() }
-
-    fun refreshState() {
-        val user = googleAuthManager.currentUser
-        _state.value = if (user != null) {
-            GoogleAuthState(
-                isSignedIn  = true,
-                displayName = user.displayName ?: "",
-                email       = user.email ?: "",
-                photoUrl    = user.photoUrl?.toString()
-            )
-        } else GoogleAuthState()
-    }
-
-    fun signIn(activity: android.app.Activity) {
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
-            googleAuthManager.signIn(activity)
-                .onSuccess { user ->
-                    _state.value = GoogleAuthState(
-                        isSignedIn  = true,
-                        displayName = user.displayName ?: "",
-                        email       = user.email ?: "",
-                        photoUrl    = user.photoUrl?.toString(),
-                        isLoading   = false
-                    )
-                }
-                .onFailure { e ->
-                    OmniLog.w("Market", "load failed; using local data", e)
-                    _state.update { it.copy(isLoading = false, error = null) }
-                }
-        }
-    }
-
-    fun signOut() {
-        googleAuthManager.signOut()
-        _state.value = GoogleAuthState()
     }
 }
 
@@ -857,7 +680,6 @@ enum class EntityType(
 }
 
 data class SpawnConfig(val count: Int, val speedMult: Float, val sightMult: Float, val spawnIntervalMs: Long)
-data class PreloadEvent(val progress: Float, val stage: String)
 data class LevelTheme(val id: String, val primaryColor: Color = Yellow, val bgColor: Color = DarkBg)
 
 /** Internal intermediate between the bundled per-language story files and the
@@ -987,7 +809,7 @@ class AssetManager @Inject constructor(@ApplicationContext private val ctx: Cont
     }
 
     /** Maps to the wire type. The Dto's `Tr`/`En` field names are fixed by the
-     *  server's JSON contract (see ApiService.getStoryChapters), so the mapping
+     *  shape the story screen renders, so the mapping
      *  is: localised text -> the `Tr` slot, English source -> the `En` slot. */
     fun storyChapterToDto(raw: StoryChapterRaw): StoryChapterDto = StoryChapterDto(
         id        = raw.id,
@@ -998,17 +820,6 @@ class AssetManager @Inject constructor(@ApplicationContext private val ctx: Cont
         isUnlocked= raw.unlocked
     )
 
-    fun preload(): Flow<PreloadEvent> = flow {
-        val stages = listOf(0.10f to "loading_stage_shaders", 0.30f to "loading_stage_assets",
-            0.55f to "loading_stage_entities", 0.75f to "loading_stage_audio",
-            0.90f to "loading_stage_network",  1.00f to "loading_stage_done")
-        for ((progress, stageKey) in stages) {
-            if (stageKey == "loading_stage_assets") runCatching { loadStory() }
-            delay(380)
-            val resId = ctx.resources.getIdentifier(stageKey, "string", ctx.packageName)
-            emit(PreloadEvent(progress=progress, stage=if (resId != 0) ctx.getString(resId) else stageKey))
-        }
-    }.flowOn(Dispatchers.IO)
 }
 
 enum class ThreatLevel { CLEAN, SUSPICIOUS, HIGH, CRITICAL }
@@ -1103,11 +914,7 @@ class GuardManager @Inject constructor(
         }
         _report.value = GuardReport(flags, rooted, frida, debugged, emulator, sigValid, hook, memTamper, reportStr, level)
         if (level != ThreatLevel.CLEAN) _threatEvent.tryEmit(level)
-        if (level >= ThreatLevel.HIGH) runCatching {
-            FirebaseCrashlytics.getInstance().log("GUARD_THREAT level=$level report=$reportStr")
-            FirebaseFirestore.getInstance().collection("threat_reports").document(ctx.packageName)
-                .set(mapOf("level" to level.name, "report" to reportStr, "ts" to System.currentTimeMillis()), SetOptions.merge())
-        }
+        if (level >= ThreatLevel.HIGH) OmniLog.e("Guard", "GUARD_THREAT level=$level report=$reportStr")
     }
 
     private fun startContinuousMonitor() {
@@ -1179,10 +986,10 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
                     ThreatLevel.CRITICAL -> {
                         // Log first — a silent kill on a false positive is
                         // indistinguishable from a crash to the player.
-                        FirebaseCrashlytics.getInstance().log("CRITICAL_THREAT: ${report.value.report}")
+                        OmniLog.e("Guard", "CRITICAL_THREAT: ${report.value.report}")
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }
-                    ThreatLevel.HIGH -> FirebaseCrashlytics.getInstance().log("HIGH_THREAT: ${report.value.report}")
+                    ThreatLevel.HIGH -> OmniLog.w("Guard", "HIGH_THREAT: ${report.value.report}")
                     else -> {}
                 }
             }
@@ -1236,7 +1043,6 @@ data class MarketUiState(
 
 @HiltViewModel
 class MarketVM @Inject constructor(
-    private val api         : ApiService,
     private val assetManager: AssetManager,
     private val cosmetics   : CosmeticsStore,
     @ApplicationContext private val appCtx: Context
@@ -1267,12 +1073,7 @@ class MarketVM @Inject constructor(
 
     private fun loadProfile() {
         viewModelScope.launch {
-            runCatching { api.getProfile() }.onSuccess { p ->
-                serverOmnium = p.omniumAmount
-                _state.update {
-                    it.copy(omniumBal = serverOmnium + localOmnium, souliumBal = p.souliumAmount, isVip = p.isVip)
-                }
-            }
+            _state.update { it.copy(omniumBal = localOmnium) }
         }
     }
 
@@ -1286,44 +1087,20 @@ class MarketVM @Inject constructor(
     private fun loadTab(tab: MarketTab) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            runCatching { api.getMarketItems(tab.name.lowercase()) }
-                .onSuccess { page ->
-                    // An empty page would leave the tab blank; fall back so a
-                    // silent/partial server is indistinguishable from offline.
-                    val items = page.items.ifEmpty { fallbackItems(tab) }
-                    _state.update { it.copy(isLoading = false, items = items) }
-                }
-                .onFailure { e ->
-                    // The offline catalogue already covers this case, so the raw
-                    // network/converter message is noise — log it, don't show it.
-                    OmniLog.w("Market", "loadTab failed for $tab; using local catalogue", e)
-                    _state.update { it.copy(isLoading = false, error = null, items = fallbackItems(tab)) }
-                }
+            _state.update { it.copy(isLoading = false, error = null, items = fallbackItems(tab)) }
         }
     }
 
     private fun loadDaily() {
         viewModelScope.launch {
-            runCatching { api.getDailyDeals() }
-                .onSuccess { deals -> _state.update { it.copy(dailyDeals = deals) } }
-                .onFailure { _state.update { it.copy(dailyDeals = fallbackDaily()) } }
+            _state.update { it.copy(dailyDeals = fallbackDaily()) }
         }
     }
 
     fun loadCharacters() {
         viewModelScope.launch {
             _state.update { it.copy(charsLoading = true) }
-            runCatching { api.getCharacters() }
-                .onSuccess { chars ->
-                    val selected = chars.firstOrNull { it.isEquipped } ?: chars.firstOrNull()
-                    _state.update { it.copy(charsLoading = false, characters = chars, selectedChar = selected) }
-                }
-                .onFailure {
-                    // No server: fall back to the local roster so the character
-                    // is still browsable and inspectable offline.
-                    OmniLog.w("Market", "getCharacters failed; using local roster", it)
-                    _state.update { it.copy(charsLoading = false, characters = emptyList()) }
-                }
+            _state.update { it.copy(charsLoading = false, characters = emptyList()) }
         }
     }
 
@@ -1332,9 +1109,8 @@ class MarketVM @Inject constructor(
     fun equip(char: CharacterDto) {
         viewModelScope.launch {
             _state.update { it.copy(equipping = char.id) }
-            runCatching { api.equipCharacter(char.id) }
-                .onSuccess { _state.update { it.copy(equipping = null) }; loadCharacters() }
-                .onFailure { _state.update { it.copy(equipping = null) } }
+            _state.update { it.copy(equipping = null) }
+            loadCharacters()
         }
     }
 
@@ -1351,19 +1127,6 @@ class MarketVM @Inject constructor(
             // because the only path went through an API that isn't running yet.
             grantLocally(item)
 
-            // Then tell the server, best-effort. A failure here is logged but
-            // must not undo what the player already owns.
-            runCatching { api.buyItem(BuyRequest(item.id, item.currency)) }
-                .onSuccess { r ->
-                    _state.update {
-                        it.copy(
-                            omniumBal  = if (item.currency == "omnium") r.newBalance else it.omniumBal,
-                            souliumBal = if (item.currency == "soulium") r.newBalance else it.souliumBal
-                        )
-                    }
-                }
-                .onFailure { e -> OmniLog.w("Market", "server sync failed for ${item.id}", e) }
-
             _state.update {
                 it.copy(
                     purchasing = null,
@@ -1371,7 +1134,6 @@ class MarketVM @Inject constructor(
                     successMsg = item.id
                 )
             }
-            logPurchaseAnalytics(item)
         }
     }
 
@@ -1415,17 +1177,6 @@ class MarketVM @Inject constructor(
     }
 
     fun clearSuccess() { _state.update { it.copy(successMsg = null) } }
-
-    private fun logPurchaseAnalytics(item: MarketItemDto) {
-        runCatching {
-            val bundle = Bundle().apply {
-                putString("item_id", item.id)
-                putString("currency", item.currency)
-                putLong("price", item.price)
-            }
-            FirebaseAnalytics.getInstance(appCtx).logEvent(FirebaseAnalytics.Event.PURCHASE, bundle)
-        }
-    }
 
     /** Offline catalogue. Every entry is purely visual by design — no stat
      *  changes, no consumables, nothing that alters difficulty. */
@@ -1543,7 +1294,6 @@ data class StoryUiState(
 
 @HiltViewModel
 class StoryVM @Inject constructor(
-    private val api         : ApiService,
     private val assetManager: AssetManager
 ) : ViewModel() {
     private val _state = MutableStateFlow(StoryUiState())
@@ -1555,26 +1305,7 @@ class StoryVM @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val local = assetManager.loadStory().chapters.map { assetManager.storyChapterToDto(it) }
-            if (local.isNotEmpty()) _state.update { it.copy(isLoading = false, chapters = local) }
-            runCatching {
-                val snapshot = FirebaseFirestore.getInstance().collection("story_chapters").get().await()
-                val remote = snapshot.documents.mapNotNull { doc ->
-                    runCatching {
-                        StoryChapterDto(
-                            id        = doc.getLong("id")?.toInt() ?: return@runCatching null,
-                            titleTr   = doc.getString("titleTr")   ?: "",
-                            titleEn   = doc.getString("titleEn")   ?: "",
-                            contentTr = doc.getString("contentTr") ?: "",
-                            contentEn = doc.getString("contentEn") ?: "",
-                            isUnlocked= doc.getBoolean("isUnlocked") ?: false
-                        )
-                    }.getOrNull()
-                }
-                if (remote.isNotEmpty()) _state.update { it.copy(isLoading = false, chapters = remote) }
-                else runCatching { api.getStoryChapters() }.onSuccess { r ->
-                    if (r.isNotEmpty()) _state.update { it.copy(isLoading = false, chapters = r) }
-                }
-            }.onFailure { if (_state.value.chapters.isEmpty()) _state.update { it.copy(isLoading = false) } }
+            _state.update { it.copy(isLoading = false, chapters = local) }
         }
     }
 
@@ -1587,7 +1318,6 @@ class GameVM @Inject constructor(
     private val bridge      : NativeBridge,
     private val assetManager: AssetManager,
     private val settings    : SettingsRepository,
-    private val api         : ApiService,
     private val saveStore   : SaveGameStore,
     private val cosmetics   : CosmeticsStore
 ) : ViewModel() {
@@ -1824,15 +1554,6 @@ class GameVM @Inject constructor(
                     }
                 }
 
-                // Real RTT from the netcode; 0 offline, where there is nothing
-                // to measure and the badge is hidden.
-                pingSampleTimer -= dt
-                if (pingSampleTimer <= 0f) {
-                    pingSampleTimer = 1f
-                    val rtt = runCatching { bridge.getLocalPing() }.getOrDefault(0)
-                    if (rtt != _state.value.pingMs) _state.update { it.copy(pingMs = rtt) }
-                }
-
                 val wasOver = _state.value.isGameOver
                 val derived = stepSimulation(bridge, dt, _state.value)
                 _state.update { applyTickToState(it, derived, dt, elapsedMs, score) }
@@ -1842,7 +1563,6 @@ class GameVM @Inject constructor(
                     val earned = omniumForRun(elapsedMs, escaped = false)
                     _state.update { it.copy(omniumEarned = earned) }
                     launch { runCatching { cosmetics.addOmnium(earned) } }
-                    submitScoreToServer()
                 }
                 checkSanity(dt)
                 delay(16)
@@ -1891,7 +1611,6 @@ class GameVM @Inject constructor(
     private var footstepTimer = 0f
     /** Which foot is next. Flips on every footfall so the trail has a gait. */
     private var footSide = 1f
-    private var pingSampleTimer = 0f
     private var exitCheckTimer = 0f
     /** Counts down once sanity hits zero. The break is deliberately not instant:
      *  the player gets a stretch of hallucination first, at a random moment. */
@@ -2049,7 +1768,7 @@ class GameVM @Inject constructor(
             val earned = omniumForRun(elapsedMs, escaped = true)
             _state.update { it.copy(isEscaped = true, omniumEarned = earned) }
             viewModelScope.launch { runCatching { cosmetics.addOmnium(earned) } }
-            submitScoreToServer()
+            finishRun()
         }
     }
 
@@ -2127,7 +1846,7 @@ class GameVM @Inject constructor(
             }
             runCatching { cosmetics.addOmnium(omniumForRun(elapsedMs, escaped = false)) }
             _state.update { it.copy(omniumEarned = omniumForRun(elapsedMs, escaped = false)) }
-            submitScoreToServer()
+            finishRun()
         }
     }
 
@@ -2155,10 +1874,11 @@ class GameVM @Inject constructor(
         return WorldChunk.parse(chunkX, chunkZ, w.chunkCells, bridge.generateChunk(chunkX, chunkZ))
     }
 
-    /** Reports the finished run to the leaderboard API, Firestore, and
-     *  Crashlytics (for crash-context, not analytics). Best-effort: a failed
-     *  submission shouldn't block the player from seeing their own results. */
-    private fun submitScoreToServer() {
+    /** Closes out a finished run: drops the resume snapshot and records the
+     *  personal best. Both are local — this used to also post the score to a
+     *  leaderboard API, Firestore and Crashlytics, none of which ever had a
+     *  server behind them. */
+    private fun finishRun() {
         viewModelScope.launch {
             // The run is over, so a stale snapshot must not linger behind
             // "Continue". Detached, because the player usually leaves the screen
@@ -2167,22 +1887,6 @@ class GameVM @Inject constructor(
             saveStore.clearDetached()
             // Personal best is only meaningful for a completed run.
             runCatching { cosmetics.recordSurvival(elapsedMs) }
-            val s = _state.value
-            runCatching {
-                api.submitScore(ScoreSubmitRequest(s.level, score, if (s.isEscaped) 1 else 0, s.difficulty, elapsedMs, kills))
-            }
-            runCatching {
-                FirebaseFirestore.getInstance().collection("leaderboard").add(
-                    mapOf(
-                        "difficulty" to s.difficulty, "score" to score, "kills" to kills,
-                        "sessionMs" to elapsedMs, "ts" to System.currentTimeMillis()
-                    )
-                )
-            }
-            runCatching {
-                FirebaseCrashlytics.getInstance().setCustomKey("last_score", score)
-                FirebaseCrashlytics.getInstance().setCustomKey("difficulty", s.difficulty)
-            }
         }
     }
 
@@ -2194,15 +1898,13 @@ class GameVM @Inject constructor(
 }
 
 @HiltViewModel
-class LeaderboardVM @Inject constructor(private val api: ApiService) : ViewModel() {
+class LeaderboardVM @Inject constructor() : ViewModel() {
     private val _entries = MutableStateFlow<List<LeaderboardEntry>>(emptyList())
     val entries: StateFlow<List<LeaderboardEntry>> = _entries.asStateFlow()
-    init { viewModelScope.launch { runCatching { api.getLeaderboard() }.onSuccess { _entries.value = it.entries } } }
 }
 
 @HiltViewModel
 class ProfileVM @Inject constructor(
-    private val api      : ApiService,
     private val cosmetics: CosmeticsStore,
     private val identity : GuestIdentityManager
 ) : ViewModel() {
@@ -2220,14 +1922,7 @@ class ProfileVM @Inject constructor(
 
     init {
         viewModelScope.launch {
-            // Server profile is best-effort; a guest with no account still gets a
-            // usable name rather than the placeholder "Wanderer".
-            runCatching { api.getProfile() }
-                .onSuccess { _profile.value = it }
-                .onFailure { OmniLog.w("Profile", "getProfile failed, using local identity", it) }
-            if (_profile.value.name.isBlank() || _profile.value.name == "Wanderer") {
-                _profile.value = _profile.value.copy(name = identity.currentName())
-            }
+            _profile.value = _profile.value.copy(name = identity.currentName())
         }
         viewModelScope.launch { cosmetics.observeOwnedFrames().collect { owned = it } }
     }
@@ -2267,7 +1962,6 @@ fun LobbyVideoBackground(modifier: Modifier = Modifier) {
 @Composable
 fun MainMenu(
     onPlay       : (Boolean) -> Unit,
-    onOnline     : () -> Unit,
     onSettings   : () -> Unit,
     onStory      : () -> Unit,
     onMarket     : () -> Unit,
@@ -2357,13 +2051,6 @@ fun MainMenu(
             verticalArrangement   = Arrangement.spacedBy(12.dp),
             horizontalAlignment   = Alignment.End
         ) {
-            PremiumEventButton(
-                label   = stringResource(R.string.menu_play_online),
-                accent  = OmniumCol,
-                onClick = onOnline,
-                modifier = Modifier.width(226.dp),
-                glyph   = { drawOnlineGlyph(it) }
-            )
             PremiumEventButton(
                 label   = stringResource(R.string.menu_play_offline),
                 accent  = SuccessGreen,
@@ -6521,14 +6208,6 @@ fun GameHud(
             if (gameState.entitiesNearby > 0) {
                 HudBadge("◉ ${gameState.entitiesNearby}", DangerRed)
             }
-            if (gameState.showPing && gameState.pingMs > 0) {
-                val pingColor = when {
-                    gameState.pingMs < 80  -> SuccessGreen
-                    gameState.pingMs < 180 -> CrtAmber
-                    else                   -> DangerRed
-                }
-                HudBadge("${gameState.pingMs} ms", pingColor)
-            }
             if (gameState.showFps) {
                 val fpsColor = when {
                     gameState.fps >= 50 -> SuccessGreen
@@ -7097,7 +6776,6 @@ fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit, settingsVm: SettingsV
                     InGameToggle(stringResource(R.string.graphics_shadows),  s.shadowsEnabled, settingsVm::onShadows)
                     InGameToggle(stringResource(R.string.graphics_vhs_effect),      s.vhsEnabled,     settingsVm::onVhs)
                     InGameToggle(stringResource(R.string.graphics_show_fps),      s.showFps,        settingsVm::onShowFps)
-                    InGameToggle(stringResource(R.string.graphics_show_ping),     s.showPing,       settingsVm::onShowPing)
                     DividerLine()
                     // Camera view, switchable mid-run.
                     Text(stringResource(R.string.settings_camera_view), color = TextSec, fontSize = 11.sp)
@@ -7802,7 +7480,6 @@ fun formatElapsed(ms: Long): String {
 
 private val GameState.vhsEnabled: Boolean get() = true
 private val GameState.showFps   : Boolean get() = false
-private val GameState.showPing  : Boolean get() = true
 
 
 // ============================================================================

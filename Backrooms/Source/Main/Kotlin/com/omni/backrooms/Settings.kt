@@ -58,11 +58,6 @@ import androidx.datastore.preferences.core.*
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.crashlytics.FirebaseCrashlytics
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
-import com.google.firebase.remoteconfig.FirebaseRemoteConfig
-import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -95,7 +90,6 @@ class SettingsRepository @Inject constructor(
         val KEY_VIBRATION    = booleanPreferencesKey("vibration")
         val KEY_PUSH_NOTIF   = booleanPreferencesKey("push_notifications")
         val KEY_SHOW_FPS     = booleanPreferencesKey("show_fps")
-        val KEY_SHOW_PING    = booleanPreferencesKey("show_ping")
         val KEY_COLOR_BLIND  = stringPreferencesKey("color_blind_mode")
 
         val KEY_CAMERA_VIEW  = stringPreferencesKey("camera_view")
@@ -118,7 +112,6 @@ class SettingsRepository @Inject constructor(
             fogEnabled        = p[KEY_FOG]          ?: true,
             vibrationOn       = p[KEY_VIBRATION]    ?: true,
             showFps           = p[KEY_SHOW_FPS]     ?: false,
-            showPing          = p[KEY_SHOW_PING]    ?: true,
             colorBlindMode    = p[KEY_COLOR_BLIND]  ?: "none",
             cameraView        = p[KEY_CAMERA_VIEW]  ?: "first",
             pushNotifications = p[KEY_PUSH_NOTIF]   ?: true
@@ -130,7 +123,7 @@ class SettingsRepository @Inject constructor(
     fun observeVoice()  : Flow<Float>   = store.data.map { it[KEY_VOICE]   ?: 0.8f     }
     fun observeQuality(): Flow<String>  = store.data.map { it[KEY_QUALITY] ?: "medium" }
 
-    suspend fun saveName(v: String)          { store.edit { it[KEY_NAME]         = v }; syncToFirestore("player_name", v) }
+    suspend fun saveName(v: String)          { store.edit { it[KEY_NAME]         = v } }
     suspend fun saveQuality(v: String)       { store.edit { it[KEY_QUALITY]      = v } }
     suspend fun saveVhs(v: Boolean)          { store.edit { it[KEY_VHS]          = v } }
     suspend fun saveResolution(v: Float)     { store.edit { it[KEY_RESOLUTION]   = v } }
@@ -145,7 +138,6 @@ class SettingsRepository @Inject constructor(
     suspend fun saveFog(v: Boolean)          { store.edit { it[KEY_FOG]          = v } }
     suspend fun saveVibration(v: Boolean)    { store.edit { it[KEY_VIBRATION]    = v } }
     suspend fun saveShowFps(v: Boolean)      { store.edit { it[KEY_SHOW_FPS]     = v } }
-    suspend fun saveShowPing(v: Boolean)     { store.edit { it[KEY_SHOW_PING]    = v } }
     suspend fun saveColorBlind(v: String)    { store.edit { it[KEY_COLOR_BLIND]  = v } }
     suspend fun saveCameraView(v: String)    { store.edit { it[KEY_CAMERA_VIEW]  = v } }
     suspend fun savePushNotif(v: Boolean)    { store.edit { it[KEY_PUSH_NOTIF]   = v } }
@@ -160,7 +152,6 @@ class SettingsRepository @Inject constructor(
                 p[floatPreferencesKey("ui_${b.buttonId}_s")] = b.sizeScale
             }
         }
-        syncToFirestore("ui_layout_saved", true)
     }
 
     /** Reads the layout back. Elements absent from the store fall back to the
@@ -197,46 +188,8 @@ class SettingsRepository @Inject constructor(
         }
     }
 
-    suspend fun syncAllToServer(api: ApiService, settings: GameSettings) {
-        withContext(Dispatchers.IO) {
-            runCatching { api.syncSettings(settings) }
-            syncToFirestore("graphics_quality",   settings.graphicsQuality)
-            syncToFirestore("vhs_enabled",        settings.vhsEnabled)
-            syncToFirestore("camera_sensitivity", settings.cameraSensitivity)
-            syncToFirestore("push_notifications", settings.pushNotifications)
-        }
-    }
-
-    suspend fun fetchFromRemoteConfig(): Map<String, Any> = withContext(Dispatchers.IO) {
-        runCatching {
-            val rc = FirebaseRemoteConfig.getInstance()
-            rc.setConfigSettingsAsync(
-                FirebaseRemoteConfigSettings.Builder()
-                    .setMinimumFetchIntervalInSeconds(3600)
-                    .build()
-            ).await()
-            rc.fetchAndActivate().await()
-            mapOf(
-                "force_vhs"           to rc.getBoolean("force_vhs"),
-                "default_sensitivity" to rc.getDouble("default_sensitivity").toFloat(),
-                "max_fps"             to rc.getLong("max_fps").toInt(),
-                "fog_override"        to rc.getBoolean("fog_override")
-            )
-        }.getOrElse { emptyMap() }
-    }
-
     suspend fun clearAll() { store.edit { it.clear() } }
 
-    suspend fun connectGoogle() { syncToFirestore("google_connect_attempt", System.currentTimeMillis()) }
-
-    private fun syncToFirestore(key: String, value: Any) {
-        runCatching {
-            FirebaseFirestore.getInstance()
-                .collection("user_settings")
-                .document("local")
-                .set(mapOf(key to value, "updatedAt" to System.currentTimeMillis()), SetOptions.merge())
-        }
-    }
 }
 
 data class SettingsUiState(
@@ -255,7 +208,6 @@ data class SettingsUiState(
     val fogEnabled        : Boolean         = true,
     val vibrationOn       : Boolean         = true,
     val showFps           : Boolean         = false,
-    val showPing          : Boolean         = true,
     val colorBlindMode    : String          = "none",
     /** "first" or "third". Third-person needs the character model, so it only
      *  applies once one is equipped. */
@@ -263,15 +215,11 @@ data class SettingsUiState(
     val pushNotifications : Boolean         = true,
     val isSyncing         : Boolean         = false,
     val syncSuccess       : Boolean         = false,
-    val remoteOverrides   : Map<String,Any> = emptyMap(),
-    val googleState       : GoogleAuthState = GoogleAuthState()
 )
 
 @HiltViewModel
 class SettingsVM @Inject constructor(
     private val repo             : SettingsRepository,
-    private val api              : ApiService,
-    private val googleAuthManager: GoogleAuthManager,
     private val identity         : GuestIdentityManager,
     private val locales          : LocaleStore
 ) : ViewModel() {
@@ -323,7 +271,6 @@ class SettingsVM @Inject constructor(
                         fogEnabled        = pick("fog", g.fogEnabled, cur.fogEnabled),
                         vibrationOn       = pick("vibe", g.vibrationOn, cur.vibrationOn),
                         showFps           = pick("showFps", g.showFps, cur.showFps),
-                        showPing          = pick("showPing", g.showPing, cur.showPing),
                         colorBlindMode    = pick("cb", g.colorBlindMode, cur.colorBlindMode),
                         cameraView        = pick("camview", g.cameraView, cur.cameraView),
                         pushNotifications = pick("push", g.pushNotifications, cur.pushNotifications)
@@ -339,63 +286,6 @@ class SettingsVM @Inject constructor(
             }
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val overrides = repo.fetchFromRemoteConfig()
-            if (overrides.isNotEmpty()) {
-                _state.update { it.copy(remoteOverrides = overrides) }
-                (overrides["force_vhs"]           as? Boolean)?.let { v -> repo.saveVhs(v) }
-                (overrides["default_sensitivity"] as? Float)  ?.let { v -> if (v > 0f) repo.saveSensitivity(v) }
-                (overrides["max_fps"]             as? Int)    ?.let { v -> if (v > 0) repo.saveFpsLimit(v) }
-                (overrides["fog_override"]        as? Boolean)?.let { v -> repo.saveFog(v) }
-            }
-        }
-
-        refreshGoogleState()
-    }
-
-    private fun refreshGoogleState() {
-        val user = googleAuthManager.currentUser
-        _state.update {
-            it.copy(
-                googleState = if (user != null) {
-                    GoogleAuthState(
-                        isSignedIn  = true,
-                        displayName = user.displayName ?: "",
-                        email       = user.email ?: "",
-                        photoUrl    = user.photoUrl?.toString()
-                    )
-                } else GoogleAuthState()
-            )
-        }
-    }
-
-    fun signInWithGoogle(activity: Activity) {
-        viewModelScope.launch {
-            _state.update { it.copy(googleState = it.googleState.copy(isLoading = true, error = null)) }
-            googleAuthManager.signIn(activity)
-                .onSuccess { user ->
-                    _state.update {
-                        it.copy(
-                            googleState = GoogleAuthState(
-                                isSignedIn  = true,
-                                displayName = user.displayName ?: "",
-                                email       = user.email ?: "",
-                                photoUrl    = user.photoUrl?.toString(),
-                                isLoading   = false
-                            )
-                        )
-                    }
-                    runCatching { repo.connectGoogle() }
-                }
-                .onFailure { e ->
-                    _state.update { it.copy(googleState = it.googleState.copy(isLoading = false, error = e.message)) }
-                }
-        }
-    }
-
-    fun signOutGoogle() {
-        googleAuthManager.signOut()
-        _state.update { it.copy(googleState = GoogleAuthState()) }
     }
 
     /** Writes both the settings copy and the shared identity record, which the
@@ -421,7 +311,6 @@ class SettingsVM @Inject constructor(
     fun onFog(v: Boolean)          { pendingWrites.add("fog"); _state.update { it.copy(fogEnabled        = v) }; save { repo.saveFog(v) } }
     fun onVibration(v: Boolean)    { pendingWrites.add("vibe"); _state.update { it.copy(vibrationOn       = v) }; save { repo.saveVibration(v) } }
     fun onShowFps(v: Boolean)      { pendingWrites.add("showFps"); _state.update { it.copy(showFps           = v) }; save { repo.saveShowFps(v) } }
-    fun onShowPing(v: Boolean)     { pendingWrites.add("showPing"); _state.update { it.copy(showPing          = v) }; save { repo.saveShowPing(v) } }
     fun onCameraView(v: String)    { pendingWrites.add("camview"); _state.update { it.copy(cameraView = v) }; save { repo.saveCameraView(v) } }
     fun onColorBlind(v: String)    { pendingWrites.add("cb"); _state.update { it.copy(colorBlindMode    = v) }; save { repo.saveColorBlind(v) } }
     fun onPushNotif(v: Boolean)    { pendingWrites.add("push"); _state.update { it.copy(pushNotifications = v) }; save { repo.savePushNotif(v) } }
@@ -446,20 +335,16 @@ class SettingsVM @Inject constructor(
                 fogEnabled        = s.fogEnabled,
                 vibrationOn       = s.vibrationOn,
                 showFps           = s.showFps,
-                showPing          = s.showPing,
                 colorBlindMode    = s.colorBlindMode,
                 pushNotifications = s.pushNotifications
             )
-            runCatching { repo.syncAllToServer(api, gs) }
-                .onSuccess { _state.update { it.copy(isSyncing = false, syncSuccess = true) } }
-                .onFailure { _state.update { it.copy(isSyncing = false) } }
+            _state.update { it.copy(isSyncing = false, syncSuccess = true) }
         }
     }
 
     fun resetDefaults() {
         viewModelScope.launch {
             repo.clearAll()
-            runCatching { FirebaseCrashlytics.getInstance().log("SETTINGS_RESET") }
         }
     }
 
@@ -551,10 +436,10 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     when (tabIndex) {
-                        0 -> GraphicsTab(s, vm::onQuality, vm::onVhs, vm::onResolution, vm::onShadows, vm::onAntialiasing, vm::onFog, vm::onShowFps, vm::onShowPing)
+                        0 -> GraphicsTab(s, vm::onQuality, vm::onVhs, vm::onResolution, vm::onShadows, vm::onAntialiasing, vm::onFog, vm::onShowFps)
                         1 -> AudioTab(s, vm::onMusic, vm::onVibration)
                         2 -> ControlsTab(s, vm::onSensitivity, onUiEditor)
-                        3 -> AccountTab(s, vm::onName, { activity?.let { a -> vm.signInWithGoogle(a) } }, vm::signOutGoogle, vm::syncToServer, vm::resetDefaults)
+                        3 -> AccountTab(s, vm::onName, vm::syncToServer, vm::resetDefaults)
                         4 -> GameplayTab(s, vm::onColorBlind, vm::onFpsLimit)
                         5 -> NotifTab(s, vm::onPushNotif)
                         6 -> {
@@ -578,7 +463,6 @@ private fun GraphicsTab(
     onAA        : (Boolean) -> Unit,
     onFog       : (Boolean) -> Unit,
     onShowFps   : (Boolean) -> Unit,
-    onShowPing  : (Boolean) -> Unit
 ) {
     SettingsSection(stringResource(R.string.settings_tab_graphics))
 
@@ -612,7 +496,6 @@ private fun GraphicsTab(
     DividerLine()
     SettingsSection("HUD")
     SettingsToggle(stringResource(R.string.graphics_show_fps),  s.showFps,  onShowFps)
-    SettingsToggle(stringResource(R.string.graphics_show_ping), s.showPing, onShowPing)
 }
 
 @Composable
@@ -649,8 +532,6 @@ private fun ControlsTab(
 private fun AccountTab(
     s        : SettingsUiState,
     onName   : (String) -> Unit,
-    onGoogle : () -> Unit,
-    onSignOut: () -> Unit,
     onSync   : () -> Unit,
     onReset  : () -> Unit
 ) {
@@ -678,100 +559,12 @@ private fun AccountTab(
         }
     }
 
-    DividerLine()
-
-    GoogleConnectCard(s.googleState, onGoogle, onSignOut)
 
     DividerLine()
-
-    androidx.compose.animation.AnimatedVisibility(
-        visible = s.remoteOverrides.isNotEmpty(),
-        enter   = expandVertically() + fadeIn(),
-        exit    = shrinkVertically() + fadeOut()
-    ) {
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp))
-                .background(SouliumCol.copy(0.1f))
-                .border(1.dp, SouliumCol.copy(0.3f), RoundedCornerShape(2.dp))
-                .padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment     = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Default.Cloud, null, tint = SouliumCol, modifier = Modifier.size(14.dp))
-            Text(stringResource(R.string.account_remote_config_active), color = SouliumCol, fontSize = 11.sp)
-        }
-    }
 
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         AtmosphericButton(stringResource(R.string.account_sync),  Icons.Default.Sync,    OmniumCol, 150.dp, 46.dp, onSync)
         AtmosphericButton(stringResource(R.string.account_reset), Icons.Default.Refresh, DangerRed, 150.dp, 46.dp, onReset)
-    }
-}
-
-@Composable
-private fun GoogleConnectCard(
-    state    : GoogleAuthState,
-    onSignIn : () -> Unit,
-    onSignOut: () -> Unit
-) {
-    AnimatedContent(
-        targetState  = state.isSignedIn,
-        transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) },
-        label        = "google_card"
-    ) { isSignedIn ->
-        if (isSignedIn) {
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp))
-                    .background(MetalBg)
-                    .border(1.dp, SuccessGreen.copy(0.3f), RoundedCornerShape(3.dp))
-                    .padding(12.dp),
-                verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(Modifier.size(38.dp).clip(CircleShape).background(OmniumCol.copy(0.15f)), Alignment.Center) {
-                    Icon(Icons.Default.AccountCircle, null, tint = OmniumCol, modifier = Modifier.size(22.dp))
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(state.displayName.ifEmpty { "Google Kullanıcı" }, color = Yellow, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text(state.email, color = TextSec, fontSize = 10.sp)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(14.dp))
-                    Text("Bağlı", color = SuccessGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-                IconButton(onClick = onSignOut, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Logout, null, tint = DangerRed.copy(0.7f), modifier = Modifier.size(18.dp))
-                }
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp))
-                    .background(MetalBg)
-                    .border(1.dp, if (state.isLoading) Yellow.copy(0.4f) else BorderCol, RoundedCornerShape(3.dp))
-                    .clickable(enabled = !state.isLoading, onClick = onSignIn)
-                    .padding(12.dp),
-                verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (state.isLoading) {
-                    CircularProgressIndicator(Modifier.size(22.dp), color = Yellow, strokeWidth = 2.dp)
-                } else {
-                    Box(Modifier.size(38.dp).clip(CircleShape).background(OmniumCol.copy(0.1f)), Alignment.Center) {
-                        Icon(Icons.Default.AccountCircle, null, tint = OmniumCol, modifier = Modifier.size(22.dp))
-                    }
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        if (state.isLoading) "Bağlanıyor…" else stringResource(R.string.account_connect_google),
-                        color      = if (state.isLoading) TextSec else Yellow,
-                        fontSize   = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    state.error?.let { err -> Text(err, color = DangerRed, fontSize = 10.sp) }
-                }
-                if (!state.isLoading) Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = TextDim, modifier = Modifier.size(16.dp))
-            }
-        }
     }
 }
 

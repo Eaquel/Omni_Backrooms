@@ -3,27 +3,17 @@
 
     <string name="app_name">Omni Backrooms</string>
     <string name="splash_presents">Eaquel Apresenta</string>
-    <string name="splash_title">Omni Backrooms</string>
-    <string name="splash_tagline">Nível 0 — A Sala de Espera</string>
 
     <string name="loading_text">Carregando…</string>
-    <string name="loading_stage_shaders">Compilando shaders…</string>
-    <string name="loading_stage_assets">Carregando recursos…</string>
-    <string name="loading_stage_entities">Inicializando entidades…</string>
-    <string name="loading_stage_audio">Iniciando o motor de áudio…</string>
-    <string name="loading_stage_network">Verificando a conexão…</string>
-    <string name="loading_stage_done">Pronto.</string>
 
     <string name="story_title">História</string>
     <string name="story_chapter_locked">Este capítulo ainda está bloqueado.</string>
 
-    <string name="menu_new_game">Novo jogo</string>
     <string name="menu_settings">Configurações</string>
     <string name="menu_story">História</string>
     <string name="menu_market">Loja</string>
     <string name="menu_leaderboard">Classificação</string>
     <string name="menu_play_offline">Jogar offline</string>
-    <string name="menu_play_online">Jogar online</string>
     <string name="menu_profile">Perfil</string>
     <string name="menu_abilities">Habilidades</string>
     <string name="menu_season">Temporada</string>
@@ -32,80 +22,36 @@
     <string name="menu_continue">Continuar</string>
     <string name="menu_no_save">Você não tem jogo salvo</string>
 
-    <string name="mode_select_title">Modo de jogo</string>
-    <string name="mode_offline">Offline</string>
-    <string name="mode_online">Online</string>
 
-    <string name="difficulty_title">Escolher dificuldade</string>
-    <string name="difficulty_easy">Fácil</string>
-    <string name="difficulty_normal">Normal</string>
-    <string name="difficulty_hard">Difícil</string>
 
-    <string name="online_select_title">Online</string>
-    <string name="online_find_room">Procurar sala</string>
-    <string name="online_create_room">Criar sala</string>
 
-    <string name="room_list_title">Lista de salas</string>
-    <string name="room_list_empty">Nenhuma sala encontrada</string>
-    <string name="room_search_hint">Buscar nome da sala…</string>
-    <string name="room_filter_locked">Trancada</string>
-    <string name="room_filter_unlocked">Aberta</string>
-    <string name="room_page_prev">Anterior</string>
-    <string name="room_page_next">Próxima</string>
-    <string name="room_join">Entrar</string>
-    <string name="room_players_label">jogadores</string>
-    <string name="room_ping_label">ms</string>
-    <string name="room_create_title">Criar sala</string>
-    <string name="room_create_name_label">Nome da sala</string>
-    <string name="room_create_name_hint">Nome da sala (4 a 12 caracteres)</string>
-    <string name="room_create_size_label">Número de jogadores</string>
-    <string name="room_create_password_label">Protegida por senha</string>
-    <string name="room_create_password_hint">Digite a senha…</string>
-    <string name="room_create_confirm">Criar</string>
-    <string name="room_name_error_length">O nome deve ter de 4 a 12 caracteres</string>
-    <string name="room_name_error_chars">Emojis e caracteres especiais não são permitidos</string>
 
-    <string name="settings_title">Configurações</string>
     <string name="settings_tab_account">Conta</string>
     <string name="settings_tab_graphics">Gráficos</string>
     <string name="settings_tab_audio">Áudio</string>
     <string name="settings_tab_controls">Controles</string>
     <string name="settings_tab_gameplay">Jogabilidade</string>
-    <string name="settings_tab_notifications">Notificações</string>
     <string name="settings_tab_notif">Notif</string>
     <string name="settings_color_blind">Modo daltônico</string>
     <string name="settings_fps_limit">Limite de FPS</string>
     <string name="settings_vibration">Vibração</string>
 
-    <string name="account_change_name">Alterar nome</string>
-    <string name="account_change_photo">Alterar foto</string>
-    <string name="account_google_connect">Vincular ao Google</string>
-    <string name="account_name_hint">Nome de usuário…</string>
     <string name="account_player_name">Nome do jogador</string>
-    <string name="account_connect_google">Conectar com o Google</string>
     <string name="account_sync">Sincronizar</string>
     <string name="account_reset">Redefinir</string>
-    <string name="account_remote_config_active">Configuração remota ativa</string>
 
     <string name="graphics_quality_label">Qualidade gráfica</string>
     <string name="graphics_quality_low">Baixa</string>
     <string name="graphics_quality_medium">Média</string>
     <string name="graphics_quality_high">Alta</string>
     <string name="graphics_vhs_effect">Efeito VHS</string>
-    <string name="graphics_resolution_label">Resolução</string>
     <string name="graphics_resolution_scale">Escala de resolução</string>
     <string name="graphics_shadows">Sombras</string>
     <string name="graphics_antialiasing">Suavização de serrilhado</string>
     <string name="graphics_fog">Efeito de névoa</string>
     <string name="graphics_show_fps">Mostrar FPS</string>
-    <string name="graphics_show_ping">Mostrar ping</string>
 
     <string name="audio_master_volume">Volume geral</string>
-    <string name="audio_music_volume">Música</string>
-    <string name="audio_footstep_volume">Passos</string>
-    <string name="audio_monster_sfx_volume">Sons dos monstros</string>
-    <string name="audio_voice_volume">Voz</string>
-    <string name="audio_vibration">Vibração</string>
 
     <string name="controls_ui_layout">Layout da interface</string>
     <string name="controls_camera_sensitivity">Sensibilidade da câmera</string>
@@ -117,48 +63,20 @@
     <string name="editor_btn_crouch">Agachar</string>
     <string name="editor_btn_flashlight">Lanterna</string>
 
-    <string name="gameplay_colorblind_label">Modo daltônico</string>
-    <string name="gameplay_colorblind_none">Nenhum</string>
-    <string name="gameplay_colorblind_deuteranopia">Deuteranopia</string>
-    <string name="gameplay_colorblind_protanopia">Protanopia</string>
-    <string name="gameplay_colorblind_tritanopia">Tritanopia</string>
 
-    <string name="notifications_label">Notificações</string>
     <string name="notif_push_toggle">Notificações push</string>
     <string name="notif_info_text">As notificações avisam sobre novas temporadas e eventos especiais.</string>
 
     <string name="market_title">Loja</string>
-    <string name="market_tab_boosts">Impulsos</string>
-    <string name="market_tab_characters">Personagens</string>
-    <string name="market_tab_soulium">Soulium</string>
     <string name="market_tab_vip">Privilégios</string>
     <string name="market_tab_daily">Diário</string>
     <string name="market_buy">Comprar</string>
     <string name="market_equipped">Equipado</string>
     <string name="market_limited">Limitado</string>
     <string name="market_confirm_title">Compra</string>
-    <string name="market_purchase_success">comprado!</string>
 
-    <string name="char_default_name_prefix">Jogador</string>
-    <string name="char_locked_label">Bloqueado</string>
-    <string name="char_select_label">Escolher</string>
-    <string name="char_active_label">Ativo</string>
-    <string name="char_unlock_prefix">Desbloquear — </string>
-    <string name="characters_unlocked">Desbloqueado</string>
-    <string name="char_stats_hp">Vida</string>
-    <string name="char_stats_speed">Velocidade</string>
-    <string name="char_stats_stealth">Furtividade</string>
-    <string name="char_stats_stamina">Fôlego</string>
 
-    <string name="leaderboard_title">Classificação</string>
-    <string name="leaderboard_my_rank">Sua posição: nº%d</string>
-    <string name="leaderboard_filter_all">Tudo</string>
-    <string name="leaderboard_empty">Ainda não há recordes</string>
-    <string name="leaderboard_prev">Anterior</string>
-    <string name="leaderboard_next">Próxima</string>
 
-    <string name="currency_omnium">Omnium</string>
-    <string name="currency_soulium">Soulium</string>
     <string name="player_level_prefix">Nível </string>
 
     <string name="game_paused">Pausado</string>
@@ -168,9 +86,7 @@
     <string name="game_escaped_title">Escapou!</string>
     <string name="game_stat_score">Pontuação</string>
     <string name="game_stat_kills">Abates</string>
-    <string name="game_stat_time">Tempo</string>
     <string name="game_stat_difficulty">Dificuldade</string>
-    <string name="game_hud_hp">PV</string>
     <string name="game_hud_sanity">Sanidade</string>
     <string name="game_hud_stamina">Fôlego</string>
     <string name="game_hud_battery">Bateria</string>
@@ -183,15 +99,6 @@
 
     <string name="common_ok">OK</string>
     <string name="common_cancel">Cancelar</string>
-    <string name="common_save">Salvar</string>
-    <string name="common_close">Fechar</string>
-    <string name="common_back">Voltar</string>
-    <string name="common_error">Ocorreu um erro. Tente novamente.</string>
-    <string name="common_no_connection">Sem conexão com a internet</string>
-    <string name="common_loading">Carregando…</string>
-    <string name="common_retry">Tentar de novo</string>
-    <string name="common_limited_badge">Limitado</string>
-    <string name="common_offline_only">Jogando em modo offline</string>
 
     <string name="guard_threat_title">Aviso de segurança</string>
     <string name="guard_threat_message">Software não autorizado detectado neste aparelho.</string>
@@ -218,8 +125,6 @@
     <string name="market_tab_looks">Aparência</string>
     <string name="market_tab_trails">Rastros</string>
     <string name="market_cosmetic_note">Nada aqui dá vantagem no jogo — é tudo cosmético.</string>
-    <string name="market_owned">Adquirido</string>
-    <string name="room_password_required">Digite a senha de uma sala trancada</string>
     <string name="editor_btn_jump">Pular</string>
     <string name="notif_permission_denied">Permissão do sistema negada</string>
     <string name="notif_open_settings">Abrir configurações do sistema</string>
@@ -237,27 +142,19 @@
     <string name="story_codex_exit_body">Cada partida coloca a saída no ponto mais distante de onde você chegou. Um aviso aparece quando você se aproxima; o botão de interação tira você de lá.</string>
     <string name="story_chapters_header">Capítulos</string>
     <string name="settings_tab_language">Idioma</string>
-    <string name="room_server_unavailable">Não foi possível alcançar o servidor. O modo online ainda não está no ar — você pode jogar offline.</string>
-    <string name="market_tab_characters_new">Personagens</string>
     <string name="char_preview_title">Prévia do personagem</string>
     <string name="char_preview_rotate">Arraste para girar · Pince para ampliar</string>
-    <string name="char_preview_equip">Equipar</string>
-    <string name="char_preview_equipped">Equipado</string>
     <string name="char_anim_idle">Parado</string>
     <string name="char_anim_walk">Andando</string>
-    <string name="editor_btn_bars">Barras de status</string>
     <string name="editor_btn_pause">Pausa</string>
     <string name="editor_btn_readouts">Indicadores</string>
-    <string name="editor_size">Tamanho</string>
     <string name="editor_reset">Redefinir</string>
     <string name="editor_hint">Arraste para mover, selecione e use o controle deslizante para redimensionar</string>
-    <string name="editor_selected">Selecionado</string>
     <string name="settings_camera_view">Visão da câmera</string>
     <string name="camera_first_person">Primeira pessoa</string>
     <string name="camera_third_person">Terceira pessoa</string>
     <string name="settings_hud_editor">Abrir layout do HUD</string>
     <string name="daily_resets_in">Renova em %1$s</string>
-    <string name="daily_free_trial">1 hora grátis</string>
     <string name="game_survival_label">Tempo de sobrevivência</string>
     <string name="game_next_levels_soon">Novos níveis chegam muito em breve</string>
     <string name="game_return_lobby">Voltar ao lobby</string>
@@ -270,7 +167,6 @@
     <string name="trail_dust">Rastro de poeira</string>
     <string name="trail_static">Rastro estático</string>
     <string name="trail_salt">Rastro de sal</string>
-    <string name="profile_trail">Rastro</string>
     <string name="trail_preview_title">Inspeção de rastros</string>
     <string name="trail_preview_hint">Veja a caminhada · Toque para trocar</string>
     <string name="guard_threat_reason">Motivo</string>

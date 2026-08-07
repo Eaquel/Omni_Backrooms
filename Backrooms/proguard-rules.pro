@@ -37,11 +37,6 @@
 -keep class **.R { *; }
 -keep class **.R$* { *; }
 
--keep class com.google.firebase.** { *; }
--keep class com.google.android.gms.** { *; }
--dontwarn com.google.firebase.**
--dontwarn com.google.android.gms.**
-
 -keep class dagger.hilt.** { *; }
 -keep class javax.inject.** { *; }
 -keep class * extends dagger.hilt.android.internal.managers.ActivityComponentManager { *; }
@@ -49,14 +44,6 @@
     @dagger.hilt.android.AndroidEntryPoint <init>(...);
 }
 -dontwarn dagger.hilt.**
-
--keep class androidx.credentials.** { *; }
--keep class com.google.android.libraries.identity.googleid.** { *; }
--dontwarn androidx.credentials.**
--dontwarn com.google.android.libraries.identity.googleid.**
-
--keep class androidx.media3.** { *; }
--dontwarn androidx.media3.**
 
 -assumenosideeffects class android.util.Log {
     public static int v(...);

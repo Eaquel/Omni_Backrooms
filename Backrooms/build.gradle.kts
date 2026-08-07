@@ -1,13 +1,10 @@
 import java.util.Properties
 import java.io.FileInputStream
-import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.google.services)
-    alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
@@ -31,7 +28,6 @@ android {
 
         vectorDrawables { useSupportLibrary = true }
 
-        buildConfigField("String",  "API_BASE_URL",           "\"https://api.omnibackrooms.com/v1/\"")
         buildConfigField("boolean", "ENABLE_GUARD",           "true")
         buildConfigField("String",  "EXPECTED_SIG_HASH",      "\"\"")
         buildConfigField("String",  "GOOGLE_WEB_CLIENT_ID",   "\"\"")
@@ -65,22 +61,6 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "ENABLE_GUARD", "true")
-
-            // Most of this game is C++ behind the NDK, so most of what can crash
-            // it crashes natively. Without symbols those arrive in Crashlytics as
-            // raw addresses and there is nothing to read.
-            //
-            // The Crashlytics plugin only REGISTERS uploadCrashlyticsSymbolFile-
-            // Release when this is switched on for the build type. It was not,
-            // so the task never existed and CI's upload step failed instantly on
-            // every signed release for as long as it has been there — swallowed
-            // by `|| true`, so nothing ever said so. Setting the Gradle property
-            // alone does not do it; the CI gradle.properties has been setting
-            // com.google.firebase.crashlytics.nativeSymbolUploadEnabled=true the
-            // whole time and the task still was not created.
-            configure<CrashlyticsExtension> {
-                nativeSymbolUploadEnabled = true
-            }
         }
         debug {
             isMinifyEnabled = false
@@ -159,36 +139,11 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
 
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
-
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.retrofit.core)
-    implementation(libs.retrofit.converter.kotlinx.serialization)
-    implementation(libs.okhttp)
 
     implementation(libs.androidx.datastore.preferences)
-
-    implementation(libs.androidx.billing)
-
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.firestore)
-    implementation(libs.firebase.crashlytics)
-    implementation(libs.firebase.crashlytics.ndk)
-    implementation(libs.firebase.messaging)
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.config)
-
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play)
-    implementation(libs.google.id.credential)
-
-    implementation(libs.androidx.media3.exoplayer)
-    implementation(libs.androidx.media3.ui)
 
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)

@@ -3,27 +3,17 @@
 
     <string name="app_name">Omni Backrooms</string>
     <string name="splash_presents">Eaquel 呈现</string>
-    <string name="splash_title">Omni Backrooms</string>
-    <string name="splash_tagline">第0层 — 等候室</string>
 
     <string name="loading_text">加载中…</string>
-    <string name="loading_stage_shaders">正在编译着色器…</string>
-    <string name="loading_stage_assets">正在加载资源…</string>
-    <string name="loading_stage_entities">正在初始化实体…</string>
-    <string name="loading_stage_audio">正在启动音频引擎…</string>
-    <string name="loading_stage_network">正在检查网络连接…</string>
-    <string name="loading_stage_done">准备就绪。</string>
 
     <string name="story_title">故事</string>
     <string name="story_chapter_locked">本章尚未解锁。</string>
 
-    <string name="menu_new_game">新游戏</string>
     <string name="menu_settings">设置</string>
     <string name="menu_story">故事</string>
     <string name="menu_market">商店</string>
     <string name="menu_leaderboard">排行榜</string>
     <string name="menu_play_offline">离线游玩</string>
-    <string name="menu_play_online">联机游玩</string>
     <string name="menu_profile">个人资料</string>
     <string name="menu_abilities">能力</string>
     <string name="menu_season">赛季</string>
@@ -32,80 +22,36 @@
     <string name="menu_continue">继续</string>
     <string name="menu_no_save">没有存档</string>
 
-    <string name="mode_select_title">游戏模式</string>
-    <string name="mode_offline">离线</string>
-    <string name="mode_online">联机</string>
 
-    <string name="difficulty_title">选择难度</string>
-    <string name="difficulty_easy">简单</string>
-    <string name="difficulty_normal">普通</string>
-    <string name="difficulty_hard">困难</string>
 
-    <string name="online_select_title">联机</string>
-    <string name="online_find_room">查找房间</string>
-    <string name="online_create_room">创建房间</string>
 
-    <string name="room_list_title">房间列表</string>
-    <string name="room_list_empty">未找到房间</string>
-    <string name="room_search_hint">搜索房间名…</string>
-    <string name="room_filter_locked">已上锁</string>
-    <string name="room_filter_unlocked">未上锁</string>
-    <string name="room_page_prev">上一页</string>
-    <string name="room_page_next">下一页</string>
-    <string name="room_join">加入</string>
-    <string name="room_players_label">人</string>
-    <string name="room_ping_label">毫秒</string>
-    <string name="room_create_title">创建房间</string>
-    <string name="room_create_name_label">房间名</string>
-    <string name="room_create_name_hint">房间名（4–12个字符）</string>
-    <string name="room_create_size_label">玩家人数</string>
-    <string name="room_create_password_label">密码保护</string>
-    <string name="room_create_password_hint">输入密码…</string>
-    <string name="room_create_confirm">创建</string>
-    <string name="room_name_error_length">房间名需为4至12个字符</string>
-    <string name="room_name_error_chars">不允许使用表情符号和特殊字符</string>
 
-    <string name="settings_title">设置</string>
     <string name="settings_tab_account">账号</string>
     <string name="settings_tab_graphics">画面</string>
     <string name="settings_tab_audio">音频</string>
     <string name="settings_tab_controls">操作</string>
     <string name="settings_tab_gameplay">玩法</string>
-    <string name="settings_tab_notifications">通知</string>
     <string name="settings_tab_notif">通知</string>
     <string name="settings_color_blind">色盲模式</string>
     <string name="settings_fps_limit">帧率上限</string>
     <string name="settings_vibration">振动</string>
 
-    <string name="account_change_name">修改名称</string>
-    <string name="account_change_photo">更换头像</string>
-    <string name="account_google_connect">关联 Google</string>
-    <string name="account_name_hint">用户名…</string>
     <string name="account_player_name">玩家名称</string>
-    <string name="account_connect_google">使用 Google 登录</string>
     <string name="account_sync">同步</string>
     <string name="account_reset">重置</string>
-    <string name="account_remote_config_active">远程配置已生效</string>
 
     <string name="graphics_quality_label">画面质量</string>
     <string name="graphics_quality_low">低</string>
     <string name="graphics_quality_medium">中</string>
     <string name="graphics_quality_high">高</string>
     <string name="graphics_vhs_effect">VHS 效果</string>
-    <string name="graphics_resolution_label">分辨率</string>
     <string name="graphics_resolution_scale">分辨率缩放</string>
     <string name="graphics_shadows">阴影</string>
     <string name="graphics_antialiasing">抗锯齿</string>
     <string name="graphics_fog">雾效</string>
     <string name="graphics_show_fps">显示帧率</string>
-    <string name="graphics_show_ping">显示延迟</string>
 
     <string name="audio_master_volume">总音量</string>
-    <string name="audio_music_volume">音乐</string>
-    <string name="audio_footstep_volume">脚步声</string>
-    <string name="audio_monster_sfx_volume">怪物音效</string>
-    <string name="audio_voice_volume">语音</string>
-    <string name="audio_vibration">振动</string>
 
     <string name="controls_ui_layout">界面布局</string>
     <string name="controls_camera_sensitivity">镜头灵敏度</string>
@@ -117,48 +63,20 @@
     <string name="editor_btn_crouch">蹲下</string>
     <string name="editor_btn_flashlight">手电</string>
 
-    <string name="gameplay_colorblind_label">色盲模式</string>
-    <string name="gameplay_colorblind_none">无</string>
-    <string name="gameplay_colorblind_deuteranopia">绿色盲</string>
-    <string name="gameplay_colorblind_protanopia">红色盲</string>
-    <string name="gameplay_colorblind_tritanopia">蓝黄色盲</string>
 
-    <string name="notifications_label">通知</string>
     <string name="notif_push_toggle">推送通知</string>
     <string name="notif_info_text">通知用于告知新赛季和特别活动。</string>
 
     <string name="market_title">商店</string>
-    <string name="market_tab_boosts">增益</string>
-    <string name="market_tab_characters">角色</string>
-    <string name="market_tab_soulium">灵魄</string>
     <string name="market_tab_vip">特权</string>
     <string name="market_tab_daily">每日</string>
     <string name="market_buy">购买</string>
     <string name="market_equipped">已装备</string>
     <string name="market_limited">限定</string>
     <string name="market_confirm_title">购买</string>
-    <string name="market_purchase_success">购买成功！</string>
 
-    <string name="char_default_name_prefix">玩家</string>
-    <string name="char_locked_label">未解锁</string>
-    <string name="char_select_label">选择</string>
-    <string name="char_active_label">使用中</string>
-    <string name="char_unlock_prefix">解锁 — </string>
-    <string name="characters_unlocked">已解锁</string>
-    <string name="char_stats_hp">生命</string>
-    <string name="char_stats_speed">速度</string>
-    <string name="char_stats_stealth">隐蔽</string>
-    <string name="char_stats_stamina">耐力</string>
 
-    <string name="leaderboard_title">排行榜</string>
-    <string name="leaderboard_my_rank">你的排名：第%d名</string>
-    <string name="leaderboard_filter_all">全部</string>
-    <string name="leaderboard_empty">暂无记录</string>
-    <string name="leaderboard_prev">上一页</string>
-    <string name="leaderboard_next">下一页</string>
 
-    <string name="currency_omnium">全灵石</string>
-    <string name="currency_soulium">灵魄</string>
     <string name="player_level_prefix">等级 </string>
 
     <string name="game_paused">已暂停</string>
@@ -168,9 +86,7 @@
     <string name="game_escaped_title">成功逃脱！</string>
     <string name="game_stat_score">分数</string>
     <string name="game_stat_kills">击杀</string>
-    <string name="game_stat_time">时间</string>
     <string name="game_stat_difficulty">难度</string>
-    <string name="game_hud_hp">生命</string>
     <string name="game_hud_sanity">理智</string>
     <string name="game_hud_stamina">耐力</string>
     <string name="game_hud_battery">电量</string>
@@ -183,15 +99,6 @@
 
     <string name="common_ok">确定</string>
     <string name="common_cancel">取消</string>
-    <string name="common_save">保存</string>
-    <string name="common_close">关闭</string>
-    <string name="common_back">返回</string>
-    <string name="common_error">发生错误，请重试。</string>
-    <string name="common_no_connection">无网络连接</string>
-    <string name="common_loading">加载中…</string>
-    <string name="common_retry">重试</string>
-    <string name="common_limited_badge">限定</string>
-    <string name="common_offline_only">正在离线模式中游玩</string>
 
     <string name="guard_threat_title">安全警告</string>
     <string name="guard_threat_message">在此设备上检测到未经授权的软件。</string>
@@ -218,8 +125,6 @@
     <string name="market_tab_looks">外观</string>
     <string name="market_tab_trails">足迹</string>
     <string name="market_cosmetic_note">这里的物品不会带来任何战力优势 — 全部只是外观。</string>
-    <string name="market_owned">已拥有</string>
-    <string name="room_password_required">进入上锁房间需要输入密码</string>
     <string name="editor_btn_jump">跳跃</string>
     <string name="notif_permission_denied">未获得系统权限</string>
     <string name="notif_open_settings">打开系统设置</string>
@@ -237,27 +142,19 @@
     <string name="story_codex_exit_body">每局都会把出口放在离你落点最远的地方。靠近时会出现提示；按互动键即可离开。</string>
     <string name="story_chapters_header">章节</string>
     <string name="settings_tab_language">语言</string>
-    <string name="room_server_unavailable">无法连接服务器。联机模式尚未上线 — 你可以离线游玩。</string>
-    <string name="market_tab_characters_new">角色</string>
     <string name="char_preview_title">角色预览</string>
     <string name="char_preview_rotate">拖动旋转 · 双指缩放</string>
-    <string name="char_preview_equip">装备</string>
-    <string name="char_preview_equipped">已装备</string>
     <string name="char_anim_idle">待机</string>
     <string name="char_anim_walk">行走</string>
-    <string name="editor_btn_bars">状态条</string>
     <string name="editor_btn_pause">暂停</string>
     <string name="editor_btn_readouts">数值显示</string>
-    <string name="editor_size">大小</string>
     <string name="editor_reset">重置</string>
     <string name="editor_hint">拖动可移动，选中后用滑块调整大小</string>
-    <string name="editor_selected">已选中</string>
     <string name="settings_camera_view">镜头视角</string>
     <string name="camera_first_person">第一人称</string>
     <string name="camera_third_person">第三人称</string>
     <string name="settings_hud_editor">打开 HUD 布局</string>
     <string name="daily_resets_in">%1$s 后重置</string>
-    <string name="daily_free_trial">免费1小时</string>
     <string name="game_survival_label">生存时间</string>
     <string name="game_next_levels_soon">新层数即将到来</string>
     <string name="game_return_lobby">返回大厅</string>
@@ -270,7 +167,6 @@
     <string name="trail_dust">尘土足迹</string>
     <string name="trail_static">噪点足迹</string>
     <string name="trail_salt">盐痕足迹</string>
-    <string name="profile_trail">足迹</string>
     <string name="trail_preview_title">足迹查看</string>
     <string name="trail_preview_hint">观察行走 · 点击切换</string>
     <string name="guard_threat_reason">原因</string>

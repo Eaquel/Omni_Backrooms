@@ -56,11 +56,6 @@ import androidx.core.app.ServiceCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.crashlytics.FirebaseCrashlytics
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.messaging.FirebaseMessagingService
-import com.google.firebase.messaging.RemoteMessage
-import com.google.firebase.firestore.SetOptions
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -69,7 +64,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import retrofit2.http.*
 import javax.inject.Inject
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -154,16 +148,7 @@ class NativeBridge @Inject constructor() {
     external fun damageEntity(id: Int, amount: Float)
     external fun getTotalFlickerInfluence(): Float
     external fun destroyEntities()
-    external fun initSocket(port: Int): Boolean
-    external fun buildPosPacket(x: Float, y: Float, z: Float, yaw: Float, pitch: Float): ByteArray?
-    external fun buildPingPacket(): ByteArray?
-    external fun buildVoicePacket(pcmData: ByteArray, pcmLen: Int): ByteArray?
-    external fun drainRecvQueue(): Array<ByteArray>?
-    external fun getLocalPing(): Int
-    external fun getPeerCount(): Int
-    external fun setLocalId(id: Int)
     external fun nowMs(): Long
-    external fun destroySocket()
     external fun initGuard(ctx: Any, expectedSigHash: String): Boolean
     external fun getGuardFlags(): Int
     external fun runGuardScan(): Int
@@ -174,100 +159,6 @@ class NativeBridge @Inject constructor() {
     external fun isSignatureValid(): Boolean
     external fun getThreatReport(): String
     external fun destroyGuard()
-}
-
-interface ApiService {
-    @GET("rooms")
-    suspend fun getRooms(
-        @Query("q") query: String?,
-        @Query("locked") locked: Boolean?,
-        @Query("lang") language: String?,
-        @Query("page") page: Int,
-        @Query("pageSize") pageSize: Int
-    ): RoomPage
-
-    @POST("rooms")
-    suspend fun createRoom(@Body body: CreateRoomRequest): CreateRoomResponse
-
-    @POST("rooms/{id}/join")
-    suspend fun joinRoom(@Path("id") roomId: String, @Query("password") password: String?): JoinRoomResponse
-
-    @DELETE("rooms/{id}")
-    suspend fun deleteRoom(@Path("id") roomId: String): BaseResponse
-
-    @GET("rooms/{id}")
-    suspend fun getRoomDetail(@Path("id") roomId: String): RoomDetail
-
-    @POST("rooms/{id}/kick/{peerId}")
-    suspend fun kickPlayer(@Path("id") roomId: String, @Path("peerId") peerId: Int): BaseResponse
-
-    @GET("player/profile")
-    suspend fun getProfile(): PlayerProfile
-
-    @PUT("player/profile")
-    suspend fun updateProfile(@Body profile: PlayerProfile): PlayerProfile
-
-    @PUT("player/avatar")
-    suspend fun updateAvatar(@Body body: AvatarRequest): PlayerProfile
-
-    @POST("player/currency/purchase")
-    suspend fun purchaseCurrency(@Body body: PurchaseRequest): PurchaseResponse
-
-    @GET("leaderboard")
-    suspend fun getLeaderboard(
-        @Query("page") page: Int = 0,
-        @Query("pageSize") size: Int = 50,
-        @Query("difficulty") difficulty: String? = null,
-        @Query("region") region: String? = null
-    ): LeaderboardPage
-
-    @POST("player/score")
-    suspend fun submitScore(@Body body: ScoreSubmitRequest): BaseResponse
-
-    @POST("auth/google")
-    suspend fun loginWithGoogle(@Body body: GoogleAuthRequest): AuthResponse
-
-    @POST("auth/refresh")
-    suspend fun refreshToken(@Body body: RefreshRequest): AuthResponse
-
-    @POST("auth/logout")
-    suspend fun logout(): BaseResponse
-
-    @GET("market/items")
-    suspend fun getMarketItems(@Query("category") category: String?, @Query("page") page: Int = 0): MarketPage
-
-    @POST("market/buy")
-    suspend fun buyItem(@Body body: BuyRequest): BuyResponse
-
-    @GET("market/daily")
-    suspend fun getDailyDeals(): List<MarketItemDto>
-
-    @GET("characters")
-    suspend fun getCharacters(): List<CharacterDto>
-
-    @POST("characters/{id}/equip")
-    suspend fun equipCharacter(@Path("id") charId: String): BaseResponse
-
-    @POST("characters/{id}/unlock")
-    suspend fun unlockCharacter(@Path("id") charId: String): BaseResponse
-
-    @GET("story/chapters")
-    suspend fun getStoryChapters(): List<StoryChapterDto>
-
-    @PUT("player/settings")
-    suspend fun syncSettings(@Body body: GameSettings): BaseResponse
-
-    @GET("player/settings")
-    suspend fun fetchSettings(): GameSettings
-
-    @GET("events/active")
-    suspend fun getActiveEvents(): List<EventDto>
-
-    @POST("events/{id}/join")
-    suspend fun joinEvent(@Path("id") eventId: String): BaseResponse
-
-    @POST("report/player")
-    suspend fun reportPlayer(@Body body: ReportRequest): BaseResponse
 }
 
 data class PlayerProfile(
@@ -291,21 +182,6 @@ data class PlayerProfile(
     val createdAtMs   : Long    = System.currentTimeMillis()
 )
 
-data class RoomInfo(
-    val id            : String,
-    val name          : String,
-    val hostId        : String,
-    val currentPlayers: Int,
-    val maxPlayers    : Int,
-    val difficulty    : String,
-    val isLocked      : Boolean,
-    val language      : String,
-    val mapId         : String = "level_0",
-    val ping          : Int    = 0
-)
-
-data class RoomPage(val rooms: List<RoomInfo>, val total: Int)
-
 data class GameSettings(
     val playerName        : String  = "Wanderer",
     val graphicsQuality   : String  = "medium",
@@ -327,7 +203,6 @@ data class GameSettings(
     val fogEnabled        : Boolean = true,
     val vibrationOn       : Boolean = true,
     val showFps           : Boolean = false,
-    val showPing          : Boolean = true,
     val colorBlindMode    : String  = "none",
     /** "first" or "third" — camera perspective. */
     val cameraView        : String  = "first",
@@ -344,7 +219,6 @@ data class GameState(
     val level             : Int     = 0,
     val seed              : Long    = 0L,
     val difficulty        : String  = "normal",
-    val isOnline          : Boolean = false,
     val playerHp          : Float   = 100f,
     val playerMaxHp       : Float   = 100f,
     val sanity            : Float   = 100f,
@@ -370,7 +244,6 @@ data class GameState(
     val spawnPhase        : SpawnPhase = SpawnPhase.READY,
     /** Live telemetry, measured rather than faked. */
     val fps               : Int     = 0,
-    val pingMs            : Int     = 0,
     /** Vertical camera offset in metres, used by the arrival sequence to drop
      *  the view to the floor on impact and raise it back to standing. */
     val eyeOffset         : Float   = 0f,
@@ -398,27 +271,6 @@ data class LeaderboardEntry(
     val survived   : Int,
     val difficulty : String,
     val region     : String = "TR"
-)
-
-data class ChatMessage(
-    val senderId   : Int,
-    val senderName : String,
-    val text       : String,
-    val timestampMs: Long = System.currentTimeMillis()
-)
-
-data class NetworkPlayerState(
-    val peerId      : Int,
-    val posX        : Float,
-    val posY        : Float,
-    val posZ        : Float,
-    val yaw         : Float,
-    val pitch       : Float,
-    val animState   : Int     = 0,
-    val hp          : Float   = 100f,
-    val ping        : Int     = 0,
-    val isConnected : Boolean = true,
-    val charId      : String  = "wanderer"
 )
 
 data class CameraSnapshot(
@@ -487,39 +339,7 @@ data class EntityState(
     }
 }
 
-data class SessionStats(
-    val sessionId    : String,
-    val startMs      : Long,
-    val endMs        : Long    = 0L,
-    val difficulty   : String,
-    val mapId        : String,
-    val finalScore   : Long    = 0L,
-    val survived     : Boolean = false,
-    val kills        : Int     = 0,
-    val levelsReached: Int     = 0,
-    val peakSanity   : Float   = 100f,
-    val lowestHp     : Float   = 100f,
-    val totalDistance: Float   = 0f
-)
-
-data class CreateRoomRequest(val name: String, val maxPlayers: Int, val difficulty: String, val password: String?, val language: String = "TR", val mapId: String = "level_0")
-data class CreateRoomResponse(val roomId: String, val joinCode: String, val success: Boolean)
-data class JoinRoomResponse(val success: Boolean, val roomId: String?, val error: String?)
-data class RoomDetail(val id: String, val name: String, val hostId: String, val currentPlayers: Int, val maxPlayers: Int, val difficulty: String, val isLocked: Boolean, val language: String, val mapId: String, val players: List<RoomPlayer>)
-data class RoomPlayer(val id: Int, val name: String, val avatarUrl: String?, val isHost: Boolean, val isReady: Boolean, val ping: Int)
-data class BaseResponse(val success: Boolean, val message: String?)
-data class AvatarRequest(val avatarId: String)
-data class PurchaseRequest(val itemType: String, val amount: Int)
-data class PurchaseResponse(val success: Boolean, val newBalance: Long, val currency: String)
-data class LeaderboardPage(val entries: List<LeaderboardEntry>, val total: Int, val myRank: Int?)
-data class ScoreSubmitRequest(val level: Int, val score: Long, val survived: Int, val difficulty: String, val sessionMs: Long, val kills: Int = 0)
-data class GoogleAuthRequest(val idToken: String)
-data class RefreshRequest(val refreshToken: String)
-data class AuthResponse(val accessToken: String, val refreshToken: String, val expiresIn: Long, val playerId: Int)
-data class MarketPage(val items: List<MarketItemDto>, val total: Int)
 data class MarketItemDto(val id: String, val nameTr: String, val nameEn: String, val descTr: String, val descEn: String, val category: String, val price: Long, val currency: String, val imageUrl: String?, val isOwned: Boolean, val isEquipped: Boolean, val isLimited: Boolean, val expiresMs: Long?)
-data class BuyRequest(val itemId: String, val currency: String)
-data class BuyResponse(val success: Boolean, val newBalance: Long, val error: String?)
 data class CharacterDto(val id: String, val nameTr: String, val nameEn: String, val clazz: String, val maxHp: Float, val baseSpeed: Float, val stealthMult: Float, val staminaMult: Float, val abilities: List<String>, val isUnlocked: Boolean, val isEquipped: Boolean, val imageUrl: String?, val price: Long, val currency: String)
 data class StoryChapterDto(val id: Int, val titleTr: String, val titleEn: String, val contentTr: String, val contentEn: String, val isUnlocked: Boolean)
 
@@ -535,16 +355,6 @@ val StoryChapterDto.displayTitle: String
     get() = if (java.util.Locale.getDefault().language == "en") titleEn else titleTr
 val StoryChapterDto.displayContent: String
     get() = if (java.util.Locale.getDefault().language == "en") contentEn else contentTr
-data class EventDto(val id: String, val titleTr: String, val titleEn: String, val descriptionTr: String, val descriptionEn: String, val rewardType: String, val rewardAmount: Long, val endMs: Long, val isActive: Boolean)
-data class ReportRequest(val reportedId: Int, val reason: String, val details: String)
-
-class RoomRepository @Inject constructor(private val api: ApiService) {
-    suspend fun fetchRooms(query: String?, locked: Boolean?, lang: String?, page: Int, pageSize: Int): RoomPage =
-        api.getRooms(query, locked, lang, page, pageSize)
-
-    suspend fun createRoom(name: String, maxPlayers: Int, difficulty: String, password: String?): String =
-        api.createRoom(CreateRoomRequest(name, maxPlayers, difficulty, password)).roomId
-}
 
 // ============================================================================
 // Shared simulation helpers. GameVM (the active, Compose-lifecycle-bound
@@ -734,7 +544,6 @@ class SessionService : Service() {
 
     @Inject lateinit var bridge      : NativeBridge
     @Inject lateinit var assetManager: AssetManager
-    @Inject lateinit var api         : ApiService
 
     private val binder = LocalBinder()
     private val scope  = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -742,15 +551,8 @@ class SessionService : Service() {
     private val _gameState      = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
-    private val _chatMessages   = MutableStateFlow<List<ChatMessage>>(emptyList())
-    val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
-
-    private val _networkPlayers = MutableStateFlow<List<NetworkPlayerState>>(emptyList())
-    val networkPlayers: StateFlow<List<NetworkPlayerState>> = _networkPlayers.asStateFlow()
-
     private var physicsJob: Job? = null
     private var entityJob : Job? = null
-    private var networkJob: Job? = null
     private var scoreJob  : Job? = null
 
     private var lastTickMs = 0L
@@ -765,14 +567,12 @@ class SessionService : Service() {
         private const val CHANNEL_ID    = "omni_session"
         private const val NOTIF_ID      = 2001
         const val ACTION_START_OFFLINE  = "start_offline"
-        const val ACTION_START_ONLINE   = "start_online"
         const val ACTION_STOP           = "stop_game"
         const val ACTION_PAUSE          = "pause_game"
         const val ACTION_RESUME         = "resume_game"
         const val ACTION_FLASHLIGHT     = "flashlight"
         const val ACTION_DAMAGE_ENTITY  = "damage_entity"
         const val EXTRA_DIFFICULTY      = "difficulty"
-        const val EXTRA_ROOM_ID         = "room_id"
         const val EXTRA_SEED            = "seed"
         const val EXTRA_MAP_ID          = "map_id"
         const val EXTRA_ENTITY_ID       = "entity_id"
@@ -804,11 +604,6 @@ class SessionService : Service() {
                 val seed  = intent.getLongExtra(EXTRA_SEED, System.currentTimeMillis())
                 val mapId = intent.getStringExtra(EXTRA_MAP_ID) ?: "level_0"
                 startOffline(diff, seed, mapId)
-            }
-            ACTION_START_ONLINE -> {
-                val roomId = intent.getStringExtra(EXTRA_ROOM_ID) ?: return START_NOT_STICKY
-                val diff   = intent.getStringExtra(EXTRA_DIFFICULTY) ?: "normal"
-                startOnline(roomId, diff)
             }
             ACTION_STOP       -> stopSession()
             ACTION_PAUSE      -> _gameState.update { it.copy(isPaused = true) }
@@ -847,37 +642,11 @@ class SessionService : Service() {
             val cfg = assetManager.getSpawnConfig(difficulty)
             spawnInitialEntities(bridge, world, cfg)
             _gameState.value = GameState(
-                seed = seed, difficulty = difficulty, isOnline = false, mapId = "level_0",
+                seed = seed, difficulty = difficulty, mapId = "level_0",
                 world = world, exitX = world.exitX, exitZ = world.exitZ
             )
             startPhysicsLoop()
             startEntitySpawner(difficulty, cfg)
-            startScoreAccumulator()
-        }
-    }
-
-    private fun startOnline(roomId: String, difficulty: String) {
-        scope.launch {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-            val seed = System.currentTimeMillis()
-            bridge.initCore(seed)
-            bridge.initSound()
-            bridge.initEntities()
-            bridge.initSocket(0)
-            bridge.setLocalId((Math.random() * Int.MAX_VALUE).toInt())
-
-            val roomBudget = if (difficulty == "hard") 180 else 130
-            world = WorldInfo.parse(bridge.generateLevel(roomBudget, depth = 0))
-
-            val cfg = assetManager.getSpawnConfig(difficulty)
-            spawnInitialEntities(bridge, world, cfg)
-            _gameState.value = GameState(
-                seed = seed, difficulty = difficulty, isOnline = true,
-                world = world, exitX = world.exitX, exitZ = world.exitZ
-            )
-            startPhysicsLoop()
-            startEntitySpawner(difficulty, cfg)
-            startNetworkSync()
             startScoreAccumulator()
         }
     }
@@ -915,31 +684,6 @@ class SessionService : Service() {
         }
     }
 
-    private fun startNetworkSync() {
-        networkJob = scope.launch {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-            while (isActive) {
-                val cam = CameraSnapshot.fromFloatArray(bridge.getCameraState())
-                if (cam != null) bridge.buildPosPacket(cam.posX, cam.posY, cam.posZ, cam.yaw, cam.pitch)
-                bridge.drainRecvQueue()?.forEach { processIncomingPacket(it) }
-                bridge.buildPingPacket()
-                delay(50)
-            }
-        }
-    }
-
-    private fun startScoreAccumulator() {
-        scoreJob = scope.launch {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-            while (isActive) {
-                if (!_gameState.value.isPaused)
-                    score += when (_gameState.value.difficulty) { "hard" -> 5L; "normal" -> 3L; else -> 1L }
-                delay(1_000)
-            }
-        }
-    }
-
-    private fun processIncomingPacket(raw: ByteArray) { if (raw.size < 8) return }
 
     fun applyDamage(amount: Float) {
         val s  = _gameState.value
@@ -957,26 +701,9 @@ class SessionService : Service() {
         _gameState.update { it.copy(stamina = (_gameState.value.stamina - amount).coerceAtLeast(0f)) }
     }
 
-    fun submitScoreToServer() {
-        scope.launch {
-            val s = _gameState.value
-            runCatching { api.submitScore(ScoreSubmitRequest(s.level, score, if (s.isEscaped) 1 else 0, s.difficulty, elapsedMs, kills)) }
-            runCatching {
-                FirebaseFirestore.getInstance().collection("leaderboard").add(
-                    mapOf("difficulty" to s.difficulty, "score" to score, "kills" to kills, "sessionMs" to elapsedMs, "ts" to System.currentTimeMillis())
-                )
-            }
-            runCatching {
-                FirebaseCrashlytics.getInstance().setCustomKey("last_score", score)
-                FirebaseCrashlytics.getInstance().setCustomKey("difficulty", s.difficulty)
-            }
-        }
-    }
-
     private fun onGameOver() {
         bridge.triggerMonster(1.0f)
-        submitScoreToServer()
-        physicsJob?.cancel(); entityJob?.cancel(); networkJob?.cancel(); scoreJob?.cancel()
+        physicsJob?.cancel(); entityJob?.cancel(); scoreJob?.cancel()
     }
 
     private fun stopSession() {
@@ -984,7 +711,6 @@ class SessionService : Service() {
         scope.launch {
             bridge.destroyEntities()
             bridge.destroySound()
-            bridge.destroySocket()
             bridge.destroyCore()
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -1006,511 +732,6 @@ class SessionService : Service() {
             .setSilent(true)
             .build()
 }
-
-data class RoomListUiState(
-    val rooms       : List<RoomInfo> = emptyList(),
-    val query       : String         = "",
-    val filterLocked: Boolean?       = null,
-    val lang        : String?        = null,
-    val page        : Int            = 0,
-    val totalPages  : Int            = 1,
-    val isLoading   : Boolean        = false,
-    val error       : String?        = null
-)
-
-data class CreateRoomUiState(
-    val name            : String  = "",
-    val nameError       : Int?    = null,
-    val size            : Int     = 2,
-    val difficulty      : String  = "normal",
-    val passwordEnabled : Boolean = false,
-    val password        : String  = "",
-    val passwordError   : Int?    = null,
-    val errorRes        : Int?    = null,
-    val mapId           : String  = "level_0",
-    val language        : String  = java.util.Locale.getDefault().language.uppercase(),
-    val isCreating      : Boolean = false,
-    val createdRoomId   : String? = null,
-    val error           : String? = null
-)
-
-data class RoomLobbyUiState(
-    val detail   : RoomDetail?   = null,
-    val isReady  : Boolean       = false,
-    val allReady : Boolean       = false,
-    val countdown: Int?          = null,
-    val isLoading: Boolean       = false,
-    val peerPings: Map<Int, Int> = emptyMap()
-)
-
-@kotlinx.coroutines.FlowPreview
-@HiltViewModel
-class RoomListVM @Inject constructor(private val repo: RoomRepository) : ViewModel() {
-    private val _state = MutableStateFlow(RoomListUiState())
-    val state: StateFlow<RoomListUiState> = _state.asStateFlow()
-
-    init {
-        load()
-        viewModelScope.launch {
-            _state.map { Triple(it.query, it.filterLocked, it.lang) }
-                .debounce(300)
-                .distinctUntilChanged()
-                .collect { load() }
-        }
-    }
-
-    fun onQuery(q: String)    { _state.update { it.copy(query = q, page = 0) } }
-    fun onLocked(l: Boolean?) { _state.update { it.copy(filterLocked = l, page = 0) } }
-    fun onLang(l: String?)    { _state.update { it.copy(lang = l, page = 0) } }
-    fun prev() { if (_state.value.page > 0) { _state.update { it.copy(page = it.page - 1) }; load() } }
-    fun next() { val s = _state.value; if (s.page < s.totalPages - 1) { _state.update { it.copy(page = it.page + 1) }; load() } }
-
-    private fun load() {
-        viewModelScope.launch {
-            val s = _state.value
-            _state.update { it.copy(isLoading = true) }
-            runCatching { repo.fetchRooms(s.query, s.filterLocked, s.lang, s.page, 20) }
-                .onSuccess { r -> _state.update { it.copy(isLoading = false, rooms = r.rooms, totalPages = maxOf(1, (r.total + 19) / 20)) } }
-                .onFailure { _state.update { it.copy(isLoading = false) } }
-        }
-    }
-}
-
-@HiltViewModel
-class CreateRoomVM @Inject constructor(private val repo: RoomRepository) : ViewModel() {
-    private val _state = MutableStateFlow(CreateRoomUiState())
-    val state: StateFlow<CreateRoomUiState> = _state.asStateFlow()
-
-    fun onName(n: String)            { _state.update { it.copy(name = n, nameError = validate(n)) } }
-    fun onSize(v: Int)               { _state.update { it.copy(size = v.coerceIn(2, 4)) } }
-    fun onDifficulty(d: String)      { _state.update { it.copy(difficulty = d) } }
-    fun onPasswordToggle(e: Boolean) { _state.update { it.copy(passwordEnabled = e, password = if (!e) "" else it.password, passwordError = null) } }
-    fun onPassword(p: String)        { _state.update { it.copy(password = p, passwordError = null) } }
-    fun onLanguage(l: String)        { _state.update { it.copy(language = l) } }
-
-    fun onCreate() {
-        val s   = _state.value
-        val err = validate(s.name)
-        if (err != null) { _state.update { it.copy(nameError = err) }; return }
-        // Previously this returned silently, so tapping Create with the lock on
-        // and no password simply did nothing with no explanation.
-        if (s.passwordEnabled && s.password.isBlank()) {
-            _state.update { it.copy(passwordError = R.string.room_password_required) }
-            return
-        }
-        _state.update { it.copy(passwordError = null) }
-        viewModelScope.launch {
-            _state.update { it.copy(isCreating = true) }
-            runCatching { repo.createRoom(s.name, s.size, s.difficulty, if (s.passwordEnabled) s.password else null) }
-                .onSuccess { id -> _state.update { it.copy(isCreating = false, createdRoomId = id) } }
-                .onFailure { e ->
-                    // The multiplayer backend isn't deployed yet, so this always
-                    // fails with a raw network error. Surface something a player
-                    // can act on instead of "Unable to resolve host".
-                    OmniLog.w("Room", "createRoom failed", e)
-                    _state.update { it.copy(isCreating = false, errorRes = R.string.room_server_unavailable, error = null) }
-                }
-        }
-    }
-
-    private fun validate(n: String): Int? {
-        if (n.length < 4 || n.length > 12) return R.string.room_name_error_length
-        if (!Regex("^[a-zA-Z0-9 _-]+$").matches(n)) return R.string.room_name_error_chars
-        return null
-    }
-}
-
-@HiltViewModel
-class RoomLobbyVM @Inject constructor(private val api: ApiService, private val bridge: NativeBridge) : ViewModel() {
-    private val _state = MutableStateFlow(RoomLobbyUiState())
-    val state: StateFlow<RoomLobbyUiState> = _state.asStateFlow()
-
-    fun load(roomId: String) {
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
-            runCatching { api.getRoomDetail(roomId) }
-                .onSuccess { d -> _state.update { it.copy(isLoading = false, detail = d) } }
-                .onFailure { _state.update { it.copy(isLoading = false) } }
-        }
-        startPingLoop()
-    }
-
-    fun toggleReady() { _state.update { it.copy(isReady = !it.isReady) }; checkAllReady() }
-
-    private fun checkAllReady() {
-        val d = _state.value.detail ?: return
-        if (_state.value.isReady && d.players.filter { !it.isHost }.all { it.isReady }) startCountdown()
-    }
-
-    private fun startCountdown() {
-        viewModelScope.launch {
-            for (i in 5 downTo 0) {
-                _state.update { it.copy(countdown = i) }
-                delay(1_000)
-            }
-        }
-    }
-
-    private fun startPingLoop() {
-        viewModelScope.launch {
-            while (isActive) {
-                _state.update { it.copy(peerPings = it.peerPings + (0 to bridge.getLocalPing())) }
-                delay(2_000)
-            }
-        }
-    }
-}
-
-@kotlinx.coroutines.FlowPreview
-@androidx.compose.runtime.Composable
-fun Room(onJoined: () -> Unit, onBack: () -> Unit, onCreate: () -> Unit, vm: RoomListVM = hiltViewModel()) {
-    val s by vm.state.collectAsState()
-    Box(Modifier.fillMaxSize().background(DarkBg)) {
-        CrtOverlay()
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().background(Color.Black.copy(0.65f)).padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Yellow) }
-                Text(stringResource(R.string.room_list_title), color = Yellow, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-                Spacer(Modifier.weight(1f))
-                androidx.compose.animation.AnimatedVisibility(visible = s.isLoading, enter = fadeIn(), exit = fadeOut()) {
-                    CircularProgressIndicator(Modifier.size(18.dp), color = Yellow, strokeWidth = 2.dp)
-                }
-                IconButton(onClick = onCreate) { Icon(Icons.Default.Add, null, tint = SuccessGreen) }
-            }
-            DividerLine()
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment     = Alignment.CenterVertically
-            ) {
-                SearchField(s.query, vm::onQuery, Modifier.weight(1f))
-                RoomFilterChip(stringResource(R.string.room_filter_unlocked), s.filterLocked == false) { vm.onLocked(if (s.filterLocked == false) null else false) }
-                RoomFilterChip(stringResource(R.string.room_filter_locked),   s.filterLocked == true)  { vm.onLocked(if (s.filterLocked == true) null else true) }
-            }
-            DividerLine()
-            if (s.rooms.isEmpty() && !s.isLoading) {
-                Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) {
-                    Text(stringResource(R.string.room_list_empty), color = TextDim, fontSize = 13.sp, letterSpacing = 2.sp)
-                }
-            } else {
-                LazyColumn(
-                    Modifier.weight(1f),
-                    contentPadding      = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(s.rooms, key = { it.id }) { room ->
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible      = true,
-                            enter        = slideInVertically(tween(200)) { it / 2 } + fadeIn(tween(200)),
-                            modifier     = Modifier.animateItem()
-                        ) {
-                            RoomRow(room) { onJoined() }
-                        }
-                    }
-                }
-            }
-            DividerLine()
-            PagerBar(s.page, s.totalPages, vm::prev, vm::next)
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-fun CreateRoom(onCreated: () -> Unit, onBack: () -> Unit, vm: CreateRoomVM = hiltViewModel()) {
-    val s by vm.state.collectAsState()
-    LaunchedEffect(s.createdRoomId) { if (s.createdRoomId != null) onCreated() }
-    Box(Modifier.fillMaxSize().background(DarkBg)) {
-        CrtOverlay()
-        Column(Modifier.fillMaxSize()) {
-            TopBarBack(stringResource(R.string.room_create_title), onBack)
-            DividerLine()
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                SectionLabel(stringResource(R.string.room_create_name_label))
-                OmniTextField(s.name, vm::onName, stringResource(R.string.room_create_name_hint), error = s.nameError?.let { stringResource(it) })
-
-                SectionLabel(stringResource(R.string.room_create_size_label))
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("${s.size} ${stringResource(R.string.room_players_label)}", color = Yellow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Slider(
-                        s.size.toFloat(), { vm.onSize(it.toInt()) },
-                        valueRange = 2f..4f,
-                        steps      = 1,
-                        colors     = SliderDefaults.colors(thumbColor = Yellow, activeTrackColor = Yellow, inactiveTrackColor = MetalBg),
-                        modifier   = Modifier.width(180.dp)
-                    )
-                }
-
-                DifficultySelector(s.difficulty, vm::onDifficulty)
-
-                // Every supported language, derived from AppLanguage so this can
-                // never drift out of step with the rest of the app again. Laid
-                // out five to a row: ten equal-weight chips on one row leaves
-                // each about 26dp on a narrow phone, which is below the touch
-                // target minimum. Chunking keeps the width the row was designed
-                // for and grows downwards as languages are added.
-                AppLanguage.entries.chunked(5).forEach { row ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        row.forEach { lang ->
-                            val code = lang.tag.uppercase()
-                            val sel = s.language.equals(code, ignoreCase = true)
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.weight(1f).height(34.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (sel) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
-                                    .border(1.dp, if (sel) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(4.dp))
-                                    .clickable { vm.onLanguage(code) }
-                            ) {
-                                Text(
-                                    code,
-                                    color = if (sel) Yellow else TextDim,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                        // Keeps the last row's chips the same width as the first
-                        // when the language count is not a multiple of five.
-                        repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Checkbox(
-                        s.passwordEnabled,
-                        vm::onPasswordToggle,
-                        colors = CheckboxDefaults.colors(checkedColor = Yellow, uncheckedColor = TextDim, checkmarkColor = Color.Black)
-                    )
-                    Icon(
-                        if (s.passwordEnabled) Icons.Default.Lock else Icons.Default.LockOpen,
-                        null,
-                        tint     = if (s.passwordEnabled) Yellow else TextDim,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(stringResource(R.string.room_create_password_label), color = if (s.passwordEnabled) Yellow else TextDim, fontSize = 12.sp)
-                }
-
-                androidx.compose.animation.AnimatedVisibility(visible = s.passwordEnabled, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                    OmniTextField(
-                        s.password, vm::onPassword,
-                        stringResource(R.string.room_create_password_hint),
-                        error = s.passwordError?.let { stringResource(it) },
-                        isPassword = true
-                    )
-                }
-
-                s.errorRes?.let {
-                    Text(
-                        stringResource(it), color = DangerRed, fontSize = 11.sp,
-                        lineHeight = 15.sp, textAlign = TextAlign.Center
-                    )
-                }
-                s.error?.let { Text(it, color = DangerRed, fontSize = 11.sp) }
-
-                AtmosphericButton(
-                    label   = if (s.isCreating) "…" else stringResource(R.string.room_create_confirm),
-                    icon    = Icons.Default.Add,
-                    accent  = Yellow,
-                    width   = 400.dp,
-                    height  = 50.dp,
-                    enabled = !s.isCreating && s.nameError == null && s.name.isNotBlank(),
-                    onClick = vm::onCreate
-                )
-            }
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun RoomRow(room: RoomInfo, onClick: () -> Unit) {
-    val interSrc  = remember { MutableInteractionSource() }
-    val isPressed by interSrc.collectIsPressedAsState()
-    val scale     by animateFloatAsState(if (isPressed) 0.98f else 1f, spring(), label = "room_row")
-    Row(
-        Modifier.fillMaxWidth().scale(scale).height(50.dp)
-            .clip(RoundedCornerShape(3.dp))
-            .background(MetalBg.copy(0.7f))
-            .border(1.dp, BorderCol, RoundedCornerShape(3.dp))
-            .clickable(interactionSource = interSrc, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            if (room.isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-            null,
-            tint     = if (room.isLocked) DangerRed.copy(0.7f) else SuccessGreen.copy(0.7f),
-            modifier = Modifier.size(14.dp)
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(room.name, color = Yellow, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(room.language, color = TextDim, fontSize = 10.sp, letterSpacing = 1.sp)
-        Spacer(Modifier.width(10.dp))
-        Text("${room.currentPlayers}/${room.maxPlayers}", color = TextSec, fontSize = 11.sp)
-        Spacer(Modifier.width(10.dp))
-        Text(
-            room.difficulty.titleCase(),
-            fontSize     = 10.sp,
-            fontWeight   = FontWeight.Bold,
-            letterSpacing = 1.sp,
-            color        = when (room.difficulty) { "easy" -> SuccessGreen; "hard" -> DangerRed; else -> Yellow }
-        )
-        if (room.ping > 0) {
-            Spacer(Modifier.width(8.dp))
-            Text("${room.ping}ms", color = when { room.ping < 60 -> SuccessGreen; room.ping < 120 -> CrtAmber; else -> DangerRed }, fontSize = 9.sp)
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun SearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier) {
-    Row(
-        modifier.clip(RoundedCornerShape(2.dp))
-            .background(MetalBg)
-            .border(1.dp, BorderCol, RoundedCornerShape(2.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(Icons.Default.Search, null, tint = TextDim, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(6.dp))
-        BasicTextField(
-            query, onQuery,
-            singleLine  = true,
-            textStyle   = TextStyle(color = Yellow, fontSize = 12.sp),
-            cursorBrush = SolidColor(Yellow),
-            decorationBox = { inner ->
-                if (query.isEmpty()) Text(stringResource(R.string.room_search_hint), color = TextDim, fontSize = 12.sp)
-                inner()
-            }
-        )
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun RoomFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val scale by animateFloatAsState(if (selected) 1.04f else 1f, spring(), label = "chip")
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.scale(scale)
-            .clip(RoundedCornerShape(2.dp))
-            .background(if (selected) Yellow.copy(0.15f) else MetalBg.copy(0.5f))
-            .border(1.dp, if (selected) Yellow.copy(0.6f) else BorderCol, RoundedCornerShape(2.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Text(label, color = if (selected) Yellow else TextDim, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, letterSpacing = 1.sp)
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun DifficultySelector(selected: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(
-            Triple(R.string.difficulty_easy,   "easy",   SuccessGreen),
-            Triple(R.string.difficulty_normal, "normal", Yellow),
-            Triple(R.string.difficulty_hard,   "hard",   DangerRed)
-        ).forEach { (res, key, col) ->
-            val sel   = selected == key
-            val scale by animateFloatAsState(if (sel) 1.04f else 1f, spring(), label = "diff_$key")
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.weight(1f).height(36.dp).scale(scale)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(if (sel) col.copy(0.15f) else MetalBg.copy(0.5f))
-                    .border(1.dp, if (sel) col.copy(0.7f) else BorderCol, RoundedCornerShape(2.dp))
-                    .clickable { onSelect(key) }
-            ) {
-                Text(stringResource(res), color = if (sel) col else TextDim, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
-            }
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun SectionLabel(text: String) {
-    Text(text, color = TextSec, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-}
-
-@androidx.compose.runtime.Composable
-private fun PagerBar(page: Int, total: Int, onPrev: () -> Unit, onNext: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Color.Black.copy(0.5f)).padding(horizontal = 16.dp, vertical = 8.dp),
-        Arrangement.Center,
-        Alignment.CenterVertically
-    ) {
-        AtmosphericButton(stringResource(R.string.room_page_prev), Icons.AutoMirrored.Filled.ArrowBack,    Yellow, 110.dp, 38.dp, onPrev, enabled = page > 0)
-        Spacer(Modifier.width(16.dp))
-        Text("${page + 1} / $total", color = TextSec, fontSize = 12.sp, letterSpacing = 1.sp)
-        Spacer(Modifier.width(16.dp))
-        AtmosphericButton(stringResource(R.string.room_page_next), Icons.AutoMirrored.Filled.ArrowForward, Yellow, 110.dp, 38.dp, onNext, enabled = page < total - 1)
-    }
-}
-
-
-// ============================================================================
-// Firebase Cloud Messaging receiver. This class is declared in the manifest;
-// without it Android throws ClassNotFoundException the moment a push arrives
-// (the app subscribes to "backrooms_global" at startup), which is exactly the
-// crash the on-device crash log captured.
-// ============================================================================
-class OmniMessagingService : FirebaseMessagingService() {
-
-    override fun onNewToken(token: String) {
-        super.onNewToken(token)
-        // Persisting the token is best-effort: a failure here must never crash
-        // the app, since this runs outside any user-visible flow.
-        runCatching {
-            FirebaseFirestore.getInstance()
-                .collection("device_tokens")
-                .document(token)
-                .set(mapOf("token" to token, "updatedAt" to System.currentTimeMillis()))
-        }
-    }
-
-    override fun onMessageReceived(message: RemoteMessage) {
-        super.onMessageReceived(message)
-        val title = message.notification?.title
-            ?: message.data["title"]
-            ?: getString(R.string.app_name)
-        val body = message.notification?.body ?: message.data["body"] ?: return
-        showNotification(title, body)
-    }
-
-    private fun showNotification(title: String, body: String) {
-        val channelId = "omni_push"
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(channelId) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(channelId, getString(R.string.app_name), NotificationManager.IMPORTANCE_DEFAULT)
-            )
-        }
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-        val pending = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setContentIntent(pending)
-            .build()
-        manager.notify(System.currentTimeMillis().toInt(), notification)
-    }
-}
-
 
 // ============================================================================
 // Guest identity + save game. Both live in DataStore so they survive restarts
@@ -1757,9 +978,6 @@ object OmniLog {
             Level.WARN  -> Log.w(TAG, "[$tag] $msg", t)
             Level.ERROR -> Log.e(TAG, "[$tag] $msg", t)
         }
-        // Crashlytics keeps the same breadcrumbs, so remote reports carry the
-        // identical context as the on-device file.
-        runCatching { FirebaseCrashlytics.getInstance().log(line) }
         runCatching { sink?.appendText(line + "\n") }
     }
 

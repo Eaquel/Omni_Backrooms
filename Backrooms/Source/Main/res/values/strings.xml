@@ -2,30 +2,18 @@
 <resources>
 
     <string name="app_name">Omni Backrooms</string>
-    <string name="app_version_prefix" translatable="false">v</string>
-    <string name="androidx_startup" translatable="false">androidx.startup</string>
     <string name="splash_presents">Eaquel Presents</string>
-    <string name="splash_title">Omni Backrooms</string>
-    <string name="splash_tagline">Level 0 — The Waiting Room</string>
 
     <string name="loading_text">Loading…</string>
-    <string name="loading_stage_shaders">Compiling shaders…</string>
-    <string name="loading_stage_assets">Loading assets…</string>
-    <string name="loading_stage_entities">Initialising entities…</string>
-    <string name="loading_stage_audio">Starting audio engine…</string>
-    <string name="loading_stage_network">Checking connection…</string>
-    <string name="loading_stage_done">Ready.</string>
 
     <string name="story_title">Story</string>
     <string name="story_chapter_locked">This chapter is still locked.</string>
 
-    <string name="menu_new_game">New Game</string>
     <string name="menu_settings">Settings</string>
     <string name="menu_story">Story</string>
     <string name="menu_market">Market</string>
     <string name="menu_leaderboard">Leaderboard</string>
     <string name="menu_play_offline">Play Offline</string>
-    <string name="menu_play_online">Play Online</string>
     <string name="menu_profile">Profile</string>
     <string name="menu_abilities">Abilities</string>
     <string name="menu_season">Season</string>
@@ -34,80 +22,36 @@
     <string name="menu_continue">Continue</string>
     <string name="menu_no_save">You have no saved game</string>
 
-    <string name="mode_select_title">Game Mode</string>
-    <string name="mode_offline">Offline</string>
-    <string name="mode_online">Online</string>
 
-    <string name="difficulty_title">Select Difficulty</string>
-    <string name="difficulty_easy">Easy</string>
-    <string name="difficulty_normal">Normal</string>
-    <string name="difficulty_hard">Hard</string>
 
-    <string name="online_select_title">Online</string>
-    <string name="online_find_room">Find Room</string>
-    <string name="online_create_room">Create Room</string>
 
-    <string name="room_list_title">Room List</string>
-    <string name="room_list_empty">No rooms found</string>
-    <string name="room_search_hint">Search room name…</string>
-    <string name="room_filter_locked">Locked</string>
-    <string name="room_filter_unlocked">Unlocked</string>
-    <string name="room_page_prev">Previous</string>
-    <string name="room_page_next">Next</string>
-    <string name="room_join">Join</string>
-    <string name="room_players_label">players</string>
-    <string name="room_ping_label">ms</string>
-    <string name="room_create_title">Create Room</string>
-    <string name="room_create_name_label">Room Name</string>
-    <string name="room_create_name_hint">Room Name (4–12 chars)</string>
-    <string name="room_create_size_label">Player Count</string>
-    <string name="room_create_password_label">Password Protected</string>
-    <string name="room_create_password_hint">Enter password…</string>
-    <string name="room_create_confirm">Create</string>
-    <string name="room_name_error_length">Room name must be 4–12 characters</string>
-    <string name="room_name_error_chars">Emojis and special characters are not allowed</string>
 
-    <string name="settings_title">Settings</string>
     <string name="settings_tab_account">Account</string>
     <string name="settings_tab_graphics">Graphics</string>
     <string name="settings_tab_audio">Audio</string>
     <string name="settings_tab_controls">Controls</string>
     <string name="settings_tab_gameplay">Gameplay</string>
-    <string name="settings_tab_notifications">Notifications</string>
     <string name="settings_tab_notif">Notif</string>
     <string name="settings_color_blind">Colour Blind Mode</string>
     <string name="settings_fps_limit">FPS Limit</string>
     <string name="settings_vibration">Vibration</string>
 
-    <string name="account_change_name">Change Name</string>
-    <string name="account_change_photo">Change Photo</string>
-    <string name="account_google_connect">Link with Google</string>
-    <string name="account_name_hint">Username…</string>
     <string name="account_player_name">Player Name</string>
-    <string name="account_connect_google">Connect with Google</string>
     <string name="account_sync">Sync</string>
     <string name="account_reset">Reset</string>
-    <string name="account_remote_config_active">Remote config active</string>
 
     <string name="graphics_quality_label">Graphics Quality</string>
     <string name="graphics_quality_low">Low</string>
     <string name="graphics_quality_medium">Medium</string>
     <string name="graphics_quality_high">High</string>
     <string name="graphics_vhs_effect">VHS Effect</string>
-    <string name="graphics_resolution_label">Resolution</string>
     <string name="graphics_resolution_scale">Resolution Scale</string>
     <string name="graphics_shadows">Shadows</string>
     <string name="graphics_antialiasing">Anti-Aliasing</string>
     <string name="graphics_fog">Fog Effect</string>
     <string name="graphics_show_fps">Show FPS</string>
-    <string name="graphics_show_ping">Show Ping</string>
 
     <string name="audio_master_volume">Master Volume</string>
-    <string name="audio_music_volume">Music</string>
-    <string name="audio_footstep_volume">Footsteps</string>
-    <string name="audio_monster_sfx_volume">Monster SFX</string>
-    <string name="audio_voice_volume">Voice</string>
-    <string name="audio_vibration">Vibration</string>
 
     <string name="controls_ui_layout">UI Layout</string>
     <string name="controls_camera_sensitivity">Camera Sensitivity</string>
@@ -119,48 +63,20 @@
     <string name="editor_btn_crouch">Crouch</string>
     <string name="editor_btn_flashlight">Flash</string>
 
-    <string name="gameplay_colorblind_label">Colour Blind Mode</string>
-    <string name="gameplay_colorblind_none">None</string>
-    <string name="gameplay_colorblind_deuteranopia">Deuteranopia</string>
-    <string name="gameplay_colorblind_protanopia">Protanopia</string>
-    <string name="gameplay_colorblind_tritanopia">Tritanopia</string>
 
-    <string name="notifications_label">Notifications</string>
     <string name="notif_push_toggle">Push Notifications</string>
     <string name="notif_info_text">Notifications are sent for new seasons and special events.</string>
 
     <string name="market_title">Market</string>
-    <string name="market_tab_boosts">Boosts</string>
-    <string name="market_tab_characters">Characters</string>
-    <string name="market_tab_soulium">Soulium</string>
     <string name="market_tab_vip">Privileges</string>
     <string name="market_tab_daily">Daily</string>
     <string name="market_buy">Buy</string>
     <string name="market_equipped">Equipped</string>
     <string name="market_limited">Limited</string>
     <string name="market_confirm_title">Purchase</string>
-    <string name="market_purchase_success">purchased!</string>
 
-    <string name="char_default_name_prefix">Player</string>
-    <string name="char_locked_label">Locked</string>
-    <string name="char_select_label">Select</string>
-    <string name="char_active_label">Active</string>
-    <string name="char_unlock_prefix">Unlock — </string>
-    <string name="characters_unlocked">Unlocked</string>
-    <string name="char_stats_hp">Health</string>
-    <string name="char_stats_speed">Speed</string>
-    <string name="char_stats_stealth">Stealth</string>
-    <string name="char_stats_stamina">Stamina</string>
 
-    <string name="leaderboard_title">Leaderboard</string>
-    <string name="leaderboard_my_rank">Your Rank: #%d</string>
-    <string name="leaderboard_filter_all">All</string>
-    <string name="leaderboard_empty">No records yet</string>
-    <string name="leaderboard_prev">Previous</string>
-    <string name="leaderboard_next">Next</string>
 
-    <string name="currency_omnium">Omnium</string>
-    <string name="currency_soulium">Soulium</string>
     <string name="player_level_prefix">Level </string>
 
     <string name="game_paused">Paused</string>
@@ -170,9 +86,7 @@
     <string name="game_escaped_title">Escaped!</string>
     <string name="game_stat_score">Score</string>
     <string name="game_stat_kills">Kills</string>
-    <string name="game_stat_time">Time</string>
     <string name="game_stat_difficulty">Difficulty</string>
-    <string name="game_hud_hp">HP</string>
     <string name="game_hud_sanity">Sanity</string>
     <string name="game_hud_stamina">Stamina</string>
     <string name="game_hud_battery">Battery</string>
@@ -185,16 +99,6 @@
 
     <string name="common_ok">OK</string>
     <string name="common_cancel">Cancel</string>
-    <string name="common_save">Save</string>
-    <string name="common_close">Close</string>
-    <string name="common_back">Back</string>
-    <string name="common_error">An error occurred. Please try again.</string>
-    <string name="common_no_connection">No internet connection</string>
-    <string name="common_loading">Loading…</string>
-    <string name="common_retry">Retry</string>
-    <string name="common_limited_badge">Limited</string>
-    <string name="common_percent" translatable="false">%d%%</string>
-    <string name="common_offline_only">Playing in offline mode</string>
 
     <string name="guard_threat_title">Security Warning</string>
     <string name="guard_threat_message">Unauthorised software detected on this device.</string>
@@ -221,8 +125,6 @@
     <string name="market_tab_looks">Looks</string>
     <string name="market_tab_trails">Trails</string>
     <string name="market_cosmetic_note">Nothing here grants a gameplay advantage — it is all cosmetic.</string>
-    <string name="market_owned">Owned</string>
-    <string name="room_password_required">Enter a password for a locked room</string>
     <string name="editor_btn_jump">Jump</string>
     <string name="notif_permission_denied">System permission not granted</string>
     <string name="notif_open_settings">Open System Settings</string>
@@ -240,27 +142,19 @@
     <string name="story_codex_exit_body">Every run places the exit at the furthest point from where you landed. A prompt appears once you are close; the interact button gets you out.</string>
     <string name="story_chapters_header">Chapters</string>
     <string name="settings_tab_language">Language</string>
-    <string name="room_server_unavailable">Cannot reach the server. Online mode is not live yet — you can play offline.</string>
-    <string name="market_tab_characters_new">Characters</string>
     <string name="char_preview_title">Character Preview</string>
     <string name="char_preview_rotate">Drag to rotate · Pinch to zoom</string>
-    <string name="char_preview_equip">Equip</string>
-    <string name="char_preview_equipped">Equipped</string>
     <string name="char_anim_idle">Idle</string>
     <string name="char_anim_walk">Walk</string>
-    <string name="editor_btn_bars">Status Bars</string>
     <string name="editor_btn_pause">Pause</string>
     <string name="editor_btn_readouts">Readouts</string>
-    <string name="editor_size">Size</string>
     <string name="editor_reset">Reset</string>
     <string name="editor_hint">Drag to move, select then use the slider to resize</string>
-    <string name="editor_selected">Selected</string>
     <string name="settings_camera_view">Camera View</string>
     <string name="camera_first_person">First Person</string>
     <string name="camera_third_person">Third Person</string>
     <string name="settings_hud_editor">Open HUD Layout</string>
     <string name="daily_resets_in">Resets in %1$s</string>
-    <string name="daily_free_trial">1 Hour Free</string>
     <string name="game_survival_label">Survival Time</string>
     <string name="game_next_levels_soon">New Levels Are Coming Very Soon</string>
     <string name="game_return_lobby">Return to Lobby</string>
@@ -273,7 +167,6 @@
     <string name="trail_dust">Dust Trail</string>
     <string name="trail_static">Static Trail</string>
     <string name="trail_salt">Salt Trail</string>
-    <string name="profile_trail">Trail</string>
     <string name="trail_preview_title">Trail Inspection</string>
     <string name="trail_preview_hint">Watch the walk · Tap to switch</string>
     <string name="guard_threat_reason">Reason</string>
