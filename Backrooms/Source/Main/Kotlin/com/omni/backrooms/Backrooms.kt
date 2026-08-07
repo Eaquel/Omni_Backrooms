@@ -2368,10 +2368,12 @@ uniform float uTime;
 /**
  * Metres-to-UV, per texture.
  *
- * The mesher emits UVs in world METRES and this converts them, because the
- * three level textures are neither the same size nor the same aspect:
- * 1536x1024, 1448x1086 and 1024x1024. Mapping all three through one scale
- * stretched two of them onto square tiles and gave each surface a different
+ * The mesher emits UVs in world METRES and this converts them. The three level
+ * textures are all 1024x1024 now, but the scale is still derived per texture
+ * from the bitmap's own size at load, because that is what stops a texture
+ * being swapped for one of a different size from silently changing the texel
+ * density. They were 1536x1024, 1448x1086 and 1024x1024, and mapping all three
+ * through one scale stretched two of them onto square tiles and gave each
  * texel density — the floor finer than the wall, the wall finer than the
  * ceiling, and both of the non-square ones squashed along one axis. That is
  * what "the textures don't match" was.

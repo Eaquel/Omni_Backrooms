@@ -1005,6 +1005,41 @@ def _rig_poses(head, radius, bones):
     return out
 
 
+def check_texture_sizes() -> None:
+    """
+    Every texture power-of-two and no larger than 1024.
+
+    Not house style: a texture whose sides are not powers of two cannot carry a
+    full mipmap chain, and without mipmaps a wall seen at a glancing angle
+    aliases into a shimmer that no amount of filtering fixes. It also blocks
+    every block-compressed GPU format. Floor.png was 1536x1024 and Wall.png
+    1448x1086, which is 5.2MB of an APK spent on two textures that could not be
+    mipmapped.
+
+    1024 is the cap because nothing in this game is ever seen closer than that
+    resolution can serve: the character is at most ~500px tall on screen, and
+    the level textures tile every 3.2 metres.
+    """
+    section("Texture sizes")
+    limit = 1024
+    for path in sorted(glob.glob(os.path.join(ASSETS, "**/*.png"), recursive=True)):
+        with open(path, "rb") as f:
+            head = f.read(26)
+        if head[:8] != b"\x89PNG\r\n\x1a\n":
+            failures.append(f"{os.path.relpath(path, REPO)} is not a PNG")
+            continue
+        w, h = struct.unpack(">II", head[16:24])
+        rel = os.path.relpath(path, ASSETS)
+        po2 = w & (w - 1) == 0 and h & (h - 1) == 0
+        size_kb = os.path.getsize(path) // 1024
+        check(po2, f"{rel} is {w}x{h}, which is not a power of two — it cannot "
+                   f"carry a mipmap chain, so it will shimmer at a distance")
+        check(w <= limit and h <= limit,
+              f"{rel} is {w}x{h}, over the {limit}x{limit} cap")
+        print(f"   {rel:30s} {w}x{h}  {size_kb:5d} KB"
+              f"{'' if po2 and w <= limit and h <= limit else '  ← see failures'}")
+
+
 def check_shield() -> None:
     """
     Everything visible from outside must tell the same story.
@@ -1319,6 +1354,7 @@ def main() -> int:
     check_title_case()
     check_locales()
     check_character()
+    check_texture_sizes()
     check_shield()
     check_story()
     check_readmes()
