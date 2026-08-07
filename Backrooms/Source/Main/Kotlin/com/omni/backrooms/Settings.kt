@@ -1,6 +1,8 @@
 package com.omni.backrooms
 
 import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -642,6 +644,7 @@ private fun GameplayTab(
 @Composable
 private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
     val ctx = LocalContext.current
+    val activity = ctx as? Activity
     // The in-app toggle used to be a purely local preference defaulting to on,
     // so declining the system prompt still showed notifications as enabled.
     // Recomputed on every resume, because the user can change it in system
@@ -656,12 +659,36 @@ private fun NotifTab(s: SettingsUiState, onPush: (Boolean) -> Unit) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
+    // Turning it back on has to be able to ASK. Android only shows the system
+    // dialog while the permission has not been permanently denied, so the two
+    // paths are: request in-app if that is still possible, otherwise send the
+    // player to the system screen, which is the only place left to change it.
+    val requestPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        osGranted = granted
+        onPush(granted)
+        OmniLog.i("Perm", "settings re-request POST_NOTIFICATIONS granted=$granted")
+    }
+
     SettingsSection(stringResource(R.string.settings_tab_notif))
     // Effective state = local preference AND the OS actually allowing it.
     SettingsToggle(
         stringResource(R.string.notif_push_toggle),
         s.pushNotifications && osGranted,
-        { wanted -> if (osGranted) onPush(wanted) else openAppNotificationSettings(ctx) }
+        { wanted ->
+            when {
+                // Off is off: the preference is what the app reads, so it takes
+                // effect whatever the OS says.
+                !wanted    -> onPush(false)
+                osGranted  -> onPush(true)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    activity?.shouldShowRequestPermissionRationale(
+                        android.Manifest.permission.POST_NOTIFICATIONS) != false ->
+                        requestPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                else       -> openAppNotificationSettings(ctx)
+            }
+        }
     )
     Spacer(Modifier.height(6.dp))
     Row(

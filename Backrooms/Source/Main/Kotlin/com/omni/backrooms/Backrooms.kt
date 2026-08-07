@@ -544,7 +544,6 @@ private fun OmniBackroomsAppContent() {
         if (BuildConfig.ENABLE_GUARD && guardReport.threatLevel >= ThreatLevel.HIGH) showGuardDialog = true
     }
     MaterialTheme(colorScheme = darkColorScheme()) {
-        NotificationPermissionGate()
         if (showGuardDialog) {
             AlertDialog(
                 onDismissRequest = { showGuardDialog = false },
@@ -595,6 +594,10 @@ private fun OmniBackroomsAppContent() {
                 enterTransition = { fadeIn(tween(600)) },
                 exitTransition  = { fadeOut(tween(400)) }
             ) {
+                // Asked here rather than at app start: the gate used to sit
+                // beside the NavHost, so the system dialog landed on top of the
+                // intro before the player had seen anything of the game.
+                NotificationPermissionGate()
                 MainMenu(
                     onPlay        = { resume -> nav.navigate("${Route.GAME}?resume=$resume") },
                     onSettings    = { nav.navigate(Route.SETTINGS) },
@@ -8151,6 +8154,9 @@ private fun OfflineChoiceDialog(
  *  dialog, and with a graceful path when the user declines. The permission was
  *  declared in the manifest but never requested, so on modern devices no
  *  notification could ever appear. */
+/** Whether the rationale has already been offered in this process. */
+private var notificationAskedThisRun = false
+
 @Composable
 fun NotificationPermissionGate() {
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
@@ -8173,8 +8179,13 @@ fun NotificationPermissionGate() {
         if (already) {
             resolved = true
             OmniLog.i("Perm", "POST_NOTIFICATIONS already granted")
-        } else {
+        } else if (!notificationAskedThisRun) {
+            // Once per process. Re-asking on every visit to the menu is how a
+            // permission prompt turns into something people dismiss on reflex.
+            notificationAskedThisRun = true
             showRationale = true
+        } else {
+            resolved = true
         }
     }
 

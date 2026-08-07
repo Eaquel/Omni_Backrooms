@@ -544,6 +544,7 @@ class SessionService : Service() {
 
     @Inject lateinit var bridge      : NativeBridge
     @Inject lateinit var assetManager: AssetManager
+    @Inject lateinit var settings    : SettingsRepository
 
     private val binder = LocalBinder()
     private val scope  = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -717,8 +718,23 @@ class SessionService : Service() {
         stopSelf()
     }
 
+    /**
+     * The session channel, at the importance the player's setting asks for.
+     *
+     * A foreground service must show a notification — Android will not let this
+     * one disappear, and killing it would kill the run with it. What the setting
+     * can honestly do is decide how loudly it appears, so "off" means MIN: no
+     * sound, no badge, collapsed into the status bar shade. That is as off as
+     * the platform permits, and it is now actually wired to the toggle, which
+     * previously changed nothing at all.
+     */
     private fun createChannel() {
-        val ch = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_session), NotificationManager.IMPORTANCE_LOW)
+        val wanted = runCatching {
+            runBlocking { settings.observe().first() }.pushNotifications
+        }.getOrDefault(true)
+        val importance = if (wanted) NotificationManager.IMPORTANCE_LOW
+                         else NotificationManager.IMPORTANCE_MIN
+        val ch = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_session), importance)
             .apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
