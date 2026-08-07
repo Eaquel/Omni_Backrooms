@@ -26,6 +26,7 @@
 #include "Frame/Frame.h"
 #include "Trail/Trail.h"
 #include "Entity/Entity.h"
+#include "Sound/Synth.h"
 
 // Cells per chunk edge. 24 keeps a chunk mesh small enough to build in a frame
 // while large enough that streaming happens rarely.
@@ -912,6 +913,12 @@ public:
         float out=hum*humGain.load()+foot*footGain.load()+monster*monsterGain.load()+amb*0.5f;
         return std::clamp(out*masterGain.load(),-1.0f,1.0f);
     }
+    /** The title sting rides on master only. It is not a monster and it is not
+     *  a footstep, so a player who has turned those two down to play at night
+     *  should still hear the tape come up. */
+    float mixSting(float game,float sting) const noexcept {
+        return std::clamp(game+sting*0.85f*masterGain.load(),-1.0f,1.0f);
+    }
 };
 
 struct SoundEngine {
@@ -921,6 +928,7 @@ struct SoundEngine {
     FootstepSynth  foot;
     MonsterSynth   monster;
     AmbienceLayer  ambience;
+    OneShot        sting;
     MixBus         bus;
     SpatialParams  spatial;
     std::vector<float>   mixBuf;
@@ -957,6 +965,7 @@ static aaudio_data_callback_result_t aaudioDataCallback(
     for(int i=0;i<numFrames;++i){
         footBuf[i]=eng->foot.next(); monBuf[i]=eng->monster.next(); ambBuf[i]=eng->ambience.next();
         float s=eng->bus.mix(humBuf[i]*eng->hum.volume(),footBuf[i],monBuf[i],ambBuf[i]);
+        s=eng->bus.mixSting(s,eng->sting.next());
         int16_t pcm=static_cast<int16_t>(std::clamp(s*32767.0f,-32767.0f,32767.0f));
         out[i*2]=pcm; out[i*2+1]=pcm;
     }
@@ -1503,6 +1512,20 @@ JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_triggerMonster(JNIEn
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopMonster(JNIEnv*, jobject) {
     std::lock_guard lk(gSound.mtx); gSound.monster.stop();
 }
+/**
+ * The title sting: Eaquel's name over a dead tape spinning up.
+ *
+ * Synthesised, like everything else here — there is no audio file in this APK.
+ * The generator is in Sound/Synth.cpp and Code_To_Sound.py renders that same
+ * translation unit, so what is checked is what plays.
+ */
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_playIntroSting(JNIEnv*, jobject, jfloat seconds) {
+    std::lock_guard lk(gSound.mtx); gSound.sting.start(seconds);
+}
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopIntroSting(JNIEnv*, jobject) {
+    std::lock_guard lk(gSound.mtx); gSound.sting.stop();
+}
+
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setListenerPos(JNIEnv*, jobject, jfloat x, jfloat y, jfloat z) {
     std::lock_guard lk(gSound.mtx); gSound.spatial.listenerPos={x,y,z};
 }

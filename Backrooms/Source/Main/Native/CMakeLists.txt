@@ -25,6 +25,7 @@ add_library(
     Frame/Frame.cpp
     Trail/Trail.cpp
     Entity/Entity.cpp
+    Sound/Synth.cpp
 )
 
 # Map/ holds level generation. Kept out of Engine.cpp because it is the part
@@ -35,6 +36,11 @@ add_library(
 # in the game and was the only part that could not be built without a device;
 # on its own it compiles against Map/ alone, so Entity_Check.py can put a
 # creature in a corridor and watch what it does.
+#
+# Sound/ holds every generator, because this game ships no audio files at all
+# and a sound you cannot hear is a sound nobody checks. Code_To_Sound.py renders
+# this exact translation unit, so the waveform that is asserted on is the one
+# that plays.
 #
 # Frame/ and Trail/ hold the cosmetics. A frame's silhouette and a trail's
 # ageing rules are content, and content that was previously a switch on a

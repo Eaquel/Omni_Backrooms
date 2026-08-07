@@ -4,7 +4,7 @@
     <string name="app_name">Omni Backrooms</string>
     <string name="app_version_prefix" translatable="false">v</string>
     <string name="androidx_startup" translatable="false">androidx.startup</string>
-    <string name="splash_presents">Presented by Eaquel</string>
+    <string name="splash_presents">Eaquel Presents</string>
     <string name="splash_title">Omni Backrooms</string>
     <string name="splash_tagline">Level 0 — The Waiting Room</string>
 

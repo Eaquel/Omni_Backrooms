@@ -2,7 +2,7 @@
 <resources>
 
     <string name="app_name">Omni Backrooms</string>
-    <string name="splash_presents">Présenté par Eaquel</string>
+    <string name="splash_presents">Eaquel Présente</string>
     <string name="splash_title">Omni Backrooms</string>
     <string name="splash_tagline">Niveau 0 — La Salle d\'Attente</string>
 

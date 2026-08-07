@@ -13,9 +13,15 @@ other half of that arrangement: the same generators the engine uses, written
 once here, rendered to WAV so they can actually be listened to, and asserted on
 so a bad edit is caught rather than shipped.
 
-Every generator here is a pure function of (time, parameters). They are ports of
-what Engine.cpp does — kept deliberately simple and side-effect free, because a
-generator that needs state is a generator that cannot be checked.
+The generators below used to be ports of what Engine.cpp does, which left the
+obvious hole: nothing asserted the port and the original agreed. They could
+drift apart indefinitely and this tool would keep reporting that a sound nobody
+had ever heard was fine.
+
+They now live in Native/Sound/Synth.cpp, a module with no Android dependency.
+The Python here is a reference implementation kept for readability and for the
+signal assertions, and every run compiles the real C++ and compares the two
+sample for sample. What is checked is what ships.
 
     python3 Tools/Code_To_Sound.py                 # check every generator
     python3 Tools/Code_To_Sound.py --render out/   # write WAVs to listen to
@@ -27,10 +33,15 @@ import argparse
 import math
 import os
 import struct
+import subprocess
 import sys
+import tempfile
 import wave
 
 RATE = 44100
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
 
 failures: list[str] = []
 
@@ -46,6 +57,7 @@ def check(ok: bool, what: str) -> None:
 # ===========================================================================
 
 def _hash01(n: int) -> float:
+    n &= 0xFFFFFFFF
     n = (n ^ 61) ^ (n >> 16)
     n = (n + (n << 3)) & 0xFFFFFFFF
     n ^= n >> 4
@@ -56,6 +68,11 @@ def _hash01(n: int) -> float:
 
 def white(i: int) -> float:
     return _hash01(i) * 2.0 - 1.0
+
+
+def _sample_index(t: float) -> int:
+    """Round, never truncate — see the note on sampleIndex() in Synth.cpp."""
+    return int(round(t * RATE))
 
 
 def _lerp(a: float, b: float, t: float) -> float:
@@ -86,7 +103,7 @@ def vhs_intro(t: float, duration: float) -> float:
     underneath it all sits mains hum at 50 Hz plus its third harmonic, which is
     the sound of equipment that is on rather than merely present.
     """
-    n = int(t * RATE)
+    n = _sample_index(t)
     env_in = min(1.0, t / 0.35)
     env_out = min(1.0, max(0.0, (duration - t) / 0.6))
     env = env_in * env_out
@@ -118,7 +135,7 @@ def fluorescent_hum(t: float, health: float) -> float:
     fail = 1.0 - max(0.0, min(1.0, health))
     hum = (math.sin(2 * math.pi * 100.0 * t) * 0.10 +
            math.sin(2 * math.pi * 300.0 * t) * 0.05 * (0.3 + fail))
-    buzz = white(int(t * RATE)) * 0.02 * fail
+    buzz = white(_sample_index(t)) * 0.02 * fail
     stutter = 1.0 if value_noise(t * 9.0) > -0.7 + fail * 0.5 else 0.25
     return (hum + buzz) * stutter
 
@@ -133,10 +150,11 @@ def footstep(t: float, pace: float, surface: float) -> float:
     """
     if t < 0.0:
         return 0.0
+    n = _sample_index(t)
     decay = math.exp(-t * (34.0 + 22.0 * surface))
     thud = math.sin(2 * math.pi * (78.0 - 18.0 * surface) * t) * decay
-    scuff = white(int(t * RATE)) * decay * (0.30 + 0.45 * surface)
-    click = math.exp(-t * 260.0) * white(int(t * RATE) + 7) * surface * 0.7
+    scuff = white(n) * decay * (0.30 + 0.45 * surface)
+    click = math.exp(-t * 260.0) * white(n + 7) * surface * 0.7
     return (thud * 0.6 + scuff * 0.35 + click) * (0.7 + 0.5 * pace)
 
 
@@ -152,7 +170,7 @@ def monster_voice(t: float, proximity: float) -> float:
     breath = 0.55 + 0.45 * math.sin(2 * math.pi * (0.7 + 0.5 * p) * t)
     body = (math.sin(2 * math.pi * f0 * t) * 0.55 +
             math.sin(2 * math.pi * f1 * t) * 0.30)
-    grit = white(int(t * RATE)) * 0.06 * p
+    grit = white(_sample_index(t)) * 0.06 * p
     return (body * breath + grit) * (0.25 + 0.75 * p)
 
 
@@ -211,6 +229,107 @@ def check_generators() -> None:
         print(f"   {name:20s} {dur:4.2f}s  peak {peak:5.3f}  rms {rms:5.3f}  dc {dc:+.4f}")
 
 
+# ===========================================================================
+# Parity with the shipped C++
+# ===========================================================================
+
+PARITY_PROBE = r"""
+// Renders the real generators to stdout so the reference above can be compared
+// against them. Printed as hex bit patterns rather than decimals: a float
+// printed to six places hides exactly the kind of small divergence — a wrapped
+// hash index, a float/double mix-up — that this is here to find.
+#include "Sound/Synth.h"
+
+#include <cstdio>
+#include <cstring>
+#include <cstdint>
+
+using namespace omni::sound;
+
+static void emit(float v) {
+    uint32_t bits; std::memcpy(&bits, &v, sizeof bits);
+    std::printf("%08x\n", bits);
+}
+
+int main() {
+    const int n = 4410;                       // a tenth of a second each
+    for (int i = 0; i < n; ++i) emit(vhsIntro(float(i) / kSynthRate, 2.6f));
+    for (int i = 0; i < n; ++i) emit(fluorescentHum(float(i) / kSynthRate, 1.0f));
+    for (int i = 0; i < n; ++i) emit(fluorescentHum(float(i) / kSynthRate, 0.15f));
+    for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 0.0f, 0.0f));
+    for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 1.0f, 0.6f));
+    for (int i = 0; i < n; ++i) emit(monsterVoice(float(i) / kSynthRate, 0.15f));
+    for (int i = 0; i < n; ++i) emit(monsterVoice(float(i) / kSynthRate, 1.0f));
+    return 0;
+}
+"""
+
+PARITY_ORDER = [
+    ("vhs_intro",          lambda t: vhs_intro(t, 2.6)),
+    ("fluorescent_ok",     lambda t: fluorescent_hum(t, 1.0)),
+    ("fluorescent_dying",  lambda t: fluorescent_hum(t, 0.15)),
+    ("footstep_carpet",    lambda t: footstep(t, 0.0, 0.0)),
+    ("footstep_run",       lambda t: footstep(t, 1.0, 0.6)),
+    ("monster_far",        lambda t: monster_voice(t, 0.15)),
+    ("monster_near",       lambda t: monster_voice(t, 1.0)),
+]
+
+
+def check_parity() -> None:
+    """
+    The Python above and the C++ that ships must agree.
+
+    Tolerance is 1e-4 absolute, not exact equality: the C++ computes in float
+    and Python in double, so the last couple of bits legitimately differ. What
+    that tolerance will not absorb is a generator that was edited on one side
+    only — a changed constant, a dropped term, a hash index that wraps
+    differently — which is the whole failure mode this exists to catch.
+    """
+    print("\n── Parity with Native/Sound/Synth.cpp")
+    src_dir = os.path.join(NATIVE, "Sound")
+    if not os.path.exists(os.path.join(src_dir, "Synth.cpp")):
+        failures.append("Native/Sound/Synth.cpp is missing; nothing to compare against")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = os.path.join(tmp, "parity.cpp")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write(PARITY_PROBE)
+        exe = os.path.join(tmp, "parity")
+        r = subprocess.run(
+            ["g++", "-std=c++20", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
+             "-I", NATIVE, probe, os.path.join(src_dir, "Synth.cpp"), "-o", exe],
+            capture_output=True, text=True)
+        if r.returncode != 0:
+            failures.append(f"Synth.cpp does not build clean:\n{r.stderr[:1500]}")
+            return
+
+        run = subprocess.run([exe], capture_output=True, text=True, timeout=120)
+        if run.returncode != 0:
+            failures.append(f"the parity probe crashed: {run.stderr[:600]}")
+            return
+
+        native = [struct.unpack("<f", bytes.fromhex(line)[::-1])[0]
+                  for line in run.stdout.split()]
+
+    n = 4410
+    check(len(native) == n * len(PARITY_ORDER),
+          f"probe emitted {len(native)} samples, expected {n * len(PARITY_ORDER)}")
+    if len(native) != n * len(PARITY_ORDER):
+        return
+
+    for idx, (name, fn) in enumerate(PARITY_ORDER):
+        worst, at = 0.0, 0
+        for i in range(n):
+            d = abs(fn(i / RATE) - native[idx * n + i])
+            if d > worst:
+                worst, at = d, i
+        check(worst <= 1e-4,
+              f"{name}: Python and C++ disagree by {worst:.6f} at sample {at} "
+              f"({at / RATE:.4f}s) — one side was edited without the other")
+        print(f"   {name:20s} max |python - c++|  {worst:.2e}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -224,6 +343,7 @@ def main() -> int:
         return 0
 
     check_generators()
+    check_parity()
 
     if args.render:
         os.makedirs(args.render, exist_ok=True)

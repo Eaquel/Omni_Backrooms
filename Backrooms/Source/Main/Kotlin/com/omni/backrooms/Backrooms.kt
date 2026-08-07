@@ -366,7 +366,207 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * "Eaquel Sunar", over a dead tape spinning up.
+ *
+ * Both halves are generated. The sound is Sound/Synth.cpp's vhsIntro, synthesised
+ * on the device — there is no audio file in this APK — and the picture is drawn
+ * here rather than being a bitmap, for the same reason: a static image of tape
+ * damage looks like a static image of tape damage. Damage has to move.
+ *
+ * Four things are happening, and they are the four that actually read as VHS:
+ *
+ *   * chroma bleed — the red and cyan copies of the text sit either side of the
+ *     white one, because on tape the colour-under signal is carried separately
+ *     from luminance and drifts against it;
+ *   * head-switching noise — the band of hash that crawls up the frame, which
+ *     on real tape sits at the very bottom where the head leaves the drum;
+ *   * tracking wobble — whole scanlines displaced horizontally, worst while the
+ *     transport is still coming up to speed;
+ *   * dropouts — brief hard gaps, not fades, in time with the audio.
+ *
+ * The whole thing is skippable on tap. A title card you cannot get past stops
+ * being atmosphere by the third launch.
+ */
+@Composable
+private fun IntroScreen(onDone: () -> Unit, vm: IntroVM = hiltViewModel()) {
+    val presents = stringResource(R.string.splash_presents)
+    var done by remember { mutableStateOf(false) }
+
+    fun finish() { if (!done) { done = true; vm.stop(); onDone() } }
+
+    DisposableEffect(Unit) {
+        vm.play(INTRO_SECONDS)
+        onDispose { vm.stop() }
+    }
+
+    val clock = rememberInfiniteTransition(label = "intro")
+    val t by clock.animateFloat(
+        initialValue = 0f, targetValue = INTRO_TOTAL,
+        animationSpec = infiniteRepeatable(
+            tween((INTRO_TOTAL * 1000).toInt(), easing = LinearEasing)),
+        label = "introTime"
+    )
+
+    LaunchedEffect(Unit) { delay((INTRO_TOTAL * 1000).toLong()); finish() }
+
+    // How settled the tape is: 0 while the transport is spinning up, 1 once it
+    // has locked. Everything unstable below is scaled by (1 - lock).
+    val lock = ((t - 0.35f) / 1.1f).coerceIn(0f, 1f)
+    val fade = when {
+        t < 0.25f              -> t / 0.25f
+        t > INTRO_TOTAL - 0.5f -> ((INTRO_TOTAL - t) / 0.5f).coerceAtLeast(0f)
+        else                   -> 1f
+    }
+    // Dropouts, from the same value-noise the audio generator gates on, so the
+    // picture goes when the sound goes.
+    val dropout = if (introNoise(t * 11f + 3.1f) > -0.55f) 1f else 0.25f
+
+    val wobble = (1f - lock) * 14f * introNoise(t * 23f)
+    val split  = 2.5f + (1f - lock) * 9f + introNoise(t * 17f) * 1.5f
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { finish() },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .offset { IntOffset(wobble.toInt(), 0) }
+                .alpha(fade * dropout),
+            contentAlignment = Alignment.Center
+        ) {
+            // Chroma bleed: the same word three times. Red and cyan sit either
+            // side of white, which on black reads as colour separating from
+            // luminance without needing a blend mode.
+            IntroWord(presents, Color(0xFFFF2B2B), (-split).dp, 0.75f)
+            IntroWord(presents, Color(0xFF29FFF3),   split.dp,  0.75f)
+            IntroWord(presents, Color(0xFFF2F0E6),      0.dp,   1f)
+        }
+
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            // Scanlines. Two pixels on, two off, at the density a CRT actually
+            // had rather than the density that looks like a grille.
+            var y = 0f
+            while (y < h) {
+                drawRect(Color.Black.copy(alpha = 0.30f), Offset(0f, y), Size(w, 1.6f))
+                y += 3.2f
+            }
+
+            // Head-switching noise: a band of hash crawling up the frame,
+            // brightest while the transport is unsettled.
+            val bandY = h * (1f - ((t * 0.42f) % 1f))
+            val bandH = 26f + (1f - lock) * 40f
+            for (i in 0 until 90) {
+                val ly = bandY + (i / 90f) * bandH
+                if (ly < -bandH || ly > h) continue
+                val n = introNoise(i * 3.7f + t * 60f)
+                drawRect(
+                    Color(0xFFBFB9A8).copy(alpha = (0.05f + 0.16f * kotlin.math.abs(n)) * fade),
+                    Offset(w * n * 0.5f, ly),
+                    Size(w * (0.35f + kotlin.math.abs(n) * 0.65f), 1.4f)
+                )
+            }
+
+            // Vignette, so the corners fall away like a tube.
+            drawRect(
+                Brush.radialGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
+                    center = Offset(w / 2f, h / 2f),
+                    radius = kotlin.math.max(w, h) * 0.62f
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun IntroWord(text: String, colour: Color, dx: Dp, alpha: Float) {
+    Text(
+        text,
+        color = colour.copy(alpha = alpha),
+        fontSize = 26.sp,
+        fontWeight = FontWeight.Light,
+        letterSpacing = 7.sp,
+        maxLines = 1,
+        modifier = Modifier.offset(x = dx)
+    )
+}
+
+/** The sting's length, and how long the card is held after it. */
+private const val INTRO_SECONDS = 2.6f
+private const val INTRO_TOTAL   = 3.3f
+
+/**
+ * The same smooth value noise the audio generator uses, so the picture tears on
+ * the beat the sound drops out on rather than on a schedule of its own.
+ *
+ * Ported rather than shared: reaching this one function across JNI, once per
+ * frame, to save nine lines is not a trade worth making. It is a faithful port
+ * — `ushr` and `and` on a signed Int operate on the same 32-bit pattern the C++
+ * and the Python mask by hand — but nothing asserts that, because nothing needs
+ * to. This drives a wobble, not a waveform; drift here shows up as the picture
+ * tearing slightly off the sound, not as a defect. The generator that has to be
+ * exact is the audio one, and Code_To_Sound.py checks that against the shipped
+ * C++ sample for sample.
+ */
+private fun introHash(n: Int): Float {
+    var x = n
+    x = (x xor 61) xor (x ushr 16)
+    x += (x shl 3)
+    x = x xor (x ushr 4)
+    x *= 0x27D4EB2D
+    x = x xor (x ushr 15)
+    return (x and 0xFFFFFF) / 0xFFFFFF.toFloat()
+}
+
+private fun introNoise(x: Float): Float {
+    val i = kotlin.math.floor(x)
+    var f = x - i
+    f = f * f * (3f - 2f * f)
+    fun w(n: Int) = introHash(n) * 2f - 1f
+    val n = i.toInt()
+    return w(n) + (w(n + 1) - w(n)) * f
+}
+
+@HiltViewModel
+class IntroVM @Inject constructor(private val bridge: NativeBridge) : ViewModel() {
+    /**
+     * Opens the audio stream just for the sting and closes it again.
+     *
+     * The hum and ambience layers are silenced first. They are the sound of a
+     * corridor, and the title card is not in a corridor — left at their
+     * defaults they would drone under the tape and then carry on into the menu,
+     * which is a change to the whole app smuggled in behind a splash screen.
+     */
+    fun play(seconds: Float) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                bridge.initSound()
+                bridge.setHumVolume(0f)
+                bridge.setAmbienceLevel(0f)
+                bridge.playIntroSting(seconds)
+            }.onFailure { OmniLog.e("Intro", "sting failed", it) }
+        }
+    }
+
+    fun stop() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { bridge.stopIntroSting(); bridge.destroySound() }
+        }
+    }
+}
+
 private object Route {
+    const val INTRO       = "intro"
     const val MENU        = "menu"
     const val GAME        = "game"
     const val SETTINGS    = "settings"
@@ -444,7 +644,16 @@ private fun OmniBackroomsAppContent() {
                 }
             )
         }
-        NavHost(nav, startDestination = Route.MENU) {
+        NavHost(nav, startDestination = Route.INTRO) {
+            composable(Route.INTRO, exitTransition = { fadeOut(tween(500)) }) {
+                IntroScreen(onDone = {
+                    // popUpTo with inclusive, so back from the menu leaves the
+                    // app instead of replaying the tape.
+                    nav.navigate(Route.MENU) {
+                        popUpTo(Route.INTRO) { inclusive = true }
+                    }
+                })
+            }
             composable(
                 Route.MENU,
                 enterTransition = { fadeIn(tween(600)) },
