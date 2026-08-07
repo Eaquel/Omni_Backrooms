@@ -89,6 +89,14 @@ Tools/                           as oito verificações
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
 
+- **A personagem tinha quatro braços.** A malha continha dois pares: um corpo com
+  os braços ao lado e um vestido cujas mangas saíam retas em T-pose. Os ossos
+  tinham sido postos sobre as mangas, então o rig balançava tecido vazio
+  enquanto os braços que se veem ficavam soldados ao quadril. Agora as mangas
+  estão sobre os braços, e a vinculação mede ao longo da superfície em vez de
+  pelo ar: a barra da saia passa a 4 cm da mão, e nenhuma medida em linha reta
+  distingue as duas. Com isso foram embora oito cascas duplicadas a um
+  milímetro: 1139 vértices e o z-fighting que causavam.
 - **O Nível 0 tinha uma multidão.** De três a oito criaturas, repostas a cada
   doze segundos. Uma multidão é atarefada, não assustadora. Agora tem
   exatamente uma, e a dificuldade muda qual é essa uma, não quantas são.

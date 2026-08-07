@@ -20,6 +20,12 @@ angles: is what we ship actually what we meant to ship?
   * COSMETIC CATALOGUE — the frame and trail tables in Native/. Includes the
     rule that no frame's tube may close in over the portrait it surrounds,
     which is the fault that got the ring deleted from the avatar entirely.
+  * CHARACTER RIG — the bones against the mesh they are supposed to drive. The
+    character shipped with four arms, because the model wore a T-posed dress
+    over a body whose arms hang at its sides and the bones went on the sleeves.
+    Every structural thing about that file was correct, so the check binds the
+    mesh the way the game does, animates it, and measures whether the surface
+    survives.
 
 Plus an inventory pass: duplicate assets, unreferenced assets, and Title Case.
 
@@ -665,6 +671,340 @@ def check_readmes() -> None:
         print(f"   {len(fixes)} fix lists, {counts.pop()} entries each")
 
 
+# ===========================================================================
+# 7. The character rig
+# ===========================================================================
+
+CHAR_MESH = os.path.join(ASSETS, "Models/Anime_Character.omesh")
+
+# A vertex may move this far away from a neighbour it is joined to before the
+# surface has visibly come apart. Measured, not chosen: the shipped rig's worst
+# case across idle, walk and run is 2.9cm on a model one unit tall, and the
+# four-armed rig this check was written for managed 11.2cm.
+MAX_TEAR = 0.05
+
+
+def _read_bone_table() -> tuple[list, list, list]:
+    """Pull head/tail/radius straight out of Backrooms.kt.
+
+    Parsed rather than copied so the check cannot drift away from the rig it is
+    checking. A duplicated table would agree with itself forever.
+    """
+    src = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
+    obj = src[src.index("internal object Skeleton {"):]
+    obj = obj[:obj.index("\ninternal class PoseBuilder")]
+
+    def triples(name: str) -> list:
+        block = obj[obj.index(f"val {name} = arrayOf("):]
+        block = block[:block.index("\n    )")]
+        out = []
+        for row in re.findall(r"floatArrayOf\(([^)]*)\)", block):
+            out.append([float(v.strip().rstrip("f")) for v in row.split(",")])
+        return out
+
+    radius_block = obj[obj.index("val radius = floatArrayOf("):]
+    radius_block = radius_block[:radius_block.index(")")]
+    radius = [float(v.strip().rstrip("f"))
+              for v in radius_block.split("(")[1].split(",") if v.strip()]
+    return triples("head"), triples("tail"), radius
+
+
+def _load_omesh(path: str):
+    d = open(path, "rb").read()
+    magic, _maj, _min, vc, ic = struct.unpack_from("<IHHII", d, 0)
+    if magic != 0x48534D4F:
+        raise ValueError(f"bad magic 0x{magic:08x}")
+    stride = 8
+    pos = [struct.unpack_from("<3f", d, 16 + (v * stride) * 4) for v in range(vc)]
+    idx = struct.unpack_from(f"<{ic}H", d, 16 + vc * stride * 4)
+    return pos, list(idx)
+
+
+def _dist_to_capsule(p, a, b) -> float:
+    abx, aby, abz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    apx, apy, apz = p[0] - a[0], p[1] - a[1], p[2] - a[2]
+    den = abx * abx + aby * aby + abz * abz
+    t = 0.0 if den <= 1e-8 else max(0.0, min(1.0, (apx * abx + apy * aby + apz * abz) / den))
+    dx, dy, dz = apx - abx * t, apy - aby * t, apz - abz * t
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def _components(nodes, tris):
+    par = list(range(len(nodes)))
+
+    def find(a):
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+
+    for t in tris:
+        a, b, c = (find(t[0]), find(t[1]), find(t[2]))
+        if a != b:
+            par[a] = b
+        if find(t[1]) != find(t[2]):
+            par[find(t[1])] = find(t[2])
+    groups: dict[int, list[int]] = {}
+    for i in range(len(nodes)):
+        groups.setdefault(find(i), []).append(i)
+    return sorted(groups.values(), key=len, reverse=True)
+
+
+def check_character() -> None:
+    """
+    The rig, proved by animating it and looking for the seams.
+
+    This exists because the character shipped with four arms and no tool could
+    see it. The mesh held two of them: a body whose arms hang at its sides, and
+    a dress whose sleeves stuck straight out in a T-pose. The bones had been
+    laid along the sleeves, so the rig swung empty cloth while the arms the
+    player sees stayed welded to the hips.
+
+    Nothing structural was wrong — the file parsed, the bone count was right,
+    the weights summed to one — so the only way to catch it is to do what the
+    game does and then measure the result. Bind the mesh, run the skeleton
+    through the poses the game actually uses, and check whether the surface
+    comes apart. A rig whose bones are on the wrong geometry cannot survive
+    that, and neither can a mesh that changes under a bone table nobody moved.
+    """
+    section("Character rig")
+    if not os.path.exists(CHAR_MESH):
+        failures.append("Anime_Character.omesh is missing")
+        return
+
+    head, tail, radius = _read_bone_table()
+    bones = len(radius)
+    check(len(head) == bones and len(tail) == bones,
+          f"the bone table is ragged: {len(head)} heads, {len(tail)} tails, {bones} radii")
+    if len(head) != bones or len(tail) != bones:
+        return
+
+    pos, idx = _load_omesh(CHAR_MESH)
+    tris = [tuple(idx[i:i + 3]) for i in range(0, len(idx), 3)]
+
+    # --- weld, exactly as bindMesh does -----------------------------------
+    node_of, nodes, by_key = [], [], {}
+    for p in pos:
+        key = (round(p[0] * 10000), round(p[1] * 10000), round(p[2] * 10000))
+        n = by_key.get(key)
+        if n is None:
+            n = len(nodes)
+            by_key[key] = n
+            nodes.append(p)
+        node_of.append(n)
+    wtris = [(node_of[a], node_of[b], node_of[c]) for a, b, c in tris]
+
+    # --- duplicate shells --------------------------------------------------
+    # Two shells of the same size a rigid millimetre apart are one shell
+    # authored twice. They z-fight, and they cost real vertices to do it.
+    comps = _components(nodes, wtris)
+    dup = 0
+    for i in range(len(comps)):
+        for j in range(i + 1, len(comps)):
+            if len(comps[i]) != len(comps[j]) or len(comps[i]) < 8:
+                continue
+            a = [nodes[k] for k in comps[i]]
+            b = [nodes[k] for k in comps[j]]
+            offs = [min(math.dist(p, q) for q in b) for p in a[:40]]
+            if max(offs) < 0.004 and max(offs) - min(offs) < 1e-4:
+                dup += 1
+    check(dup == 0,
+          f"{dup} shell(s) in Anime_Character.omesh are rigid copies of another "
+          f"shell a millimetre away — they z-fight and cost vertices twice")
+    print(f"   {len(pos)} verts, {len(tris)} tris, {len(nodes)} welded, "
+          f"{len(comps)} shells, {dup} duplicated")
+
+    # --- geodesic bind, as the game does it -------------------------------
+    adj: list[list[tuple[int, float]]] = [[] for _ in nodes]
+    seen = set()
+    for a, b, c in wtris:
+        for u, v in ((a, b), (b, c), (c, a)):
+            if u == v:
+                continue
+            e = (u, v) if u < v else (v, u)
+            if e in seen:
+                continue
+            seen.add(e)
+            w = math.dist(nodes[u], nodes[v])
+            adj[u].append((v, w))
+            adj[v].append((u, w))
+
+    import heapq
+    INF = float("inf")
+    geo = []
+    for b in range(bones):
+        d = [_dist_to_capsule(n, head[b], tail[b]) for n in nodes]
+        seeds = [i for i, x in enumerate(d) if x <= 0.6 * radius[b]]
+        if not seeds:
+            seeds = [min(range(len(nodes)), key=lambda i: d[i])]
+        dist = [INF] * len(nodes)
+        h = []
+        for s in seeds:
+            dist[s] = d[s]
+            h.append((d[s], s))
+        heapq.heapify(h)
+        while h:
+            du, u = heapq.heappop(h)
+            if du > dist[u]:
+                continue
+            for v, w in adj[u]:
+                nd = du + w
+                if nd < dist[v]:
+                    dist[v] = nd
+                    heapq.heappush(h, (nd, v))
+        geo.append(dist)
+
+    # A shell no bone's influence can crawl onto is bound rigidly to whichever
+    # bone is nearest. For an eye or an eyelash sitting on the skull that is
+    # exactly right. For anything further from its bone than that bone is wide
+    # it is not: the geometry will swing about a pivot it does not belong to,
+    # and it is the shape of the bug this check was written for — a sleeve
+    # 29cm out on the X axis, rigidly attached to a chest bone 13cm wide.
+    stranded = []
+    for comp in comps:
+        if all(any(geo[b][n] < INF for b in range(bones)) for n in comp):
+            continue
+        near, reach = None, INF
+        for b in range(bones):
+            far = max(_dist_to_capsule(nodes[n], head[b], tail[b]) for n in comp)
+            if far < reach:
+                near, reach = b, far
+        if reach > radius[near]:
+            stranded.append((len(comp), near, reach))
+    for n, b, reach in stranded:
+        failures.append(
+            f"{n} vertices are out of reach of every bone and {reach * 100:.1f}cm "
+            f"from bone {b}, the nearest — rigidly attached, they will swing "
+            f"about a joint they are not part of")
+    loose = sum(1 for n in range(len(nodes)) if all(geo[b][n] == INF for b in range(bones)))
+    print(f"   {loose} vertex(es) rigidly bound (detail shells), {len(stranded)} stranded")
+
+    wts, overreach = [], []
+    for n in range(len(nodes)):
+        row = []
+        for b in range(bones):
+            g = geo[b][n]
+            if g == INF:
+                continue
+            s = 0.35 * radius[b]
+            q = math.sqrt(g * g + s * s) / radius[b]
+            row.append((1.0 / (q * q * q * q), b))
+        row.sort(reverse=True)
+        row = row[:4]
+        tot = sum(w for w, _ in row)
+        wts.append([(w / tot, b) for w, b in row] if tot > 1e-8 else [(1.0, 0)])
+        if row:
+            owner = row[0][1]
+            overreach.append(
+                (_dist_to_capsule(nodes[n], head[owner], tail[owner]) / radius[owner], n, owner))
+
+    # A bone that has to reach more than twice its own radius through the air to
+    # claim a vertex is not that vertex's bone. This is the test that sees a
+    # limb the rig is not driving: when the dress's sleeves stood out in a
+    # T-pose, 160 of their vertices were owned by a chest bone 13cm wide from
+    # 29cm away, and nothing else about the file was wrong. Every vertex of a
+    # rig whose bones sit on their own geometry stays under 1.4.
+    overreach.sort(reverse=True)
+    bad = [o for o in overreach if o[0] > 2.0]
+    if bad:
+        ratio, n, owner = bad[0]
+        failures.append(
+            f"{len(bad)} vertices are driven by a bone that is nowhere near them — "
+            f"worst is {ratio:.1f}x bone {owner}'s radius away, at "
+            f"{tuple(round(c, 3) for c in nodes[n])}. A limb the skeleton does not "
+            f"actually cover will sit still while the rest of the body moves")
+    print(f"   furthest vertex from its own bone: {overreach[0][0]:.2f}x that bone's radius")
+
+    # --- animate, and look for the seams ----------------------------------
+    worst, worst_at, torn = 0.0, None, 0
+    for label, mats in _rig_poses(head, radius, bones):
+        moved = []
+        for n, p in enumerate(nodes):
+            x = y = z = 0.0
+            for w, b in wts[n]:
+                m = mats[b]
+                x += w * (m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + m[3])
+                y += w * (m[4] * p[0] + m[5] * p[1] + m[6] * p[2] + m[7])
+                z += w * (m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11])
+            moved.append((x, y, z))
+        for u, v in seen:
+            rest = math.dist(nodes[u], nodes[v])
+            if rest <= 1e-4:
+                continue
+            grew = abs(math.dist(moved[u], moved[v]) - rest)
+            if grew > 0.01:
+                torn += 1
+            if grew > worst:
+                worst, worst_at = grew, (label, nodes[u])
+    where = f" ({worst_at[0]} pose, near {tuple(round(c, 3) for c in worst_at[1])})" if worst_at else ""
+    check(worst <= MAX_TEAR,
+          f"the character comes apart when animated: an edge stretches "
+          f"{worst * 100:.1f}cm{where}, over the {MAX_TEAR * 100:.0f}cm limit")
+    print(f"   worst seam {worst * 100:.2f}cm{where}, {torn} edge(s) over 1cm")
+
+
+def _rig_poses(head, radius, bones):
+    """The poses the game drives, reduced to bone matrices.
+
+    Only the arms and legs move here. That is deliberate: a rig fails at the
+    joints, and a pose that does not bend anything proves nothing.
+    """
+    HIPS, SPINE, CHEST, HEAD = 0, 1, 2, 3
+    LIMB = ((4, 5), (6, 7), (8, 9), (10, 11))
+    parent = [-1, HIPS, SPINE, CHEST, CHEST, 4, CHEST, 6, HIPS, 8, HIPS, 10]
+
+    def rot(rx, ry, rz):
+        cx, sx = math.cos(rx), math.sin(rx)
+        cy, sy = math.cos(ry), math.sin(ry)
+        cz, sz = math.cos(rz), math.sin(rz)
+        return [[cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
+                [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
+                [-sy, cy * sx, cy * cx]]
+
+    def compose(angles):
+        mats = [None] * bones
+        for b in range(bones):
+            R = rot(*[math.radians(a) for a in angles[b]])
+            h = head[b]
+            t = [h[i] - sum(R[i][k] * h[k] for k in range(3)) for i in range(3)]
+            L = [R[0][0], R[0][1], R[0][2], t[0],
+                 R[1][0], R[1][1], R[1][2], t[1],
+                 R[2][0], R[2][1], R[2][2], t[2]]
+            p = parent[b]
+            if p < 0:
+                mats[b] = L
+            else:
+                P = mats[p]
+                m = []
+                for r in range(3):
+                    for c in range(4):
+                        v = sum(P[r * 4 + k] * L[k * 4 + c] for k in range(3))
+                        if c == 3:
+                            v += P[r * 4 + 3]
+                        m.append(v)
+                mats[b] = m
+        return mats
+
+    out = []
+    for label, t, gait in (("idle", 0.15, 0.05), ("walk", 0.70, 1.0), ("run", 1.90, 1.6)):
+        stride = t * 6.4
+        ang = [[0.0, 0.0, 0.0] for _ in range(bones)]
+        ang[SPINE] = [0.0, math.sin(stride + 0.4) * 2.5 * gait, 0.0]
+        ang[CHEST] = [0.0, -math.sin(stride) * 4.5 * gait, 0.0]
+        for side, (up, fore) in enumerate(LIMB[:2]):
+            s = -1.0 if side == 0 else 1.0
+            ph = stride + (math.pi if side else 0.0)
+            ang[up] = [math.sin(ph) * 23.0 * gait, -11.0 * s, 0.0]
+            ang[fore] = [math.sin(ph - 0.85) * 17.0 * gait + 6.0, 0.0, 0.0]
+        for side, (thigh, shin) in enumerate(LIMB[2:]):
+            s = -1.0 if side == 0 else 1.0
+            ph = stride + (math.pi if side else 0.0)
+            ang[thigh] = [math.sin(ph) * 30.0 * gait, 0.0, 3.0 * s * gait]
+            ang[shin] = [-max(0.0, -math.sin(ph - 0.6)) * 24.0 * gait, 0.0, 0.0]
+        out.append((label, compose(ang)))
+    return out
+
+
 def check_shield() -> None:
     """
     Everything visible from outside must tell the same story.
@@ -978,6 +1318,7 @@ def main() -> int:
     check_inventory()
     check_title_case()
     check_locales()
+    check_character()
     check_shield()
     check_story()
     check_readmes()

@@ -90,6 +90,14 @@ Tools/                           les huit vérifications
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
 
+- **Le personnage avait quatre bras.** Le maillage en contenait deux paires : un
+  corps aux bras le long du buste, et une robe dont les manches partaient droit
+  en T-pose. Les os avaient été posés sur les manches, si bien que le rig
+  agitait du tissu vide pendant que les bras visibles restaient soudés aux
+  hanches. Les manches sont sur les bras désormais, et la liaison mesure le long
+  de la surface plutôt qu'à travers l'air — l'ourlet de la jupe passe à 4 cm de
+  la main, et aucune mesure en ligne droite ne les sépare. Huit coques
+  dupliquées à un millimètre sont parties avec : 1139 sommets et leur z-fighting.
 - **Le Niveau 0 contenait une foule.** De trois à huit créatures, réapprovisionnées
   toutes les douze secondes. Une foule est occupée, pas effrayante. Il n'y en a
   plus qu'une, et la difficulté change laquelle c'est, pas combien il y en a.

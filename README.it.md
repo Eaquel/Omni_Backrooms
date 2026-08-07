@@ -88,6 +88,14 @@ Tools/                           gli otto controlli
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
 
+- **Il personaggio aveva quattro braccia.** La mesh ne conteneva due paia: un
+  corpo con le braccia lungo i fianchi e un vestito le cui maniche uscivano
+  dritte in T-pose. Le ossa erano state posate sulle maniche, quindi il rig
+  agitava stoffa vuota mentre le braccia che si vedono restavano saldate ai
+  fianchi. Ora le maniche stanno sulle braccia, e il binding misura lungo la
+  superficie invece che attraverso l'aria: l'orlo della gonna passa a 4 cm dalla
+  mano, e nessuna misura in linea retta sa distinguerle. Con esse se ne sono
+  andati otto gusci duplicati a un millimetro: 1139 vertici e il loro z-fighting.
 - **Il Livello 0 conteneva una folla.** Da tre a otto creature, rimpiazzate ogni
   dodici secondi. Una folla è indaffarata, non spaventosa. Ora ne contiene
   esattamente una, e la difficoltà cambia quale sia, non quante siano.

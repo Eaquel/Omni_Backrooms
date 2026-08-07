@@ -91,6 +91,14 @@ Tools/                           las ocho comprobaciones
 
 Lo más nuevo primero. Esta lista se actualiza con cada corrección.
 
+- **El personaje tenía cuatro brazos.** La malla contenía dos pares: un cuerpo
+  con los brazos a los costados y un vestido cuyas mangas salían rectas en
+  T-pose. Los huesos se habían colocado sobre las mangas, así que el rig
+  agitaba tela vacía mientras los brazos que se ven seguían soldados a la
+  cadera. Ahora las mangas están sobre los brazos, y el vínculo mide a lo largo
+  de la superficie en vez de por el aire: el borde de la falda pasa a 4 cm de la
+  mano, y ninguna medida en línea recta distingue una de otra. Con ello se
+  fueron ocho cascarones duplicados a un milímetro: 1139 vértices y su z-fighting.
 - **El Nivel 0 tenía una multitud.** De tres a ocho criaturas, repuestas cada
   doce segundos. Una multitud está ocupada, no da miedo. Ahora hay exactamente
   una, y la dificultad cambia cuál es esa una, no cuántas hay.

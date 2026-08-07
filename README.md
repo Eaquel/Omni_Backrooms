@@ -67,7 +67,7 @@ guards something the Gradle build genuinely cannot see:
 | Tool | What it catches |
 |---|---|
 | `Shaders_Check.py` | GLSL lives inside Kotlin raw strings, so a shader that will not compile is invisible until the screen using it opens and goes black. Every one is compiled with `glslangValidator`. |
-| `Assets_Check.py` | Hand-written vector icons that `aapt2` accepts and renders garbled; mesh UVs that no longer match world position; the inspection camera leaving its backdrop; duplicate and unreferenced assets; a locale that fell behind; the Unity build contradicting itself. Also `--optimise`, a lossless PNG re-encoder. |
+| `Assets_Check.py` | Hand-written vector icons that `aapt2` accepts and renders garbled; mesh UVs that no longer match world position; the inspection camera leaving its backdrop; duplicate and unreferenced assets; a locale that fell behind; the Unity build contradicting itself; a character rig whose bones are not on the geometry they claim to drive, proved by animating it and measuring the seams. Also `--optimise`, a lossless PNG re-encoder. |
 | `Native_Check.py` | The JNI contract. Kotlin declares `external fun`, C++ defines `Java_..._name`, and **nothing** connects them at build time — not the Kotlin compiler, not the C++ compiler, not the linker. A rename on one side is an `UnsatisfiedLinkError` on first call; a changed argument count is worse, because JNI binds by name and reads the extra arguments off the stack without complaining. |
 | `Level_0_Check.py` | Floods the world from the spawn over many seeds and proves the exit is reachable. An unreachable exit is an unwinnable run and it is completely silent. |
 | `Entity_Check.py` | Compiles the real AI, puts a creature in the real Level 0, and watches: sight blocked by walls, hearing that scales with noise, the retreat-and-return cycle that must never latch. |
@@ -105,6 +105,14 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The character had four arms.** The mesh held two pairs: a body with its arms
+  at its sides, and a dress whose sleeves stood straight out in a T-pose. The
+  bones had been laid along the sleeves, so the rig swung empty cloth while the
+  arms the player sees stayed welded to the hips. The sleeves are on the arms
+  now, and binding measures distance along the surface instead of through the
+  air — the skirt hem passes within 4cm of the hand, and no straight-line
+  measure can tell those two apart. Eight shells duplicated a millimetre away
+  went with it: 1139 vertices, and the z-fighting they were causing.
 - **Level 0 held a crowd.** Three to eight creatures, topped up every twelve
   seconds. A crowd is busy, not frightening. It now holds exactly one, and
   difficulty changes what that one is rather than how many there are.

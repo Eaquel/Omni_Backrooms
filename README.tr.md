@@ -50,7 +50,7 @@ derlemesinin gerçekten göremediği bir şeyi koruduğu için varlar:
 | Araç | Ne yakalar |
 |---|---|
 | `Shaders_Check.py` | GLSL, Kotlin ham dizelerinin içinde yaşıyor. Derlenmeyecek bir shader, onu kullanan ekran açılıp siyaha dönene kadar görünmez. Hepsi `glslangValidator` ile derleniyor. |
-| `Assets_Check.py` | `aapt2`'nin kabul edip bozuk çizdiği elle yazılmış vektör ikonlar; artık dünya konumuyla eşleşmeyen mesh UV'leri; fon dışına çıkan inceleme kamerası; tekrarlanan ve hiç kullanılmayan varlıklar; geride kalmış bir dil; kendi kendisiyle çelişen Unity kamuflajı. Ayrıca `--optimise`: kayıpsız bir PNG yeniden kodlayıcı. |
+| `Assets_Check.py` | `aapt2`'nin kabul edip bozuk çizdiği elle yazılmış vektör ikonlar; artık dünya konumuyla eşleşmeyen mesh UV'leri; fon dışına çıkan inceleme kamerası; tekrarlanan ve hiç kullanılmayan varlıklar; geride kalmış bir dil; kendi kendisiyle çelişen Unity kamuflajı; sürdüğünü iddia ettiği geometrinin üzerinde olmayan kemiklere sahip bir karakter rig'i — animasyonu oynatıp dikişleri ölçerek kanıtlanır. Ayrıca `--optimise`: kayıpsız bir PNG yeniden kodlayıcı. |
 | `Native_Check.py` | JNI sözleşmesi. Kotlin `external fun` bildiriyor, C++ `Java_..._name` tanımlıyor ve derleme anında ikisini **hiçbir şey** bağlamıyor — ne Kotlin derleyicisi, ne C++ derleyicisi, ne bağlayıcı. Tek taraflı bir isim değişikliği ilk çağrıda `UnsatisfiedLinkError` demek; argüman sayısı değişirse daha kötü, çünkü JNI isimle bağlar ve fazla argümanları yığından şikâyet etmeden okur. |
 | `Level_0_Check.py` | Dünyayı doğuş noktasından birçok tohumla tarayıp çıkışın gerçekten erişilebilir olduğunu kanıtlıyor. Erişilemez bir çıkış, kazanılamaz bir tur demek ve tamamen sessiz. |
 | `Entity_Check.py` | Gerçek yapay zekâyı derliyor, gerçek Seviye 0'a bir canavar koyup izliyor: duvarların engellediği görüş, gürültüyle ölçeklenen duyma, asla kilitlenmemesi gereken kaç-ve-dön döngüsü. |
@@ -88,6 +88,14 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Karakterin dört kolu vardı.** Mesh iki çift taşıyordu: kolları yanında duran
+  bir gövde, ve yenleri T-pozunda dümdüz uzanan bir elbise. Kemikler kolların
+  değil yenlerin üzerine konmuştu, yani rig boş kumaşı sallarken oyuncunun
+  gördüğü kollar kalçaya kaynamış duruyordu. Artık yenler kolların üstünde ve
+  bağlama mesafeyi havadan değil yüzey boyunca ölçüyor — etek ucu elin 4 cm
+  yakınından geçiyor, hiçbir düz çizgi ölçüsü bu ikisini ayıramaz. Bir milimetre
+  ötede kopyalanmış sekiz kabuk da onunla gitti: 1139 vertex, ve yol açtıkları
+  z-çakışması.
 - **Seviye 0'da bir kalabalık vardı.** Üçten sekize canavar, on iki saniyede bir
   takviye. Kalabalık korkutucu değil, meşguldür. Artık tam olarak bir tane var
   ve zorluk kaç tane olduğunu değil, o tekinin ne olduğunu değiştiriyor.

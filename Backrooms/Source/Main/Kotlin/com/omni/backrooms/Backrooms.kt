@@ -9087,24 +9087,35 @@ private fun CodexEntry(
 // whose capsule it is nearest, with a smooth falloff, and the four strongest
 // are kept and normalised.
 //
-// The rest pose was measured off the shipped mesh rather than guessed:
+// The rest pose was measured off the shipped mesh rather than guessed, and the
+// measurement is what found the real bug. Splitting the mesh into connected
+// shells showed it held FOUR arms:
 //
-//     |x| 0.26-0.30   344 verts   y 0.740 .. 0.799   arms, straight out
-//     |x| 0.18-0.22    92 verts   y 0.429 .. 0.784   shoulder + skirt
-//     outer quartile |x| by height: 0.40->0.176  0.45->0.170  0.50->0.156
-//                                   0.70->0.194  0.75->0.278  0.80->0.056
+//     shell #0  1897 verts  x +-0.203  y 0.000..0.999   the body — and its
+//                                                       arms hang at the sides
+//     shell #1  1686 verts  x +-0.291  y 0.481..0.799   a dress whose sleeves
+//                                                       stick straight out
 //
-// Two wide structures, not one: a skirt hem around y 0.40-0.50, and the arms
-// held out horizontally at y 0.74-0.80. That is what the previous rig got
-// wrong. It multiplied the arm's rotation ANGLE by a mask that ran 0 at the
-// torso to 1 at the hand, so the shoulder end rotated by nothing and the hand
-// end by 78 degrees: the arm was not rotated, it was fanned. The hand dropped
-// to y 0.56 while the upper arm stayed stretched out at y 0.78, leaving a V
-// per side — which is what read on screen as four arms.
+// A T-posed garment worn over an A-posed body. The arm bones had been placed
+// along the sleeves, at y 0.775 running out to |x| 0.300, so the rig animated
+// the empty sleeves while the arms the player actually sees stayed bound to the
+// hips and never moved with them. Two limbs that move plus two that do not is
+// exactly the four pieces that read on screen.
 //
-// A bone rotation applies to every vertex bound to that bone equally. That is
-// the whole difference, and it is why the fix is a skeleton rather than a
-// better mask.
+// The mesh is the fix: the sleeves are swung -73.9 degrees onto the arms the
+// body already has, which is the angle between the sleeve axis and the measured
+// shoulder->hand line. The bones then follow the real arm:
+//
+//     shoulder (0.075, 0.780)  ->  elbow (0.115, 0.615)  ->  hand (0.168, 0.452)
+//
+// and PoseBuilder's -76 degree "rest" rotation goes away, because that number
+// was only ever there to shove the sleeves down over the arms at runtime.
+//
+// Binding is geodesic — distance measured ALONG the surface, not through the
+// air. That is not decoration. The skirt hem passes within 4cm of the hand, so
+// no straight-line metric can tell them apart, and every Euclidean falloff
+// tested bound part of the skirt to the forearm and tore it open when the arm
+// swung. Over the surface the two are 30cm apart and the ambiguity disappears.
 // ============================================================================
 
 internal object Skeleton {
@@ -9127,10 +9138,10 @@ internal object Skeleton {
         floatArrayOf(0f, 0.480f, 0f),        // spine
         floatArrayOf(0f, 0.630f, 0f),        // chest
         floatArrayOf(0f, 0.820f, 0f),        // head
-        floatArrayOf(-0.105f, 0.775f, 0f),   // upper arm L
-        floatArrayOf(-0.200f, 0.775f, 0f),   // fore arm L
-        floatArrayOf(0.105f, 0.775f, 0f),    // upper arm R
-        floatArrayOf(0.200f, 0.775f, 0f),    // fore arm R
+        floatArrayOf(-0.075f, 0.780f, 0f),   // upper arm L — the shoulder
+        floatArrayOf(-0.115f, 0.615f, 0f),   // fore arm L  — the elbow
+        floatArrayOf(0.075f, 0.780f, 0f),    // upper arm R
+        floatArrayOf(0.115f, 0.615f, 0f),    // fore arm R
         floatArrayOf(-0.052f, 0.460f, 0f),   // thigh L
         floatArrayOf(-0.052f, 0.245f, 0f),   // shin L
         floatArrayOf(0.052f, 0.460f, 0f),    // thigh R
@@ -9143,25 +9154,31 @@ internal object Skeleton {
         floatArrayOf(0f, 0.630f, 0f),
         floatArrayOf(0f, 0.800f, 0f),
         floatArrayOf(0f, 1.000f, 0f),
-        floatArrayOf(-0.200f, 0.775f, 0f),
-        floatArrayOf(-0.300f, 0.775f, 0f),
-        floatArrayOf(0.200f, 0.775f, 0f),
-        floatArrayOf(0.300f, 0.775f, 0f),
+        floatArrayOf(-0.115f, 0.615f, 0f),   // arms run down and slightly out,
+        floatArrayOf(-0.168f, 0.452f, 0f),   // which is where the body's are
+        floatArrayOf(0.115f, 0.615f, 0f),
+        floatArrayOf(0.168f, 0.452f, 0f),
         floatArrayOf(-0.052f, 0.245f, 0f),
-        floatArrayOf(-0.052f, 0.010f, 0f),
+        floatArrayOf(-0.052f, 0.008f, 0.030f),   // tipped forward into the foot
         floatArrayOf(0.052f, 0.245f, 0f),
-        floatArrayOf(0.052f, 0.010f, 0f)
+        floatArrayOf(0.052f, 0.008f, 0.030f)
     )
 
     /**
-     * Falloff radius per bone. Wider on the trunk, because the torso and the
-     * skirt are broad and must not tear; tight on the limbs, so an arm does not
-     * drag the ribcage with it.
+     * Falloff radius per bone, in the same units as the mesh.
+     *
+     * These are the body's own measurements, not taste. The pelvis is 0.13 wide
+     * at the hip, so hips is 0.130 — it used to be 0.230, and a radius that
+     * large is not a wide bone but a bone that competes with every other one:
+     * at 0.230 the hips still outweighed the forearm on vertices 30cm away
+     * along the surface, which welded the hands to the pelvis and tore them off
+     * on the first arm swing. Worst tear across a walk, a stand and a run fell
+     * from 11.20cm to 2.91cm on this table alone.
      */
     val radius = floatArrayOf(
-        0.230f, 0.190f, 0.175f, 0.115f,
-        0.070f, 0.062f, 0.070f, 0.062f,
-        0.090f, 0.075f, 0.090f, 0.075f
+        0.130f, 0.120f, 0.130f, 0.120f,
+        0.055f, 0.050f, 0.055f, 0.050f,
+        0.075f, 0.065f, 0.075f, 0.065f
     )
 
     /** Squared distance from [p] to the capsule segment of [bone]. */
@@ -9176,34 +9193,204 @@ internal object Skeleton {
         return dx * dx + dy * dy + dz * dz
     }
 
+    /** How far past its radius a bone's influence is allowed to travel. */
+    private const val SOFT = 0.35f
+
     /**
-     * Bone indices and weights for one rest-pose vertex: four of each, the
-     * weights summing to 1.
+     * `1 / (d/r)^4`, softened so that a vertex sitting exactly on a bone's axis
+     * gets a large weight rather than an infinite one.
      *
-     * The falloff is 1/(d/r)^4 rather than a linear ramp because a limb needs
-     * to win decisively over the trunk a short way down its length, while
-     * still blending across the joint itself.
+     * The softening is the difference between a blend and a hard edge. Without
+     * it `d` can be zero, the weight is 1e12 against a competitor's 1, and the
+     * transition from one bone to the next happens between two adjacent
+     * vertices — a crease, not a shoulder.
      */
-    fun bind(px: Float, py: Float, pz: Float, outIdx: IntArray, outWt: FloatArray) {
-        var i0 = 0; var i1 = 0; var i2 = 0; var i3 = 0
-        var w0 = -1f; var w1 = -1f; var w2 = -1f; var w3 = -1f
-        for (b in 0 until BONES) {
-            val d = kotlin.math.sqrt(distSq(b, px, py, pz))
-            val r = radius[b]
-            val q = (d / r).coerceAtLeast(1e-3f)
-            val w = 1f / (q * q * q * q)
-            when {
-                w > w0 -> { i3=i2; w3=w2; i2=i1; w2=w1; i1=i0; w1=w0; i0=b; w0=w }
-                w > w1 -> { i3=i2; w3=w2; i2=i1; w2=w1; i1=b;  w1=w }
-                w > w2 -> { i3=i2; w3=w2; i2=b;  w2=w }
-                w > w3 -> { i3=b;  w3=w }
+    private fun falloff(d: Float, r: Float): Float {
+        val s = SOFT * r
+        val q = kotlin.math.sqrt(d * d + s * s) / r
+        return 1f / (q * q * q * q)
+    }
+
+    /**
+     * Bind a whole mesh at once, measuring distance ALONG THE SURFACE.
+     *
+     * Doing the whole mesh in one call rather than a vertex at a time is not an
+     * optimisation, it is the point: geodesic distance is a property of the
+     * mesh, so it cannot be computed from a position alone. Vertices are welded
+     * by position first, because a seam that duplicates vertices for its UVs
+     * would otherwise cut every path that crosses it.
+     *
+     * [posStride] and [posOffset] describe where the positions sit inside
+     * [verts]; [outIdx] and [outWt] receive four entries per vertex.
+     */
+    fun bindMesh(
+        verts: FloatArray, posStride: Int, posOffset: Int, vertexCount: Int,
+        indices: ShortArray, outIdx: IntArray, outWt: FloatArray
+    ) {
+        // --- weld ------------------------------------------------------------
+        val nodeOf = IntArray(vertexCount)
+        val byKey = HashMap<Long, Int>(vertexCount * 2)
+        val nx = FloatArray(vertexCount); val ny = FloatArray(vertexCount)
+        val nz = FloatArray(vertexCount)
+        var nodes = 0
+        for (v in 0 until vertexCount) {
+            val o = posOffset + v * posStride
+            val x = verts[o]; val y = verts[o + 1]; val z = verts[o + 2]
+            // 0.1mm buckets: fine enough to keep distinct surfaces apart, coarse
+            // enough to close the float noise a seam leaves behind.
+            val key = (Math.round(x * 10000f).toLong() and 0x1FFFFF shl 42) or
+                      (Math.round(y * 10000f).toLong() and 0x1FFFFF shl 21) or
+                      (Math.round(z * 10000f).toLong() and 0x1FFFFF)
+            val existing = byKey[key]
+            if (existing != null) {
+                nodeOf[v] = existing
+            } else {
+                byKey[key] = nodes
+                nodeOf[v] = nodes
+                nx[nodes] = x; ny[nodes] = y; nz[nodes] = z
+                nodes++
             }
         }
-        val sum = w0 + w1 + w2 + w3
-        val inv = if (sum > 1e-8f) 1f / sum else 0f
-        outIdx[0]=i0; outIdx[1]=i1; outIdx[2]=i2; outIdx[3]=i3
-        outWt[0]=w0*inv; outWt[1]=w1*inv; outWt[2]=w2*inv; outWt[3]=w3*inv
-        if (inv == 0f) { outIdx[0]=HIPS; outWt[0]=1f }
+
+        // --- adjacency, as CSR ------------------------------------------------
+        val triCount = indices.size / 3
+        val degree = IntArray(nodes + 1)
+        val ea = IntArray(triCount * 6); val eb = IntArray(triCount * 6)
+        var edges = 0
+        for (t in 0 until triCount) {
+            val a = nodeOf[indices[t * 3].toInt() and 0xFFFF]
+            val b = nodeOf[indices[t * 3 + 1].toInt() and 0xFFFF]
+            val c = nodeOf[indices[t * 3 + 2].toInt() and 0xFFFF]
+            if (a != b) { ea[edges] = a; eb[edges] = b; edges++ }
+            if (b != c) { ea[edges] = b; eb[edges] = c; edges++ }
+            if (c != a) { ea[edges] = c; eb[edges] = a; edges++ }
+        }
+        for (e in 0 until edges) { degree[ea[e]]++; degree[eb[e]]++ }
+        val start = IntArray(nodes + 1)
+        for (n in 0 until nodes) start[n + 1] = start[n] + degree[n]
+        val cursor = start.copyOf()
+        val adj = IntArray(start[nodes]); val cost = FloatArray(start[nodes])
+        for (e in 0 until edges) {
+            val a = ea[e]; val b = eb[e]
+            val dx = nx[a] - nx[b]; val dy = ny[a] - ny[b]; val dz = nz[a] - nz[b]
+            val len = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+            adj[cursor[a]] = b; cost[cursor[a]] = len; cursor[a]++
+            adj[cursor[b]] = a; cost[cursor[b]] = len; cursor[b]++
+        }
+
+        // --- one Dijkstra per bone -------------------------------------------
+        val geo = Array(BONES) { FloatArray(nodes) }
+        // Lazy deletion means one entry per successful relaxation plus one per
+        // seed, and there cannot be more relaxations than directed edges. Sized
+        // to that bound so a push can never be refused.
+        val heap = LongArray(adj.size + nodes + 16)
+        for (b in 0 until BONES) {
+            val g = geo[b]
+            java.util.Arrays.fill(g, Float.MAX_VALUE)
+            var size = 0
+            // Seeds: everything already well inside the capsule. Starting from a
+            // patch rather than a point is what stops a single unlucky vertex
+            // deciding where a limb begins.
+            val seedR = 0.6f * radius[b]
+            var seeded = false
+            for (n in 0 until nodes) {
+                val d = kotlin.math.sqrt(distSq(b, nx[n], ny[n], nz[n]))
+                if (d <= seedR) { g[n] = d; size = heapPush(heap, size, d, n); seeded = true }
+            }
+            if (!seeded) {
+                var best = 0; var bestD = Float.MAX_VALUE
+                for (n in 0 until nodes) {
+                    val d = distSq(b, nx[n], ny[n], nz[n])
+                    if (d < bestD) { bestD = d; best = n }
+                }
+                g[best] = kotlin.math.sqrt(bestD)
+                size = heapPush(heap, size, g[best], best)
+            }
+            while (size > 0) {
+                val top = heap[0]
+                val du = java.lang.Float.intBitsToFloat((top ushr 32).toInt())
+                val u = (top and 0xFFFFFFFFL).toInt()
+                size = heapPop(heap, size)
+                if (du > g[u]) continue
+                var k = start[u]
+                val end = start[u + 1]
+                while (k < end) {
+                    val w = adj[k]
+                    val nd = du + cost[k]
+                    if (nd < g[w]) { g[w] = nd; size = heapPush(heap, size, nd, w) }
+                    k++
+                }
+            }
+        }
+
+        // --- weights ----------------------------------------------------------
+        for (v in 0 until vertexCount) {
+            val n = nodeOf[v]
+            var i0 = HIPS; var i1 = HIPS; var i2 = HIPS; var i3 = HIPS
+            var w0 = -1f; var w1 = -1f; var w2 = -1f; var w3 = -1f
+            for (b in 0 until BONES) {
+                val d = geo[b][n]
+                if (d == Float.MAX_VALUE) continue          // not on this shell
+                val w = falloff(d, radius[b])
+                when {
+                    w > w0 -> { i3=i2; w3=w2; i2=i1; w2=w1; i1=i0; w1=w0; i0=b; w0=w }
+                    w > w1 -> { i3=i2; w3=w2; i2=i1; w2=w1; i1=b;  w1=w }
+                    w > w2 -> { i3=i2; w3=w2; i2=b;  w2=w }
+                    w > w3 -> { i3=b;  w3=w }
+                }
+            }
+            val sum = (if (w0 > 0f) w0 else 0f) + (if (w1 > 0f) w1 else 0f) +
+                      (if (w2 > 0f) w2 else 0f) + (if (w3 > 0f) w3 else 0f)
+            val o = v * 4
+            if (sum > 1e-8f) {
+                val inv = 1f / sum
+                outIdx[o] = i0; outIdx[o+1] = i1; outIdx[o+2] = i2; outIdx[o+3] = i3
+                outWt[o] = if (w0 > 0f) w0 * inv else 0f
+                outWt[o+1] = if (w1 > 0f) w1 * inv else 0f
+                outWt[o+2] = if (w2 > 0f) w2 * inv else 0f
+                outWt[o+3] = if (w3 > 0f) w3 * inv else 0f
+            } else {
+                // A shell no bone reaches at all — a stray prop, or a mesh that
+                // changed under us. Rigid to the nearest bone beats scattered.
+                var best = HIPS; var bestD = Float.MAX_VALUE
+                for (b in 0 until BONES) {
+                    val d = distSq(b, nx[n], ny[n], nz[n])
+                    if (d < bestD) { bestD = d; best = b }
+                }
+                outIdx[o] = best; outIdx[o+1] = best; outIdx[o+2] = best; outIdx[o+3] = best
+                outWt[o] = 1f; outWt[o+1] = 0f; outWt[o+2] = 0f; outWt[o+3] = 0f
+            }
+        }
+    }
+
+    /** Binary min-heap of (distance, node) packed into a long, distance high. */
+    private fun heapPush(h: LongArray, size: Int, d: Float, n: Int): Int {
+        if (size >= h.size) return size                       // cannot happen; refuses to corrupt
+        var i = size
+        h[i] = (java.lang.Float.floatToRawIntBits(d).toLong() shl 32) or n.toLong()
+        while (i > 0) {
+            val p = (i - 1) / 2
+            if (h[p] <= h[i]) break
+            val t = h[p]; h[p] = h[i]; h[i] = t
+            i = p
+        }
+        return size + 1
+    }
+
+    private fun heapPop(h: LongArray, size: Int): Int {
+        val n = size - 1
+        h[0] = h[n]
+        var i = 0
+        while (true) {
+            val l = i * 2 + 1; val r = l + 1
+            var m = i
+            if (l < n && h[l] < h[m]) m = l
+            if (r < n && h[r] < h[m]) m = r
+            if (m == i) break
+            val t = h[m]; h[m] = h[i]; h[i] = t
+            i = m
+        }
+        return n
     }
 }
 
@@ -9310,10 +9497,11 @@ internal class PoseBuilder {
             rz = sin(time * 0.7f) * 1.6f * (1f - down))
 
         // --- Arms -------------------------------------------------------------
-        // The mesh holds them straight out, so the rest angle is a rigid -76
-        // degrees about Z per side. Rigid is the point: every vertex bound to
-        // the bone takes the same rotation, which is what stops the limb fanning
-        // into the shape that read as a second pair of arms.
+        // The mesh holds them at her sides, so there is no rest angle to apply:
+        // zero here means the arms stay exactly where the model puts them. This
+        // used to be -76 degrees about Z, which existed only to shove the
+        // dress's T-posed sleeves down over arms that were already down. The
+        // sleeves are on the arms now, so the compensation is gone with them.
         for (side in 0..1) {
             val s = if (side == 0) -1f else 1f          // -1 left, +1 right
             val upper = if (side == 0) Skeleton.UPPER_ARM_L else Skeleton.UPPER_ARM_R
@@ -9321,7 +9509,7 @@ internal class PoseBuilder {
             val isRight = if (side == 1) 1f else 0f
             val torchArm = torch * isRight
 
-            val rest = -76f * s                          // arms down at the sides
+            val rest = 0f                                // the mesh already is
             val phase = stride + if (side == 1) Math.PI.toFloat() else 0f
             val swing = sin(phase) * (23f + 17f * run) * gait
             val idle = sin(time * 0.9f + s) * 3.0f
@@ -9400,21 +9588,21 @@ class CharacterMesh(
             val idx = ShortArray(indexCount)
             bb.asShortBuffer().get(idx)
 
-            // Bind to the skeleton. Once, here, off the rest pose — 7886
-            // vertices against 12 capsules is a few hundred thousand distance
-            // tests, which is nothing at load and lets the shader do nothing
-            // but a weighted sum of four matrices per vertex.
+            // Bind to the skeleton. Once, here, off the rest pose, so the shader
+            // does nothing per frame but a weighted sum of four matrices per
+            // vertex. Twelve Dijkstras over the welded mesh is a few
+            // milliseconds and it only ever happens on this path.
             val verts = FloatArray(vertexCount * FLOATS_PER_VERTEX)
-            val bi = IntArray(4)
-            val bw = FloatArray(4)
+            val bi = IntArray(vertexCount * 4)
+            val bw = FloatArray(vertexCount * 4)
+            Skeleton.bindMesh(fileVerts, FILE_FLOATS_PER_VERTEX, 0, vertexCount, idx, bi, bw)
             for (v in 0 until vertexCount) {
                 val src = v * FILE_FLOATS_PER_VERTEX
                 val dst = v * FLOATS_PER_VERTEX
                 System.arraycopy(fileVerts, src, verts, dst, FILE_FLOATS_PER_VERTEX)
-                Skeleton.bind(fileVerts[src], fileVerts[src + 1], fileVerts[src + 2], bi, bw)
                 for (k in 0 until 4) {
-                    verts[dst + 8 + k] = bi[k].toFloat()
-                    verts[dst + 12 + k] = bw[k]
+                    verts[dst + 8 + k] = bi[v * 4 + k].toFloat()
+                    verts[dst + 12 + k] = bw[v * 4 + k]
                 }
             }
             OmniLog.i("Model", "loaded $assetPath: $vertexCount verts, ${indexCount / 3} tris, skinned to ${Skeleton.BONES} bones")

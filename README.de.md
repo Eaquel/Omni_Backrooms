@@ -90,6 +90,14 @@ Tools/                           die acht Prüfungen
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
 
+- **Die Figur hatte vier Arme.** Das Mesh enthielt zwei Paare: einen Körper mit
+  den Armen an den Seiten und ein Kleid, dessen Ärmel in T-Pose gerade
+  abstanden. Die Knochen lagen auf den Ärmeln, das Rig schwang also leeren Stoff,
+  während die Arme, die man sieht, an der Hüfte festgeschweißt blieben. Die
+  Ärmel liegen jetzt auf den Armen, und die Bindung misst entlang der Oberfläche
+  statt durch die Luft — der Rocksaum verläuft 4 cm neben der Hand, und kein
+  geradliniges Maß kann beide auseinanderhalten. Acht um einen Millimeter
+  versetzt duplizierte Schalen gingen mit: 1139 Vertices und ihr Z-Fighting.
 - **Ebene 0 enthielt eine Menge.** Drei bis acht Kreaturen, alle zwölf Sekunden
   aufgefüllt. Eine Menge ist geschäftig, nicht beängstigend. Jetzt genau eine,
   und die Schwierigkeit ändert, welche das ist, nicht wie viele es sind.
