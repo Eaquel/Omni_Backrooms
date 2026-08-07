@@ -2337,6 +2337,20 @@ in vec3 vNormal; in vec2 vUV; in float vLight; in vec3 vWorldPos;
 uniform sampler2D uTex;
 uniform vec3 uCamPos;
 uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
+/**
+ * The torch, as an actual light in the world.
+ *
+ * uTorchPos is the lens face, uTorchDir the way the barrel points, both handed
+ * over by drawTorch from the same arm chain that positions the model — so the
+ * beam cannot drift away from the object casting it.
+ *
+ * This replaces a circle drawn at uv (0.5, 0.47) in the post pass. That circle
+ * had no position in the world at all: it sat in the middle of the screen
+ * whatever the torch was doing, which is exactly why the light read as coming
+ * out of the player's chest. A screen-space disc also cannot respect a surface
+ * normal, so a wall the beam grazed lit up as brightly as one it hit square on.
+ */
+uniform vec3 uTorchPos; uniform vec3 uTorchDir; uniform float uTorchOn;
 uniform float uBumpStrength; uniform float uBumpTexel;
 uniform vec3 uLampTint;
 /**
@@ -2494,6 +2508,25 @@ void main(){
     // is the single most recognisable thing about this palette.
     vec3 lampMix = mix(vec3(1.0), uLampTint, clamp(vLight * 0.75, 0.0, 1.0));
     vec3 col = albedo * lit * groundAO * lampMix;
+
+    // Torch. A real spotlight: cone about the barrel's axis, inverse-square
+    // falloff, and Lambert against the bumped normal, so it slides across the
+    // wall as she turns and dims on surfaces it only grazes.
+    if (uTorchOn > 0.001) {
+        vec3  toFrag = vWorldPos - uTorchPos;
+        float d      = length(toFrag);
+        vec3  L      = toFrag / max(d, 1e-4);
+        float cosA   = dot(L, normalize(uTorchDir));
+        // Hot core inside ~14 degrees, soft edge out to ~34.
+        float cone   = smoothstep(0.83, 0.97, cosA);
+        float atten  = 1.0 / (1.0 + 0.22 * d + 0.11 * d * d);
+        float ndl    = max(dot(n, -L), 0.0);
+        float beam   = cone * atten * uTorchOn;
+        col += albedo * vec3(1.00, 0.96, 0.86) * beam * (0.25 + 1.75 * ndl);
+        // A little of the beam catches the air in front of the lens.
+        col += vec3(0.9, 0.87, 0.76) * cone * uTorchOn * 0.05
+             * smoothstep(0.5, 4.0, d) * (1.0 - smoothstep(6.0, 16.0, d));
+    }
 
     // Dust in the air, drifting across the lit volume between the surface and
     // the eye. Keyed to how brightly the surface is lit, because dust is only
@@ -2985,13 +3018,12 @@ void main(){
     col *= clamp(vigAmt, 0.0, 1.0);
     col *= (0.55 + 0.45*uFlicker);
 
-    // Torch. The scene itself is lit entirely by the baked fluorescent bake, so
-    // this is a screen-space lift of what the beam would fall on rather than a
-    // real light: no per-fragment normals, no cost that scales with geometry.
+    // The torch is a real light in the scene pass now — see uTorchPos there.
+    // What is left here is only the glare the lens itself throws into the lens
+    // of the camera, which is a screen-space effect and belongs in a screen-
+    // space pass.
     if (uFlashOn > 0.5) {
-        vec2 beam = (uv - vec2(0.5, 0.47)) * vec2(uResolution.x/uResolution.y, 1.0);
-        float cone = 1.0 - smoothstep(0.10, 0.62, length(beam));
-        col += col * cone * 0.85 + vec3(0.06, 0.055, 0.042) * cone;
+        col *= 1.02;
     }
 
     // Losing your mind: the frame smears, drifts off its own colour axis and
@@ -3129,6 +3161,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var uFogDensity = 0
     private var uFogColor = 0; private var uFlicker = 0
     private var uBumpStrength = 0; private var uBumpTexel = 0; private var uLampTint = 0
+    private var uTorchPos = 0; private var uTorchDir = 0; private var uTorchOn = 0
     /** Drives the level's creeping damp, breathing ceiling and airborne dust. */
     private var uSceneTime = 0
     private var uUvScale = 0
@@ -3238,6 +3271,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         uBumpStrength = GLES30.glGetUniformLocation(sceneProgram, "uBumpStrength")
         uBumpTexel = GLES30.glGetUniformLocation(sceneProgram, "uBumpTexel")
         uLampTint = GLES30.glGetUniformLocation(sceneProgram, "uLampTint")
+        uTorchPos = GLES30.glGetUniformLocation(sceneProgram, "uTorchPos")
+        uTorchDir = GLES30.glGetUniformLocation(sceneProgram, "uTorchDir")
+        uTorchOn = GLES30.glGetUniformLocation(sceneProgram, "uTorchOn")
         uSceneTime = GLES30.glGetUniformLocation(sceneProgram, "uTime")
         uUvScale = GLES30.glGetUniformLocation(sceneProgram, "uUvScale")
 
@@ -3503,6 +3539,30 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             }
             Matrix.multiplyMM(vpM, 0, projM, 0, viewM, 0)
 
+            // Where the beam comes from.
+            //
+            // Third person takes it off the torch model's lens, computed in
+            // updateTorchLight just before the model is drawn -- so the level
+            // reads it one frame late, which at 60Hz is 16ms of lag on a light
+            // held in a slowly-moving hand and is not visible. First person has
+            // no model to take it from, so the beam starts where a torch held
+            // in the right hand would be: forward of the eye, a little right
+            // and below it, pointing where she looks.
+            if (!thirdPerson) {
+                val yawR = Math.toRadians(smoothYaw.toDouble()).toFloat()
+                val pitR = Math.toRadians(smoothPitch.toDouble()).toFloat()
+                val fx = kotlin.math.sin(yawR) * kotlin.math.cos(pitR)
+                val fy = -kotlin.math.sin(pitR)
+                val fz = -kotlin.math.cos(yawR) * kotlin.math.cos(pitR)
+                val rx = kotlin.math.cos(yawR)
+                val rz = kotlin.math.sin(yawR)
+                torchLightPos[0] = eyeX + fx * 0.28f + rx * 0.20f
+                torchLightPos[1] = camY + fy * 0.28f - 0.18f
+                torchLightPos[2] = eyeZ + fz * 0.28f + rz * 0.20f
+                torchLightDir[0] = fx; torchLightDir[1] = fy; torchLightDir[2] = fz
+                torchLightOn = if (state.flashlightOn) 1f else 0f
+            }
+
             val fogDensity = (if (rs.fogEnabled) 1.0f else 0.15f) * fogMult
             val flicker = state.flickerIntensity.coerceIn(0.55f, 1f)
             val bump = when (rs.quality) { "low" -> 0f; "high" -> 1.6f; else -> 0.9f }
@@ -3576,10 +3636,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     avatarCrouch, avatarAir, headYaw, headPitch, torchRaise,
                     avatarCollapse
                 )
-                drawTorch(
-                    vpM, smoothX, feetY, smoothZ, smoothYaw,
+                updateTorchLight(
+                    smoothX, feetY, smoothZ, smoothYaw,
                     timeSec, walkBlend, torchRaise, avatarCrouch, state.flashlightOn
                 )
+                drawTorch(vpM, torchRaise, state.flashlightOn)
             }
 
             val activeIds = HashSet<Int>()
@@ -3677,6 +3738,9 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glUniform3f(uFogColor, 0.16f, 0.145f, 0.085f)
         GLES30.glUniform1f(uFlicker, flicker)
         GLES30.glUniform3f(uLampTint, 1.0f, 0.94f, 0.66f)
+        GLES30.glUniform3f(uTorchPos, torchLightPos[0], torchLightPos[1], torchLightPos[2])
+        GLES30.glUniform3f(uTorchDir, torchLightDir[0], torchLightDir[1], torchLightDir[2])
+        GLES30.glUniform1f(uTorchOn, torchLightOn)
         GLES30.glUniform1f(uSceneTime, timeSec)
         // Bump detail scales with quality: off on low, subtle on medium, full
         // on high. The texel step controls how coarse the derived relief is.
@@ -3970,12 +4034,42 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
      * no bone buffer to read back; the alternative — a second, authoritative
      * skeleton — is far more machinery than one prop is worth.
      */
-    private fun drawTorch(
-        vp: FloatArray, px: Float, py: Float, pz: Float, yawDeg: Float,
+    /** Lens position and beam direction in world space, and how lit it is. */
+    private val torchLightPos = floatArrayOf(0f, 0f, 0f)
+    private val torchLightDir = floatArrayOf(0f, 0f, 1f)
+    private var torchLightOn = 0f
+
+    /**
+     * Builds torchModelM and reads the lens position and beam axis off it.
+     *
+     * Split out of drawTorch because the level is drawn first and needs the
+     * light before the torch itself is drawn. Both go through here, so the beam
+     * and the object it comes out of cannot disagree — which is the whole point:
+     * the old screen-space circle had no relationship to the model at all.
+     */
+    private fun updateTorchLight(
+        px: Float, py: Float, pz: Float, yawDeg: Float,
         timeSec: Float, walk: Float, torch: Float, crouch: Float, on: Boolean
     ) {
-        if (torchIndexCount <= 0 || torch <= 0.01f) return
+        buildTorchMatrix(px, py, pz, yawDeg, timeSec, walk, torch, crouch)
+        // The barrel is modelled along local +Z with the lens face at z=0.093
+        // (see buildTorchMesh's profile), so the tip and the beam axis are that
+        // point and that axis pushed through the model matrix.
+        val m = torchModelM
+        val tipLocal = 0.093f
+        torchLightPos[0] = m[8] * tipLocal + m[12]
+        torchLightPos[1] = m[9] * tipLocal + m[13]
+        torchLightPos[2] = m[10] * tipLocal + m[14]
+        val dx = m[8]; val dy = m[9]; val dz = m[10]
+        val len = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz).coerceAtLeast(1e-6f)
+        torchLightDir[0] = dx / len; torchLightDir[1] = dy / len; torchLightDir[2] = dz / len
+        torchLightOn = if (on) torch.coerceIn(0f, 1f) else 0f
+    }
 
+    private fun buildTorchMatrix(
+        px: Float, py: Float, pz: Float, yawDeg: Float,
+        timeSec: Float, walk: Float, torch: Float, crouch: Float
+    ) {
         // --- Mirror of the shader's arm chain, right side only ---------------
         val gait = walk.coerceIn(0f, 1.6f)
         val run = ((gait - 1f).coerceIn(0f, 0.6f)) / 0.6f
@@ -4019,7 +4113,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // Crouching drops the whole upper body; the hand rides down with it.
         handY -= 0.38f * crouch
 
-        GLES30.glUseProgram(torchProgram)
         Matrix.setIdentityM(torchModelM, 0)
         Matrix.translateM(torchModelM, 0, px, py, pz)
         Matrix.rotateM(torchModelM, 0, yawDeg, 0f, 1f, 0f)
@@ -4028,6 +4121,13 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // Point the beam along the arm: level and forward when raised, angled
         // down at her side when stowed.
         Matrix.rotateM(torchModelM, 0, -78f + 78f * torch, 1f, 0f, 0f)
+    }
+
+    private fun drawTorch(
+        vp: FloatArray, torch: Float, on: Boolean
+    ) {
+        if (torchIndexCount <= 0 || torch <= 0.01f) return
+        GLES30.glUseProgram(torchProgram)
         Matrix.multiplyMM(torchMvpM, 0, vp, 0, torchModelM, 0)
 
         GLES30.glUniformMatrix4fv(tMVP, 1, false, torchMvpM, 0)
