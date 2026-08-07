@@ -450,8 +450,12 @@ def check_inventory() -> None:
     langs = {os.path.basename(p) for p in glob.glob(os.path.join(ASSETS, "Story/*.json"))}
     referenced.update(f"Story/{n}" for n in langs)
 
+    # The Unity decoys under bin/Data are unreferenced by design — nothing in
+    # the app opens them, which is the whole point. check_disguise() below is
+    # what holds them to account instead.
     orphans = [os.path.relpath(f, ASSETS) for f in files
-               if os.path.relpath(f, ASSETS).replace(os.sep, "/") not in referenced]
+               if os.path.relpath(f, ASSETS).replace(os.sep, "/") not in referenced
+               and not os.path.relpath(f, ASSETS).replace(os.sep, "/").startswith("bin/Data/")]
     for o in orphans:
         failures.append(f"asset never referenced by any source: {o}")
 
@@ -496,6 +500,86 @@ def check_title_case() -> None:
             failures.append(f"{os.path.basename(kt)}: forced uppercase on a label: {line[:90]}")
             bad += 1
     print(f"   {'ok' if bad == 0 else f'{bad} violation(s)'}")
+
+
+# The costume's budget. Everything in it is dead weight in the APK by
+# definition, so it has to stay small enough that the trade is obviously worth
+# making. Fifty kilobytes is roughly one texture's worth of nothing.
+DISGUISE_BUDGET_BYTES = 50 * 1024
+
+
+def check_disguise() -> None:
+    """
+    Everything visible from outside must tell the same story.
+
+    A disguise is worth nothing the moment it contradicts itself. A binary
+    claiming Unity 2022.3.21f1 next to a boot.config claiming 2021.3.4f1, or a
+    global-metadata.dat whose magic number is wrong, is louder than no disguise
+    at all: it says somebody tried, which is an invitation.
+
+    So: one version string, defined once in Disguise/Unity.h, and asserted to
+    appear byte for byte in every decoy. Plus the structural things a
+    fingerprinting tool actually reads — the IL2CPP sanity magic, the presence
+    of both libraries in the CMake build, the il2cpp_* export surface.
+
+    None of this is protection and the note at the top of Unity.cpp says so.
+    It is a filter on the front door, and a filter with a hole in it is a door.
+    """
+    section("Unity disguise")
+    header = os.path.join(NATIVE, "Disguise/Unity.h")
+    if not os.path.exists(header):
+        failures.append("Disguise/Unity.h is missing")
+        return
+    m = re.search(r'kUnityVersion\s*=\s*"([^"]+)"', open(header, encoding="utf-8").read())
+    check(m is not None, "Disguise/Unity.h does not define kUnityVersion")
+    if not m:
+        return
+    version = m.group(1).encode()
+    print(f"   version {version.decode()}")
+
+    total = 0
+    data = os.path.join(ASSETS, "bin/Data")
+    for rel in ("boot.config", "globalgamemanagers",
+                "il2cpp_data/Metadata/global-metadata.dat"):
+        path = os.path.join(data, rel)
+        if not os.path.exists(path):
+            failures.append(f"decoy missing: bin/Data/{rel}")
+            continue
+        blob = open(path, "rb").read()
+        total += len(blob)
+        print(f"   bin/Data/{rel:44s} {len(blob):5d} B")
+
+        if rel == "il2cpp_data/Metadata/global-metadata.dat":
+            # The first eight bytes are the only part of this file anything
+            # ever checks, and they are the part that has to be right.
+            sanity, ver = struct.unpack("<Ii", blob[:8])
+            check(sanity == 0xFAB11BAF,
+                  f"global-metadata.dat sanity is 0x{sanity:08X}, IL2CPP writes 0xFAB11BAF")
+            check(24 <= ver <= 31,
+                  f"global-metadata.dat claims format version {ver}, which no Unity release emits")
+        else:
+            check(version in blob,
+                  f"bin/Data/{rel} does not carry {version.decode()} — the decoys disagree")
+
+    # The C++ side has to claim it too, or `strings` on the binary contradicts
+    # the files sitting next to it.
+    unity_cpp = open(os.path.join(NATIVE, "Disguise/Unity.cpp"), encoding="utf-8").read()
+    check(version.decode() in unity_cpp,
+          "Disguise/Unity.cpp does not embed the version from Unity.h")
+    exports = re.findall(r"OMNI_EXPORT[^\n]*?\b(il2cpp_[a-z0-9_]+)\s*\(", unity_cpp)
+    check(len(exports) >= 12,
+          f"only {len(exports)} il2cpp_* exports; a real libil2cpp.so exports the whole C API")
+
+    player = os.path.join(NATIVE, "Disguise/Player.cpp")
+    check(os.path.exists(player), "Disguise/Player.cpp is missing — there is no libunity.so")
+    cmake = open(os.path.join(NATIVE, "CMakeLists.txt"), encoding="utf-8").read()
+    check("unity" in re.findall(r"add_library\(\s*(\w+)", cmake),
+          "CMakeLists.txt does not build a libunity.so target")
+
+    check(total <= DISGUISE_BUDGET_BYTES,
+          f"the decoys total {total} B, over the {DISGUISE_BUDGET_BYTES} B budget")
+    print(f"   {len(exports)} il2cpp_* exports, {total} B of decoys "
+          f"({total * 100 // DISGUISE_BUDGET_BYTES}% of budget)")
 
 
 def check_locales() -> None:
@@ -736,6 +820,7 @@ def main() -> int:
     check_inventory()
     check_title_case()
     check_locales()
+    check_disguise()
 
     print()
     for f in failures:

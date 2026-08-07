@@ -235,11 +235,23 @@ jobs:
             ./gradlew :Backrooms:assembleDebug
           fi
 
-      - name: Verify libil2cpp.so
+      # Both halves of the Unity costume have to be in the packaged libraries.
+      # libil2cpp.so on its own is a file with a suggestive name; the pair is
+      # what a Unity APK actually looks like, and a missing libunity.so is the
+      # kind of silent regression a CMake edit causes without failing anything.
+      - name: Verify the native libraries
         run: |
-          find Backrooms/build -name "libil2cpp.so" | while read f; do
-            echo "Found: $f  ($(du -sh "$f" | cut -f1))"
+          missing=0
+          for lib in libil2cpp.so libunity.so; do
+            found="$(find Backrooms/build -name "$lib" | head -1)"
+            if [ -z "$found" ]; then
+              echo "::error::$lib was not built"
+              missing=1
+            else
+              echo "Found: $found  ($(du -h "$found" | cut -f1))"
+            fi
           done
+          exit "$missing"
 
       # Names the branch and the commit, so several runs' downloads stay apart
       # in the Artifacts list instead of all reading "release-build".
