@@ -66,6 +66,11 @@ jobs:
       - name: Native
         run: python3 Tools/Native_Check.py
 
+      # The dependency/import half only; the compile pass needs a kotlinc this
+      # runner does not have and the tool skips it by itself.
+      - name: Kotlin
+        run: python3 Tools/Kotlin_Check.py
+
       # Floods the map from the spawn and proves the exit is actually reachable,
       # over many seeds. An unreachable exit is unwinnable and silent.
       - name: Level 0

@@ -652,6 +652,17 @@ class SessionService : Service() {
         }
     }
 
+    private fun startScoreAccumulator() {
+        scoreJob = scope.launch {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            while (isActive) {
+                if (!_gameState.value.isPaused)
+                    score += when (_gameState.value.difficulty) { "hard" -> 5L; "normal" -> 3L; else -> 1L }
+                delay(1_000)
+            }
+        }
+    }
+
     private fun startPhysicsLoop() {
         lastTickMs = bridge.nowMs()
         physicsJob = scope.launch {

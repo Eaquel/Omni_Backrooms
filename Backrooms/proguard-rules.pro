@@ -45,6 +45,9 @@
 }
 -dontwarn dagger.hilt.**
 
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
 -assumenosideeffects class android.util.Log {
     public static int v(...);
     public static int d(...);

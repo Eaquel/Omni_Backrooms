@@ -28,6 +28,7 @@ import argparse
 import collections
 import os
 import re
+import glob
 import shutil
 import subprocess
 import sys
@@ -156,12 +157,106 @@ def compile_tree(kotlinc: str, root: str, outdir: str) -> collections.Counter:
     return messages
 
 
+# ===========================================================================
+# Gradle dependencies against what the source actually imports
+# ===========================================================================
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+KT_GLOB = os.path.join(REPO_ROOT, "Backrooms/Source/Main/Kotlin/**/*.kt")
+APP_GRADLE = os.path.join(REPO_ROOT, "Backrooms/build.gradle.kts")
+CATALOG = os.path.join(REPO_ROOT, "Gradle/libs.versions.toml")
+
+# Library alias -> the import prefix its classes arrive under. Only libraries
+# whose absence is invisible until link time need to be here; anything the
+# Kotlin compiler resolves inside this module does not.
+LIB_PREFIXES = {
+    "androidx-media3-exoplayer": "androidx.media3",
+    "androidx-media3-ui":        "androidx.media3",
+    "retrofit-core":             "retrofit2",
+    "okhttp":                    "okhttp3",
+    "firebase-auth":             "com.google.firebase",
+    "firebase-firestore":        "com.google.firebase",
+    "firebase-crashlytics":      "com.google.firebase",
+    "firebase-messaging":        "com.google.firebase",
+    "firebase-analytics":        "com.google.firebase",
+    "firebase-config":           "com.google.firebase",
+    "androidx-credentials":      "androidx.credentials",
+    "google-id-credential":      "com.google.android.libraries.identity.googleid",
+    "androidx-room-runtime":     "androidx.room",
+    "androidx-billing":          "com.android.billingclient",
+}
+
+
+def check_dependency_imports() -> list[str]:
+    """
+    Every import must have a dependency behind it, and the other way round.
+
+    This exists because removing Firebase took androidx.media3 out with it. The
+    grep that was supposed to prove media3 was unused had `-E` with `\\|`
+    alternation, which under extended regex is a literal pipe, so it searched
+    for the string "media3|ExoPlayer" and found nothing. Five imports were
+    deleted out from under a composable that was still on screen, and the whole
+    thing only surfaced in a Gradle build a minute and a half in.
+
+    The Kotlin compiler cannot catch this here, because this tool runs without
+    the Android classpath: an import of a library that is genuinely gone is
+    indistinguishable from one whose jar simply is not on the path. Comparing
+    the two lists is text, needs nothing installed, and is exact.
+    """
+    problems: list[str] = []
+    gradle = open(APP_GRADLE, encoding="utf-8").read()
+    catalog = open(CATALOG, encoding="utf-8").read()
+
+    declared = set()
+    for alias in LIB_PREFIXES:
+        accessor = alias.replace("-", ".")
+        if re.search(r"(?:implementation|api|ksp)\(\s*(?:platform\()?libs\." +
+                     re.escape(accessor) + r"\b", gradle):
+            declared.add(alias)
+
+    imports: dict[str, set[str]] = {}
+    for path in glob.glob(KT_GLOB, recursive=True):
+        for line in open(path, encoding="utf-8"):
+            m = re.match(r"import ([\w.]+)", line)
+            if m:
+                imports.setdefault(m.group(1), set()).add(os.path.basename(path))
+
+    for prefix in sorted(set(LIB_PREFIXES.values())):
+        aliases = {a for a, p in LIB_PREFIXES.items() if p == prefix}
+        used = {imp: f for imp, f in imports.items() if imp.startswith(prefix + ".")}
+        have = bool(aliases & declared)
+        if used and not have:
+            where = sorted({f for fs in used.values() for f in fs})
+            problems.append(
+                f"{len(used)} import(s) of {prefix} in {', '.join(where)} with no "
+                f"dependency declaring it — the Kotlin here cannot resolve them and "
+                f"only a full Gradle build will say so")
+        if have and not used:
+            problems.append(
+                f"{prefix} is declared in build.gradle.kts and imported nowhere")
+        state = "ok" if bool(used) == have else "MISMATCH"
+        print(f"   {prefix:52s} declared={str(have):5s} imports={len(used):<3d} {state}")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", default="origin/main",
                         help="git ref known to compile (default: origin/main)")
     parser.add_argument("--kotlinc", default=None)
     args = parser.parse_args()
+
+    print("\n── Gradle dependencies vs imports")
+    dep_problems = check_dependency_imports()
+    for p in dep_problems:
+        print("FAIL", p)
+
+    if args.kotlinc is None and not os.environ.get("OMNI_KOTLINC") and shutil.which("kotlinc") is None:
+        # The text check above needs nothing installed, so a missing compiler
+        # must not skip it. CI has no kotlinc and this is the half that runs
+        # there.
+        print("\nkotlinc not found — skipping the compile pass.")
+        return 1 if dep_problems else 0
 
     kotlinc = find_kotlinc(args.kotlinc)
 
