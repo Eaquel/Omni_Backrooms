@@ -92,6 +92,14 @@ Tools/                           die acht Prüfungen
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
 
+- **The ending sampler broke the release build.** `OmniGLRenderer` holds a
+  Context and nothing else; everything it needs arrives as a provider lambda.
+  The new code called `bridge.endingParams` from inside it, and there is no
+  `bridge` there. Every static check passed and Gradle failed. Kotlin_Check
+  cannot see this — without the Android classpath `bridge` is indistinguishable
+  from the thousands of symbols unresolved because a jar is missing — so the
+  architectural rule got stated instead: the GL renderer does not reach into the
+  view model.
 - **The end of a run was a dialog on a black rectangle.** Both screens painted
   the level over at 88% black and put a card on top, which threw away the only
   frame that mattered. A new `Native/Ending/` turns (which ending, seconds in)

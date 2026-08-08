@@ -1532,8 +1532,9 @@ class GameVM @Inject constructor(
                     val s = _state.value
                     val kind = if (s.isEscaped) 2 else 1
                     val el = s.endingElapsed + dt
-                    val panel = runCatching { bridge.endingParams(kind, el) }
-                        .getOrNull()?.getOrNull(7) ?: 1f
+                    val p = runCatching { bridge.endingParams(kind, el) }.getOrNull()
+                    if (p != null && p.size >= 8) endingSnapshot = p
+                    val panel = if (p != null && p.size >= 8) p[7] else 1f
                     _state.update { it.copy(endingElapsed = el, endingPanel = panel) }
                 }
 
@@ -1670,6 +1671,15 @@ class GameVM @Inject constructor(
     /** Current joystick vector, applied continuously by the physics loop rather
      *  than on drag events — holding the stick still emits no events, so
      *  event-driven force meant the player stopped whenever their finger did. */
+    /**
+     * The last eight numbers Native/Ending gave us. Read from the GL thread via
+     * OmniGLRenderer.endingProvider, written from the tick — a whole new array
+     * every time rather than eight stores into one, so the render thread either
+     * sees the previous instant or the next one and never half of each.
+     */
+    @Volatile var endingSnapshot: FloatArray = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f)
+        private set
+
     @Volatile private var moveX = 0f
     @Volatile private var moveZ = 0f
     @Volatile private var sprinting = false
@@ -3350,6 +3360,17 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var pCbMix = 0; private var pCbAxis = 0; private var pFlashOn = 0; private var pMadness = 0
     private var pBloomTex = 0; private var pBloomStrength = 0; private var pExposure = 0
     private var pEnd0 = 0; private var pEnd1 = 0
+    /**
+     * Where the run-over parameters come from.
+     *
+     * A provider rather than a direct call, for the same reason chunkProvider
+     * and trailSource are: this class holds a Context and nothing else, and it
+     * runs on the GL thread. The view model already samples Native/Ending once
+     * per tick to drive the stats panel, so reading its snapshot here means one
+     * call per tick instead of a second one per frame — and means the panel and
+     * the picture cannot be sampled at two different instants.
+     */
+    @Volatile var endingProvider: (() -> FloatArray)? = null
     /** The eight numbers Native/Ending hands back, refreshed once a frame. The
      *  identity is (0,0,0,0, 0,0,1,0): a live run costs nothing. */
     private val endingParams = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f)
@@ -3905,13 +3926,15 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             state.isGameOver || state.isMadnessOver -> 1
             else                                  -> 0
         }
-        if (endKind == 0) {
+        val src = if (endKind == 0) null else endingProvider?.invoke()
+        if (src != null && src.size >= 8) {
+            src.copyInto(endingParams, 0, 0, 8)
+        } else {
+            // A live run, or no provider yet. The identity: nothing applied, and
+            // exposure at one.
             endingParams[0] = 0f; endingParams[1] = 0f; endingParams[2] = 0f
             endingParams[3] = 0f; endingParams[4] = 0f; endingParams[5] = 0f
             endingParams[6] = 1f; endingParams[7] = 0f
-        } else {
-            runCatching { bridge.endingParams(endKind, state.endingElapsed) }
-                .getOrNull()?.let { it.copyInto(endingParams, 0, 0, minOf(8, it.size)) }
         }
 
         drawPost(
@@ -5391,7 +5414,10 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
     val renderer = remember { OmniGLRenderer(ctx.applicationContext) }
     // The renderer pulls chunks on its own thread as the player moves; the VM
     // owns the native bridge, so it supplies the fetch.
-    LaunchedEffect(renderer) { renderer.chunkProvider = vm::fetchChunk }
+    LaunchedEffect(renderer) {
+        renderer.chunkProvider = vm::fetchChunk
+        renderer.endingProvider = { vm.endingSnapshot }
+    }
     // Footsteps. The stamps live in Native/Trail and the renderer reads them
     // straight off the GL thread — the buffer is a plain fixed ring with no
     // allocation, so there is nothing to marshal and nothing to lock.

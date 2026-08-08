@@ -90,6 +90,21 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Son sekansı örnekleyen kod yayın derlemesini kırdı.** `OmniGLRenderer` bir
+  Context'ten başka bir şey tutmuyor — chunk'lar, iz ve artık tur-sonu
+  parametreleri de composable'dan atanan sağlayıcı lambda'larla geliyor, çünkü
+  renderer kendi GL iş parçacığında çalışıyor. Yeni kod `bridge.endingParams`'ı
+  doğrudan onun içinden çağırıyordu ve orada `bridge` diye bir şey yok. Bütün
+  statik kontroller geçti, Gradle `Unresolved reference 'bridge'` ile patladı.
+  Kotlin_Check bunu göremedi ve — denendi — göremez: Android sınıf yolu olmadan
+  `OmniGLRenderer` çözülemeyen bir `GLSurfaceView.Renderer`'ı genişletiyor, yani
+  `bridge` de `x`, `y` ve `build` ile aynı kovaya düşüyor: kod yanlış olduğu için
+  değil, bir jar eksik olduğu için çözülemiyor. Her şeyde hata verecek bir filtre
+  genişletmek yerine altındaki kural doğrudan yazıldı: GL renderer'ı view
+  model'e uzanmaz. Sağlayıcı üzerinden view model'in önbelleğe alınmış anlık
+  görüntüsünü okumak ayrıca kare başına ikinci bir çağrı yerine tick başına tek
+  bir yerel çağrı demek — ve panel ile görüntü iki ayrı an yerine aynı andan
+  örnekleniyor.
 - **Bir turun sonu, siyah bir dikdörtgen üzerinde bir diyalogdu.** Hem ölüm hem
   kaçış ekranı, az önce içinde durduğun seviyeyi %88 siyahla boyayıp üzerine
   yuvarlak köşeli bir kart koyuyordu. Bu, kapatılacak bir şey gibi okunur ve

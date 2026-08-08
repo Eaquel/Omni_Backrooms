@@ -107,6 +107,21 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The ending sampler broke the release build.** `OmniGLRenderer` holds a
+  Context and nothing else — chunks, the trail and now the run-over parameters
+  all arrive as provider lambdas assigned from the composable, because the
+  renderer runs on its own GL thread. The new code called `bridge.endingParams`
+  directly from inside it, and there is no `bridge` there. Every static check
+  passed and Gradle failed on `Unresolved reference 'bridge'`. Kotlin_Check
+  could not see it and, tested, cannot: without the Android classpath
+  `OmniGLRenderer` extends an unresolvable `GLSurfaceView.Renderer`, so `bridge`
+  lands in the same bucket as `x`, `y` and `build` — unresolved because a jar is
+  missing, not because the code is wrong. Rather than widen a filter that would
+  then fail on everything, the rule underneath got stated directly: the GL
+  renderer does not reach into the view model. Reading the view model's cached
+  snapshot through a provider is also one native call per tick instead of a
+  second one per frame, and it means the panel and the picture are sampled at
+  the same instant instead of two.
 - **The end of a run was a dialog on a black rectangle.** Both the death and
   the escape screens painted the level you had just been standing in over at 88%
   black and put a rounded card on top of it. That reads as something to dismiss,

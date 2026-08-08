@@ -165,6 +165,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KT_GLOB = os.path.join(REPO_ROOT, "Backrooms/Source/Main/Kotlin/**/*.kt")
 APP_GRADLE = os.path.join(REPO_ROOT, "Backrooms/build.gradle.kts")
 CATALOG = os.path.join(REPO_ROOT, "Gradle/libs.versions.toml")
+GAME = os.path.join(REPO_ROOT, "Backrooms/Source/Main/Kotlin/com/omni/backrooms/Backrooms.kt")
 
 # Library alias -> the import prefix its classes arrive under. Only libraries
 # whose absence is invisible until link time need to be here; anything the
@@ -238,6 +239,57 @@ def check_dependency_imports() -> list[str]:
     return problems
 
 
+def check_renderer_isolation() -> list[str]:
+    """
+    The GL renderer does not reach into the view model.
+
+    OmniGLRenderer holds a Context and nothing else. Everything it needs from
+    the game — chunks, the trail, and now the run-over parameters — arrives as a
+    provider lambda assigned from the composable, because the renderer runs on
+    its own GL thread and the view model runs on the main one. Writing
+    `bridge.something()` inside it does not merely break that arrangement; it
+    does not compile, since there is no `bridge` in scope.
+
+    That is worth its own rule because the compile pass in this file cannot see
+    it. Without the Android classpath, OmniGLRenderer extends an unresolvable
+    GLSurfaceView.Renderer, so `bridge` lands in the same bucket as `x`, `y` and
+    `build` — unresolved because a jar is missing, not because the code is
+    wrong. Tested: putting the fault back produces no signal this file can
+    distinguish from noise, and it cost a red build to find out.
+
+    So this checks the architecture instead of the symbol. A renderer that
+    reaches for the bridge is wrong even on the days it happens to compile.
+    """
+    problems: list[str] = []
+    src = open(GAME, encoding="utf-8").read()
+    start = src.find("class OmniGLRenderer")
+    if start < 0:
+        return ["OmniGLRenderer is gone — this rule needs rewriting for whatever "
+                "replaced it"]
+
+    # Walk to the class's closing brace.
+    depth, i, opened = 0, src.index("{", start), False
+    while i < len(src):
+        if src[i] == "{":
+            depth += 1
+            opened = True
+        elif src[i] == "}":
+            depth -= 1
+            if opened and depth == 0:
+                break
+        i += 1
+    body = src[start:i]
+
+    for m in re.finditer(r"\bbridge\s*\.", body):
+        line = src.count("\n", 0, start + m.start()) + 1
+        problems.append(
+            f"Backrooms.kt:{line} OmniGLRenderer calls bridge.* — it has no "
+            f"bridge, and it is not meant to: everything it needs from the game "
+            f"comes in as a provider assigned from the composable, the way "
+            f"chunkProvider and trailSource do")
+    return problems
+
+
 def check_top_level_nesting() -> list[str]:
     """
     Every top-level class must actually be top-level.
@@ -292,8 +344,15 @@ def main() -> int:
     parser.add_argument("--kotlinc", default=None)
     args = parser.parse_args()
 
+    print("\n── Renderer isolation")
+    iso_problems = check_renderer_isolation()
+    for p in iso_problems:
+        print("FAIL", p)
+    if not iso_problems:
+        print("   OmniGLRenderer takes everything through providers")
+
     print("\n── Top-level nesting")
-    nest_problems = check_top_level_nesting()
+    nest_problems = iso_problems + check_top_level_nesting()
     for p in nest_problems:
         print("FAIL", p)
 
