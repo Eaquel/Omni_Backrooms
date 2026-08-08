@@ -89,6 +89,22 @@ Tools/                           8つのチェック
 
 新しい順。この一覧は修正のたびに更新されます。
 
+- **The room was the right size and everything in it was twice as big.** The
+  ceiling grid was on a 1.6 m module where a metric suspended ceiling is
+  600 mm, the carpet tiles 800 mm against a real 500, the wall joints 1.6 m
+  against an 800 mm paper drop. The light fittings called themselves 2x4
+  troffers and were built at double that, from fractions of the cell rather
+  than in metres. Level 0's own dimensions were never wrong — 3.2 m cells and a
+  2.6 m ceiling are ordinary office numbers — but the grid overhead is the
+  strongest cue the eye has for the size of a space, and it was counting five
+  tiles across a corridor that should show eight. The walls also have a
+  skirting board now, which they never had.
+- **The check watching the level's darkness was the wrong shape.** A per-seed
+  bound tuned on eight seeds failed four of twenty. It asserts on the
+  distribution now — median, p90, and the gap between the darkest and
+  brightest seed. That last one matters: the old mains-failure noise gives a
+  better median than the shipped level and is still broken, because its seeds
+  range from 1.7% to 67.5%.
 - **Most of the level was pitch black.** Ceiling fittings sat on a global
   lattice — a tube where both coordinates were multiples of four — so whether a
   corridor was lit came down to its coordinate parity, and a corridor that

@@ -126,7 +126,8 @@ int main(int argc, char** argv) {
     const int seedCount = argc > 1 ? std::atoi(argv[1]) : 40;
     std::printf("Level 0 probe over %d seeds\n\n", seedCount);
 
-    double openSum = 0, litSum = 0, darkestSum = 0, contrastSum = 0, gloomSum = 0;
+    double openSum = 0, litSum = 0, darkestSum = 0, contrastSum = 0;
+    std::vector<double> gloomPerSeed;
     double corridorSum = 0, pillarDarkSum = 0, floorPowerSum = 0;
     int    worstReachDepth = 1 << 30;
 
@@ -214,15 +215,20 @@ int main(int argc, char** argv) {
         // so it needs about 0.27 to be legible unaided. Below that is gloom you
         // reach for the torch in, which is a fine thing for some of a level to
         // be and not a fine thing for most of it.
-        // The bound is 0.33 against a shipped 0.24. Chosen by re-injecting the
-        // faults it exists to catch and checking each one crosses it: the global
-        // fitting lattice takes it to 0.55, and the old 0.95 falloff width — on
-        // its own, with the placement already fixed — to 0.37. A looser 0.45 let
-        // that second one through.
-        const double gloomFrac = open ? double(gloom) / open : 0.0;
-        gloomSum += gloomFrac;
-        check(gloomFrac < 0.33,
-              "too much of the floor cannot be seen without the torch", seed);
+        // Asserted on the DISTRIBUTION, after the loop, not seed by seed.
+        //
+        // A per-seed bound was the first attempt and it was the wrong shape. How
+        // dark a given seed comes out genuinely varies — that is what a seed is
+        // — so a bound tight enough to catch a regression fails honest seeds and
+        // one loose enough to pass them catches nothing. Tuned on eight seeds it
+        // looked fine at 0.33; over twenty, four seeds crossed it. The same
+        // too-small-sample mistake the generator itself was making.
+        //
+        // What matters is the shape of the whole set: where it usually sits, how
+        // far the tail runs, and how far apart the darkest and brightest seeds
+        // are. That last one is the actual complaint — one seed a lit lobby and
+        // the next a third pitch dark.
+        gloomPerSeed.push_back(open ? double(gloom) / open : 0.0);
 
         // Light has to come from the fittings, which means bright directly under
         // one and gloomy between them. A previous tuning overlapped the falloff
@@ -400,7 +406,40 @@ int main(int argc, char** argv) {
     std::printf("lit open cells   avg %.4f\n", litSum / seedCount);
     std::printf("darkest cell     avg %.3f\n", darkestSum / seedCount);
     std::printf("light contrast   avg %.2fx\n", contrastSum / seedCount);
-    std::printf("needs the torch  avg %.1f%% of open floor\n", 100.0 * gloomSum / seedCount);
+    // ---- How much of the floor needs the torch, as a distribution ---------
+    //
+    // Bounds set by re-injecting each fault over the same sixty seeds this
+    // reports on, so each one is known to cross them rather than assumed to:
+    //
+    //                      median   p90    max   spread
+    //   shipped              20.9   30.5   34.9    22.2
+    //   0.95 falloff         38.6   48.0   52.3    23.9
+    //   global lattice       43.5   53.6   57.3    22.4
+    //   178 m failure noise  16.0   58.2   67.5    65.8
+    //
+    // All three bounds earn their place. The median catches a level that is
+    // dark everywhere. The p90 catches a level with a dark tail. The spread
+    // catches a generator whose seeds are not the same kind of place as each
+    // other -- and that last row is why it is here: restoring the old
+    // 178-metre failure noise gives a BETTER median than the shipped level,
+    // 16.0 against 20.9, because most of its seeds are bright. It is the
+    // 1.7%-to-67.5% range that makes it broken, and the median alone would
+    // have waved it through.
+    if (!gloomPerSeed.empty()) {
+        std::sort(gloomPerSeed.begin(), gloomPerSeed.end());
+        const size_t n = gloomPerSeed.size();
+        const double med  = gloomPerSeed[n / 2];
+        const double p90  = gloomPerSeed[(n * 9) / 10 < n ? (n * 9) / 10 : n - 1];
+        const double lo   = gloomPerSeed.front();
+        const double hi   = gloomPerSeed.back();
+        std::printf("needs the torch  median %.1f%%  p90 %.1f%%  range %.1f-%.1f%%\n",
+                    100.0 * med, 100.0 * p90, 100.0 * lo, 100.0 * hi);
+        check(med < 0.28, "the level is dark more often than not", 0);
+        check(p90 < 0.36, "the darkest seeds are much darker than the rest", 0);
+        check(hi - lo < 0.30,
+              "seeds differ too much in how lit they are -- one is a lobby and "
+              "another is a cave", 0);
+    }
     std::printf("corridor cells   avg %.1f%%\n", 100.0 * corridorSum / seedCount);
     std::printf("mains at columns avg %.3f  (open floor %.3f)\n",
                 pillarDarkSum / seedCount, floorPowerSum / seedCount);

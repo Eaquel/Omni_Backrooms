@@ -1140,6 +1140,107 @@ def check_look_sensitivity() -> None:
           f"degrees per swipe, which is not a setting but a broken control")
 
 
+def check_architectural_scale() -> None:
+    """
+    The level's fittings measured against the building they imitate.
+
+    Level 0 is an office interior, and an office interior is made of parts with
+    catalogue dimensions: a suspended ceiling is a 600 mm module, carpet tile is
+    500 mm, lining paper hangs in 800 mm drops, a 2x4 troffer is 610 by 1220,
+    and a T8 tube is 26 mm across because the 8 is its diameter in eighths of an
+    inch. None of these are matters of taste and all of them were wrong — every
+    one about twice the size of the real article, and three of them written as a
+    fraction of the 3.2 m cell so they would have silently rescaled if the cell
+    ever changed.
+
+    The room's own dimensions were never the problem. 3.2 m cells and a 2.6 m
+    ceiling are ordinary office numbers. But a correctly sized room dressed at
+    double scale reads as a room built for something larger than a person, which
+    is the whole of "the ceilings do not feel like the Backrooms": the grid
+    overhead is the strongest cue the eye has for the size of a space, and it
+    was counting five tiles across a corridor that should show eight.
+
+    A shader cannot be asked whether it looks like a real ceiling. It can be
+    asked what number it divides world position by, which is what this does.
+    """
+    section("Architectural scale")
+    src = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
+
+    def const(name: str) -> float | None:
+        m = re.search(r"const float " + name + r"\s*=\s*([\d.]+)\s*;", src)
+        return float(m.group(1)) if m else None
+
+    # name -> (real dimension in metres, tolerance, what it is)
+    REAL = {
+        "kCeilTile":   (0.600, 0.001, "a metric suspended-ceiling module"),
+        "kCarpetTile": (0.500, 0.001, "a carpet tile"),
+        "kWallModule": (0.800, 0.001, "a drop of lining paper"),
+        "kRailWidth":  (0.018, 0.008, "the exposed face of a ceiling tee"),
+    }
+    for name, (want, tol, what) in REAL.items():
+        got = const(name)
+        check(got is not None,
+              f"{name} is not declared in the scene shader — the detail scale "
+              f"has gone back to being a bare number in an expression")
+        if got is None:
+            continue
+        print(f"   {name:12s} {got * 1000:6.0f} mm   ({what}: {want * 1000:.0f} mm)")
+        check(abs(got - want) <= tol,
+              f"{name} is {got * 1000:.0f} mm where {what} is {want * 1000:.0f} mm")
+
+    # The ceiling module exists twice: the shader draws the tiles with it and
+    # the mesher snaps the light fittings to it. Two copies of one dimension is
+    # the shape of bug that has cost this repository three rounds, so they are
+    # compared rather than trusted.
+    m = re.search(r"kCeilTileM\s*=\s*([\d.]+)f", src)
+    check(m is not None, "the mesher has no kCeilTileM to snap fittings to")
+    tile = const("kCeilTile")
+    if m and tile is not None:
+        k = float(m.group(1))
+        check(abs(k - tile) < 1e-4,
+              f"the mesher snaps light fittings to a {k * 1000:.0f} mm grid "
+              f"while the shader draws the tiles at {tile * 1000:.0f} mm — every "
+              f"fitting lies across a tee")
+
+    # The troffer, which named itself 2x4 in a comment and was built at 4x8.
+    def kot(name: str) -> float | None:
+        m = re.search(r"val " + name + r"\s*=\s*([\d.]+)f", src)
+        return float(m.group(1)) if m else None
+
+    half_l, pan_w = kot("halfL"), kot("panHalfW")
+    check(half_l is not None and pan_w is not None,
+          "the troffer's dimensions are no longer plain metres — if they are "
+          "back to fractions of the cell they will rescale with it silently")
+    if half_l is not None and pan_w is not None:
+        print(f"   troffer      {pan_w * 2000:6.0f} x {half_l * 2000:.0f} mm   "
+              f"(a 2x4 troffer: 610 x 1220 mm)")
+        check(abs(half_l * 2 - 1.220) <= 0.06,
+              f"the troffer is {half_l * 2000:.0f} mm long against a real 1220")
+        check(abs(pan_w * 2 - 0.610) <= 0.06,
+              f"the troffer is {pan_w * 2000:.0f} mm wide against a real 610")
+
+    tube = kot("tubeHalfD")
+    if tube is not None:
+        print(f"   T8 tube      {tube * 2000:6.0f} mm   (a real T8: 26 mm)")
+        check(abs(tube * 2 - 0.026) <= 0.010,
+              f"the fluorescent tubes are {tube * 2000:.0f} mm across; a T8 is 26")
+
+    # A corridor is one cell wide. How many ceiling tiles does it show?
+    cell = None
+    lvl = open(os.path.join(NATIVE, "Map/Level_0.h"), encoding="utf-8").read()
+    mc = re.search(r"kCell\s*=\s*([\d.]+)f", lvl)
+    mh = re.search(r"kHeight\s*=\s*([\d.]+)f", lvl)
+    if mc and mh and tile:
+        cell, height = float(mc.group(1)), float(mh.group(1))
+        print(f"   corridor     {cell:.2f} m wide, {height:.2f} m high, "
+              f"{cell / tile:.1f} tiles across")
+        check(cell / tile >= 4.0,
+              f"a corridor is only {cell / tile:.1f} ceiling tiles across, which "
+              f"is not enough grid for the eye to judge the space by")
+        check(2.3 <= height <= 3.0,
+              f"a {height:.2f} m ceiling is not an office ceiling")
+
+
 def check_texture_sizes() -> None:
     """
     Every texture power-of-two and no larger than 1024.
@@ -1491,6 +1592,7 @@ def main() -> int:
     check_character()
     check_entity_silhouettes()
     check_look_sensitivity()
+    check_architectural_scale()
     check_texture_sizes()
     check_shield()
     check_story()

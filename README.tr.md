@@ -89,6 +89,35 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Oda doğru boyuttaydı, içindeki her şey iki katıydı.** Tavan Backrooms
+  hissi vermiyordu çünkü T profil kafesi 1.6 m modüldeydi; metrik asma tavan
+  600 mm'dir. Halı kareleri gerçek 500'e karşı 800 mm'ydi. Duvar dikey
+  ekleri 800 mm'lik kağıt genişliğine karşı 1.6 m modüldeydi. Armatürler bir
+  yorumda kendilerine 2x4 troffer diyordu — 610'a 1220 mm — ve 1340'a 2430
+  olarak, metre yerine hücrenin kesirlerinden inşa ediliyordu; yani hücre
+  boyutu değişseydi sessizce ölçeklenirlerdi. Floresan tüpler 134 mm
+  kalınlığındaydı; T8'in çapı 26 mm'dir, 8 zaten çapın inç sekizde biri
+  cinsinden ifadesi. Level 0'ın kendi ölçüleri hiç yanlış değildi: 3.2 m hücre
+  ve 2.6 m tavan sıradan ofis rakamları. Ama gözün bir mekanın büyüklüğünü
+  ölçtüğü en güçlü ipucu baştaki kafestir ve sekiz kare göstermesi gereken bir
+  koridorda beş kare sayıyordu — doğru ölçekli bir oda, insandan büyük biri
+  için yapılmış gibi okunuyordu. Artık hepsi metre cinsinden ve taklit ettiği
+  parçayla eşleşiyor. Duvarlara ilk kez süpürgelik de eklendi: altında gölge
+  boşluğu olan 100 mm'lik bir profil. Seviyedeki her duvar halıya hiçbir şey
+  olmadan giriyordu; inşa edilmiş hiçbir oda böyle değildir.
+- **Seviyenin karanlığını bekleyen kontrol yanlış biçimdeydi.** Zeminin ne
+  kadarının el feneri istediğine dair tohum başına bir sınır sekiz tohumda
+  ayarlanmıştı ve iyi görünüyordu; yirmi tohumda dördü sınırı aştı. Bir tohumun
+  ne kadar karanlık çıkacağı gerçekten değişir — tohum zaten budur — yani bir
+  gerilemeyi yakalayacak kadar dar bir sınır dürüst tohumları da eler. Artık
+  altmış tohumun tamamının dağılımını doğruluyor: medyan, p90 ve en karanlıkla
+  en aydınlık tohum arasındaki fark. Üçü de yerini hak ediyor, özellikle
+  sonuncusu: eski 178 metrelik şebeke arıza gürültüsünü geri koymak, yayınlanan
+  seviyeden *daha iyi* bir medyan veriyor — %20.9'a karşı %16.0 — çünkü
+  tohumlarının çoğu aydınlık. Onu bozan şey %1.7 ile %67.5 arasındaki aralık.
+  Arıza bölgeleri artık 178 yerine 34 m genişliğinde ve bu bir taramayla
+  seçildi: yayılımın küçülmeyi bıraktığı ve en karanlık tohumun en aydınlıktan
+  başka bir oyun olmaktan çıktığı yer.
 - **Seviyenin büyük kısmı zifiri karanlıktı ve bunu bekleyen kontrol bir
   sabiti sorguluyordu.** Tavan armatürleri global bir kafese yerleştiriliyordu:
   bir hücre, açık zeminse ve iki koordinatı da dörde bölünüyorsa tüp taşıyordu.

@@ -355,10 +355,24 @@ float Level0Field::powerAt(int cx, int cz) const noexcept {
     // anything is not a distribution: measured over six seeds, one had no failed
     // mains anywhere near the spawn and another had a third of its floor
     // unpowered. Two players in the same game were not in the same kind of
-    // place. At 0.045 a failed section is 20-odd cells across, several are
-    // always within reach, and every seed averages out to the same level.
-    const float broad = noise(cx * 0.045f, cz * 0.045f, kSaltBroad);
-    const float fine  = noise(cx * 0.060f, cz * 0.060f, kSaltFine);
+    // place.
+    //
+    // Swept against how much of the floor needs the torch, over sixty seeds:
+    //
+    //   178 m  min  n/a   p90  n/a   max  n/a   (measured before the rewrite)
+    //    71 m  min  8.2   p90 38.0   max 45.4
+    //    53 m  min  8.8   p90 33.6   max 45.5
+    //    43 m  min  9.0   p90 33.8   max 38.4
+    //    34 m  min 12.7   p90 30.5   max 34.9
+    //
+    // 34 m is where the spread stops shrinking and the darkest seed stops being
+    // a different game from the brightest. A failed section is ten cells across
+    // — a couple of rooms, something you walk through rather than get lost in —
+    // and there are always several of them near you.
+    const float broad = noise(cx * 0.095f, cz * 0.095f, kSaltBroad);
+    // The hotspot layer has to stay finer than the layer it is perturbing, or
+    // the two beat against each other and neither reads as its own scale.
+    const float fine  = noise(cx * 0.180f, cz * 0.180f, kSaltFine);
 
     // Remap so most of the world is healthy and failure is the exception, with
     // a wide transition band on either side of the threshold.

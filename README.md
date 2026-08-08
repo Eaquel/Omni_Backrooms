@@ -106,6 +106,36 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The room was the right size and everything in it was twice as big.** The
+  ceiling did not feel like the Backrooms because its T-bar grid was on a 1.6 m
+  module, and a metric suspended ceiling is 600 mm. The carpet tiles were
+  800 mm against a real 500. The wall joints were on a 1.6 m module against an
+  800 mm paper drop. The light fittings called themselves 2x4 troffers in a
+  comment — 610 by 1220 mm — and were built 1340 by 2430, from fractions of the
+  cell rather than in metres, so they would have silently rescaled if the cell
+  ever moved. The fluorescent tubes were 134 mm across; a T8 is 26, the 8 being
+  its diameter in eighths of an inch. Level 0's own dimensions were never
+  wrong: 3.2 m cells and a 2.6 m ceiling are ordinary office numbers. But the
+  grid overhead is the strongest cue the eye has for how big a space is, and it
+  was counting five tiles across a corridor that should show eight, so a
+  correctly sized room read as one built for something larger than a person.
+  Everything is in metres now and matches the part it imitates. The walls also
+  have a skirting board for the first time, a 100 mm one with a shadow gasket
+  under it — every wall in the level used to run straight into the carpet with
+  nothing at the join, which no built room does.
+- **The check that watched the level's darkness was the wrong shape.** A
+  per-seed bound on how much floor needs the torch was tuned on eight seeds and
+  looked fine; over twenty, four seeds crossed it. How dark a seed comes out
+  genuinely varies — that is what a seed is — so a bound tight enough to catch a
+  regression fails honest seeds. It asserts on the distribution over all sixty
+  now: the median, the p90 and the gap between the darkest and brightest seed.
+  All three earn their place, and the last one especially: restoring the old
+  178-metre mains-failure noise gives a *better* median than the shipped level,
+  16.0% against 20.9%, because most of its seeds are bright. It is the 1.7% to
+  67.5% range that makes it broken. The failure regions are 34 m across now
+  rather than 178, chosen off a sweep — that is where the spread stops
+  shrinking and the darkest seed stops being a different game from the
+  brightest.
 - **Most of the level was pitch black, and the check that watched for it was
   asking about a constant.** Ceiling fittings were placed on a global lattice —
   a cell carried a tube if it was open floor and both its coordinates were

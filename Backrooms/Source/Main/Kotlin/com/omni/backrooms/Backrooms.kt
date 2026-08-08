@@ -2338,6 +2338,18 @@ void main(){
 }
 """
 
+/**
+ * The suspended ceiling's module, in metres, for the geometry side.
+ *
+ * The shader carries the same number as `kCeilTile` because it needs it per
+ * fragment and cannot read a Kotlin constant. Two copies of one dimension is
+ * exactly the shape of bug that has cost this repository three rounds now, so
+ * Assets_Check reads both and fails if they part company: a light fitting
+ * snapped to one grid while the tiles are drawn on another is a fitting lying
+ * across a tee.
+ */
+private const val kCeilTileM = 0.60f
+
 private const val OMNI_SCENE_FRAG = """#version 300 es
 precision mediump float;
 in vec3 vNormal; in vec2 vUV; in float vLight; in vec3 vWorldPos;
@@ -2360,6 +2372,30 @@ uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
 uniform vec3 uTorchPos; uniform vec3 uTorchDir; uniform float uTorchOn;
 uniform float uBumpStrength; uniform float uBumpTexel;
 uniform vec3 uLampTint;
+
+// ---- Architectural scale, in metres -------------------------------------
+//
+// These four numbers are the whole reason the level did not read as a real
+// building. Every one of them was about twice the size of the thing it is
+// meant to be: a 1.6 m suspended-ceiling tile where the real article is
+// 600 mm, 0.8 m carpet tiles against a real 500 mm, a 1.6 m wall module
+// against a 800 mm paper drop. The room's own dimensions were fine — 3.2 m
+// cells, a 2.6 m ceiling, both ordinary office numbers — but a correctly
+// sized room dressed at double scale reads as a room built for something
+// larger than you. The grid overhead is the single strongest cue the eye
+// has for how big a space is, and it was counting five tiles across a
+// corridor that should show eight.
+//
+// Real dimensions, so they can be checked against a building rather than
+// against taste: a metric suspended ceiling is a 600 mm module, carpet tile
+// is 500 mm, and lining paper hangs in 800 mm drops.
+const float kCeilTile  = 0.60;
+const float kCarpetTile = 0.50;
+const float kWallModule = 0.80;
+// A T-bar's exposed face is 15 mm on a cross tee, 24 on a main runner.
+const float kRailWidth  = 0.018;
+// Carpet tile butts up against its neighbour; the seam is a shadow, not a gap.
+const float kSeamWidth  = 0.004;
 /**
  * Seconds. Everything the level's surfaces do over time is driven from here.
  *
@@ -2437,11 +2473,17 @@ void main(){
     float detailFade = 1.0 - smoothstep(12.0, 34.0, dist);
 
     if (n.y < -0.5) {
-        // Ceiling: 1.6 m tiles in an aluminium T-bar grid. The rails catch the
-        // light rather than losing it, which is why they read as metal.
-        vec2 g = fract(vWorldPos.xz / 1.6);
-        vec2 d = min(g, 1.0 - g);
-        float rail = 1.0 - smoothstep(0.008, 0.030, min(d.x, d.y));
+        // Ceiling: 600 mm mineral-fibre tiles in an aluminium T-bar grid. The
+        // rails catch the light rather than losing it, which is why they read
+        // as metal.
+        //
+        // The rail width is in METRES and divided into the tile, not a fraction
+        // of the tile. Written as a fraction it silently rescaled with the tile
+        // — at 1.6 m tiles the old 0.030 was a 48 mm rail, which is a structural
+        // beam, not a ceiling tee.
+        vec2 g = fract(vWorldPos.xz / kCeilTile);
+        vec2 d = min(g, 1.0 - g) * kCeilTile;
+        float rail = 1.0 - smoothstep(kRailWidth * 0.35, kRailWidth, min(d.x, d.y));
         albedo = mix(albedo, albedo * 1.30 + vec3(0.035), rail * detailFade);
         // Sag: each tile dips slightly toward its middle, so a big ceiling is
         // not a mathematically flat plane.
@@ -2449,10 +2491,13 @@ void main(){
         // Each tile breathes on its own phase, seeded from its own coordinates.
         // A ceiling where every panel sags in unison is a wave; one where they
         // drift independently is a suspended grid with something above it.
-        vec2 tileId = floor(vWorldPos.xz / 1.6);
+        vec2 tileId = floor(vWorldPos.xz / kCeilTile);
         float phase = fract(sin(dot(tileId, vec2(41.3, 289.1))) * 43758.5453);
         float breathe = 1.0 + 0.35 * sin(uTime * 0.21 + phase * 6.2831);
-        float sag = 1.0 - 0.05 * breathe * (1.0 - min(d.x, d.y) * 4.0);
+        // d is in metres now, so normalise it back to 0 at the rail and 1 at
+        // the tile's middle before shaping the dip.
+        float toMid = min(d.x, d.y) / (kCeilTile * 0.5);
+        float sag = 1.0 - 0.05 * breathe * (1.0 - toMid * 2.0);
         albedo *= mix(1.0, sag, detailFade);
 
         // Water damage, creeping. A blotch field whose threshold drifts, so a
@@ -2464,24 +2509,35 @@ void main(){
         vec3 stainCol = vec3(0.52, 0.44, 0.28);
         albedo = mix(albedo, albedo * stainCol * 1.6, creep * 0.55 * detailFade);
     } else if (n.y > 0.5) {
-        // Floor: 0.8 m carpet tiles, seams darker and the tiles alternating in
+        // Floor: 500 mm carpet tiles, seams darker and the tiles alternating in
         // pile direction — the checker is subtle but it is exactly what stops a
         // large carpet reading as one flat sheet of colour.
-        vec2 t = vWorldPos.xz / 0.8;
+        vec2 t = vWorldPos.xz / kCarpetTile;
         vec2 g = fract(t);
-        vec2 d = min(g, 1.0 - g);
-        float seam = 1.0 - smoothstep(0.004, 0.022, min(d.x, d.y));
+        vec2 d = min(g, 1.0 - g) * kCarpetTile;
+        float seam = 1.0 - smoothstep(kSeamWidth * 0.25, kSeamWidth, min(d.x, d.y));
         float weave = mod(floor(t.x) + floor(t.y), 2.0);
         albedo *= mix(1.0, mix(0.985, 1.015, weave), detailFade);
         albedo = mix(albedo, albedo * 0.80, seam * detailFade);
     } else {
-        // Walls: vertical panel joints on a 1.6 m module, plus a damp stain
-        // creeping up from the skirting. Both are static — nothing here depends
-        // on where the camera is.
+        // Walls: vertical paper joints on an 800 mm drop, a skirting board at
+        // the base, plus a damp stain creeping up out of it. All static —
+        // nothing here depends on where the camera is.
         float u = abs(n.x) > 0.5 ? vWorldPos.z : vWorldPos.x;
-        float g = fract(u / 1.6);
-        float joint = 1.0 - smoothstep(0.004, 0.018, min(g, 1.0 - g));
+        float g = fract(u / kWallModule);
+        float joint = 1.0 - smoothstep(0.0005, 0.003, min(g, 1.0 - g) * kWallModule);
         albedo = mix(albedo, albedo * 0.74, joint * detailFade);
+
+        // Skirting. Every wall in the level ran straight into the carpet with
+        // nothing at the join, which no built room does, and it is a large part
+        // of why the walls read as texture rather than as walls. A 100 mm board
+        // with a shadow gasket under it: darker than the wall, and the top edge
+        // catches a little light the way a bevelled softwood board does.
+        float skirt  = smoothstep(0.102, 0.098, vWorldPos.y);
+        float nosing = skirt * smoothstep(0.086, 0.098, vWorldPos.y);
+        albedo = mix(albedo, albedo * vec3(0.62, 0.60, 0.55), skirt * detailFade);
+        albedo += albedo * 0.20 * nosing * detailFade;
+        albedo *= 1.0 - 0.45 * smoothstep(0.014, 0.0, vWorldPos.y) * detailFade;
         float damp = (1.0 - smoothstep(0.0, 0.55, vWorldPos.y)) * 0.16;
         albedo *= 1.0 - damp * detailFade;
         // Rising damp, creeping. The tide line drifts up and down the wall on a
@@ -4756,11 +4812,23 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     // the baked shading treats the parts as ceiling-facing even
                     // where a face is really vertical — a light fitting reads
                     // wrong if its own reflectors fall into shadow.
-                    val midX = x0 + cs * 0.5f
-                    val midZ = z0 + cs * 0.5f
-                    val halfL = cs * 0.38f          // along the tubes (the long axis)
-                    val panHalfW = cs * 0.21f       // across them, at the ceiling
-                    val mouthHalfW = cs * 0.27f     // across them, at the open face
+                    // A 2x4 troffer is two feet by four: 0.61 m by 1.22 m, and
+                    // it drops into a suspended grid in place of two tiles.
+                    // This said "2x4" in the comment and then built one 1.34 m
+                    // by 2.43 m from fractions of the 3.2 m cell — twice the
+                    // fitting it names, on every axis. Sized in metres now, so
+                    // it cannot drift with the cell size and cannot disagree
+                    // with the sentence above it.
+                    //
+                    // Snapped to the ceiling grid rather than centred in the
+                    // cell: a real troffer sits in the grid, and 3.2 m is not a
+                    // whole number of 0.6 m tiles, so a cell-centred fitting
+                    // straddles the tee at a different offset in every cell.
+                    val midX = kotlin.math.round((x0 + cs * 0.5f) / kCeilTileM) * kCeilTileM
+                    val midZ = kotlin.math.round((z0 + cs * 0.5f) / kCeilTileM) * kCeilTileM
+                    val halfL = 0.610f              // along the tubes: 1.22 m overall
+                    val panHalfW = 0.290f           // across them, at the ceiling
+                    val mouthHalfW = 0.305f         // across them, at the open face
                     val lit = fixture == 1
                     val down = floatArrayOf(0f, -1f, 0f)
 
@@ -4822,7 +4890,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     // vertical give it a lit edge and a shaded one, which is
                     // what makes a tube look round instead of painted on.
                     val tubes = 4
-                    val tubeHalfD = cs * 0.021f
+                    // A T8 tube is 26 mm across — the T8 is the diameter, in
+                    // eighths of an inch. This was 0.021 of the cell, so 134 mm:
+                    // a drainpipe.
+                    val tubeHalfD = 0.013f
                     val tubeDrop = 0.016f
                     for (t in 0 until tubes) {
                         val f = (t + 0.5f) / tubes
