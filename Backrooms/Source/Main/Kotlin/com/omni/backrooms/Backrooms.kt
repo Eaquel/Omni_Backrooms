@@ -3591,14 +3591,44 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             // enough that she filled the frame and read as far taller than the
             // 1.70 m she is. Pivoting lower keeps the lens in the middle of the
             // corridor where there is actually room for it.
+            // The arrival, as a shot.
+            //
+            // The body already collapsed and stood back up — avatarCollapse has
+            // been driven off eyeOffset since the rig was rebuilt — but the
+            // camera did none of it. It sat at a flat 2.6 m through the whole
+            // sequence, so in third person the one animation the game opens
+            // with happened in a corner of the frame and read as nothing
+            // happening at all.
+            //
+            // Both phases are driven from state, and the LANDED half from
+            // eyeOffset specifically, which is the same number the skeleton
+            // reads. Two independent easings of one event drift apart, and a
+            // camera that finishes standing up before the body does is worse
+            // than no move at all.
+            val spawnFall = state.spawnPhase == SpawnPhase.FALLING
+            val arrive = if (state.spawnPhase == SpawnPhase.LANDED)
+                (state.eyeOffset / -1.45f).coerceIn(0f, 1f) else 0f
+
+            // FALLING: back and high, watching her come down.
+            // LANDED:  close and low, at the body on the floor, rising with it.
+            // No extra drop on arrive: eyeOffset has already taken the pivot
+            // down 1.45 m, and subtracting more only pushed the lens under the
+            // floor for the clamp to catch. The lift goes UP instead, so the
+            // shot looks down at the body rather than lying beside it.
             val pivotY = if (thirdPerson) (eyeY - 0.45f) else eyeY
-            val camLift = if (thirdPerson) 0.12f else 0f
-            val wantDist = if (thirdPerson) 2.6f else 0f
+            val camLift = if (thirdPerson)
+                (0.12f + (if (spawnFall) 0.90f else 0f) + arrive * 0.34f) else 0f
+            val wantDist = if (thirdPerson)
+                (2.6f + (if (spawnFall) 1.5f else 0f) - arrive * 1.10f) else 0f
+            // Slower while arriving. The normal rate is tuned for a boom
+            // getting out of a wall's way, which at 14/s settles inside 70ms —
+            // right for a correction, and a hard cut for a deliberate move.
+            val boomRate = if (spawnFall || arrive > 0.001f) 3.5f else 14f
             val camDist = if (thirdPerson) {
                 smoothCamDist += (resolveCameraDistance(
                     smoothX, pivotY + camLift, smoothZ,
                     -fx, -fy, -fz, wantDist, state.world, ceiling
-                ) - smoothCamDist) * (1f - kotlin.math.exp(-dt * 14f))
+                ) - smoothCamDist) * (1f - kotlin.math.exp(-dt * boomRate))
                 smoothCamDist
             } else {
                 smoothCamDist = 0f
