@@ -2581,6 +2581,18 @@ precision mediump float;
 in vec2 vUV;
 uniform vec3 uColor; uniform float uAlert; uniform float uAlpha; uniform float uColorBlind;
 uniform float uTime; uniform float uSeed; uniform float uDissolve;
+/**
+ * Which of the eight it is (EntityType.typeId).
+ *
+ * All eight used to draw the Smiler and differ only by entityTint, so the
+ * roster read as one creature in eight colours — and the tint is nearly black
+ * on the body, so in practice they were indistinguishable. A creature glimpsed
+ * down a corridor has to be recognisable by shape, because that is all you get.
+ *
+ * Uniform, so the branching below is coherent across the whole draw: every
+ * fragment of one billboard takes the same path.
+ */
+uniform float uType;
 out vec4 fragColor;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
@@ -2594,21 +2606,66 @@ float noise(vec2 p){
 void main(){
     float t = uTime + uSeed * 37.0;
 
+    int ty = int(uType + 0.5);
+
     // --- Body -------------------------------------------------------------
     // An upright ovoid whose edge is displaced by drifting noise, so the
     // silhouette never holds still. A shape that boils reads as alive; a
     // smooth ellipse reads as a decal.
-    vec2 d = (vUV - vec2(0.5, 0.46)) * vec2(1.25, 1.0);
+    //
+    // The ovoid is squeezed by a per-type width profile, taken at the
+    // fragment's own height, which is what turns one blob into eight
+    // creatures: heavy at the shoulders and low-headed for the Howler, a thin
+    // vertical stroke for the Party Goer, squat and drooping for the Duller,
+    // hunched for the Wretched.
+    float yy = vUV.y;
+    float w = 1.0;
+    if      (ty == 1) w = mix(1.18, 0.60, smoothstep(0.34, 0.96, yy));
+    else if (ty == 2) w = 0.50 + 0.08 * sin(yy * 9.0 + t * 0.8);
+    else if (ty == 3) w = 0.80 + 0.28 * smoothstep(0.56, 0.88, yy)
+                          - 0.16 * smoothstep(0.24, 0.52, yy);
+    else if (ty == 4) w = mix(1.28, 0.82, smoothstep(0.18, 0.92, yy));
+    else if (ty == 5) w = mix(1.34, 0.52, smoothstep(0.12, 0.80, yy));
+    else if (ty == 6) w = 0.54;
+    else if (ty == 7) w = 0.70;
+
+    vec2 d = (vUV - vec2(0.5, 0.46)) * vec2(1.25 / max(w, 0.05), 1.0);
     float r = length(d);
     float ang = atan(d.y, d.x);
+    // The Faceling is the still one — its edge barely moves, which is most of
+    // why a blank humanoid standing there is worse than something thrashing.
+    float boilAmt = (ty == 7) ? 0.015 : 0.055;
     float boil = noise(vec2(ang * 1.6, t * 0.9 + uSeed * 5.0)) - 0.5;
-    float edge = 0.40 + boil * 0.055;
+    float edge = 0.40 + boil * boilAmt;
     float body = smoothstep(edge, edge - 0.13, r);
 
-    // Wisps trailing off the bottom, densest at the hem.
-    float hem = smoothstep(0.30, 0.85, vUV.y);
-    float wisp = noise(vec2(vUV.x * 9.0, vUV.y * 4.0 - t * 1.4));
-    body = max(body, smoothstep(0.62, 0.95, wisp) * (1.0 - hem) * 0.55);
+    // Deathmoth: two wings, beating. Added as a lobe rather than folded into
+    // the width profile, because a wing is not a wider body.
+    if (ty == 6) {
+        float flap = 0.62 + 0.38 * sin(t * 7.0 + uSeed * 3.0);
+        vec2 wv = vUV - vec2(0.5, 0.58);
+        float wr = length(vec2((abs(wv.x) - 0.17) * 1.7, wv.y * (1.5 / flap)));
+        body = max(body, smoothstep(0.20, 0.05, wr));
+        // Antennae.
+        float ant = smoothstep(0.020, 0.0, abs(abs(vUV.x - 0.5) - (0.05 + (vUV.y - 0.74) * 0.55)))
+                  * step(0.74, vUV.y) * step(vUV.y, 0.90);
+        body = max(body, ant);
+    }
+    // Party Goer: long thin limbs either side, swaying out of time.
+    if (ty == 2) {
+        float armX = 0.15 + sin(t * 1.6 + vUV.y * 4.0 + uSeed * 6.0) * 0.035;
+        float limb = smoothstep(0.028, 0.0, abs(abs(vUV.x - 0.5) - armX))
+                   * step(0.16, vUV.y) * step(vUV.y, 0.66);
+        body = max(body, limb);
+    }
+
+    // Wisps trailing off the bottom, densest at the hem. The two that stand on
+    // legs rather than pouring onto the floor do not get them.
+    if (ty != 2 && ty != 7) {
+        float hem = smoothstep(0.30, 0.85, vUV.y);
+        float wisp = noise(vec2(vUV.x * 9.0, vUV.y * 4.0 - t * 1.4));
+        body = max(body, smoothstep(0.62, 0.95, wisp) * (1.0 - hem) * 0.55);
+    }
 
     // --- Driven off ---------------------------------------------------------
     // The flashlight does not kill it, it makes it leave — so it has to come
@@ -2629,22 +2686,53 @@ void main(){
     vec3 col = uColor * 0.055;
 
     // --- Eyes -------------------------------------------------------------
-    // Two of them, large and set wide. Mirrored by folding x about the centre,
-    // so one expression drives both.
+    // Mirrored by folding x about the centre, so one expression drives both.
+    // Size, spacing and height are per type; the Faceling has none at all,
+    // which is the entire point of it.
     vec2 e = vec2(abs(vUV.x - 0.5), vUV.y);
     vec2 eyeC = vec2(0.115, 0.60);
+    vec2 eyeR = vec2(0.085, 0.062);
+    float eyeOn = 1.0;
+    if      (ty == 1) { eyeC = vec2(0.085, 0.66); eyeR = vec2(0.045, 0.026); }
+    else if (ty == 2) { eyeC = vec2(0.055, 0.72); eyeR = vec2(0.022, 0.022); }
+    else if (ty == 3) { eyeC = vec2(0.095, 0.64); eyeR = vec2(0.055, 0.040); }
+    else if (ty == 4) { eyeC = vec2(0.105, 0.60); eyeR = vec2(0.070, 0.020); }
+    else if (ty == 6) { eyeC = vec2(0.070, 0.74); eyeR = vec2(0.038, 0.038); }
+    else if (ty == 7) { eyeOn = 0.0; }
+
     // Blink: a rare, quick squash. Irregular, because a metronome blink is
     // worse than none at all.
     float blinkPhase = fract(t * 0.21 + uSeed);
     float blink = 1.0 - smoothstep(0.0, 0.045, abs(blinkPhase - 0.5)) * 0.94;
-    vec2 eyeD = (e - eyeC) / vec2(0.085, 0.062 * max(blink, 0.06));
-    float eye = smoothstep(1.0, 0.72, length(eyeD));
+    vec2 eyeD = (e - eyeC) / vec2(eyeR.x, eyeR.y * max(blink, 0.06));
+    float eye = smoothstep(1.0, 0.72, length(eyeD)) * eyeOn;
 
-    // --- Grin -------------------------------------------------------------
-    // A crescent that widens and lifts as it takes an interest in you, with a
-    // row of teeth cut into it.
+    // The Wretched is the exception: not a pair, a cluster. Six small ones
+    // scattered over the hunch, each blinking on its own beat.
+    if (ty == 5) {
+        eye = 0.0;
+        for (int k = 0; k < 6; ++k) {
+            float fk = float(k);
+            vec2 c = vec2(0.5, 0.52) + vec2(sin(fk * 2.1 + uSeed * 9.0) * 0.11,
+                                            cos(fk * 1.7 + uSeed * 5.0) * 0.09);
+            float b = 1.0 - smoothstep(0.0, 0.06, abs(fract(t * 0.17 + fk * 0.31) - 0.5)) * 0.92;
+            eye = max(eye, smoothstep(1.0, 0.55,
+                       length((vUV - c) / vec2(0.030, 0.026 * max(b, 0.08)))));
+        }
+    }
+
+    // --- Mouth -------------------------------------------------------------
+    // The Smiler's grin is the shape this place is known for, so it stays the
+    // default. The Howler opens instead of widening — a tall shaft rather than
+    // a crescent — and the three that have no mouth do not get one.
     float grin = 0.0;
-    {
+    if (ty == 1) {
+        float open = 0.30 + uAlert * 0.55;
+        vec2 m = (vUV - vec2(0.5, 0.44)) / vec2(0.075, 0.085 * (0.5 + open));
+        grin = smoothstep(1.0, 0.55, length(m));
+    } else if (ty == 2 || ty == 6 || ty == 7) {
+        grin = 0.0;
+    } else {
         vec2 m = (vUV - vec2(0.5, 0.365)) / vec2(0.20 + uAlert * 0.045, 0.115);
         // Upper edge is a parabola, lower edge a wider one: the gap between is
         // the mouth.
@@ -3174,6 +3262,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
     private var bTime = 0; private var bSeed = 0; private var bDissolve = 0
+    private var bType = 0
     private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
     private var pCbMix = 0; private var pCbAxis = 0; private var pFlashOn = 0; private var pMadness = 0
     private var pBloomTex = 0; private var pBloomStrength = 0; private var pExposure = 0
@@ -3296,6 +3385,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         bTime = GLES30.glGetUniformLocation(billboardProgram, "uTime")
         bSeed = GLES30.glGetUniformLocation(billboardProgram, "uSeed")
         bDissolve = GLES30.glGetUniformLocation(billboardProgram, "uDissolve")
+        bType = GLES30.glGetUniformLocation(billboardProgram, "uType")
 
         postProgram = linkGlProgram(OMNI_POST_VERT, OMNI_POST_FRAG)
         pScene = GLES30.glGetUniformLocation(postProgram, "uScene")
@@ -3845,6 +3935,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             // unison — nothing gives away a shared shader faster than that.
             GLES30.glUniform1f(bSeed, (e.id * 0.618f) % 1f)
             GLES30.glUniform1f(bDissolve, e.dissolve)
+            GLES30.glUniform1f(bType, e.typeId.toFloat())
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
         GLES30.glDisableVertexAttribArray(0)

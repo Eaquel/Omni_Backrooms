@@ -1025,6 +1025,48 @@ def _rig_poses(head, radius, bones):
     return out
 
 
+def check_entity_silhouettes() -> None:
+    """
+    Every creature in the roster must be told apart by the shader that draws it.
+
+    All eight used to render the Smiler and differ only by entityTint, which is
+    multiplied by 0.055 on the body — so in a corridor they were one creature in
+    eight barely-different blacks. The fix is per-type geometry in
+    OMNI_BILLBOARD_FRAG, and the thing that rots is a ninth creature added to
+    the enum and never given a branch: it would inherit the default silently,
+    which is exactly the state this started in.
+    """
+    section("Entity silhouettes")
+    src = open(SRC_KT, encoding="utf-8").read()
+
+    roster = re.search(r"enum class EntityType\((.*?)\n\}", src, re.S)
+    check(roster is not None, "EntityType roster not found")
+    if not roster:
+        return
+    ids = [int(m.group(1)) for m in
+           re.finditer(r"^\s+[A-Z_]+\s*\(\s*(\d+)\s*,", roster.group(1), re.M)]
+    check(len(ids) >= 2, f"only {len(ids)} creature(s) parsed from the roster")
+
+    frag = re.search(r"OMNI_BILLBOARD_FRAG = \"\"\"(.*?)\"\"\"", src, re.S)
+    check(frag is not None, "the billboard fragment shader was not found")
+    if not frag:
+        return
+    body = frag.group(1)
+    check("uniform float uType" in body,
+          "the billboard shader takes no type, so every creature draws the same")
+    check("glUniform1f(bType" in src,
+          "uType is declared in the shader but never set, so it is always zero")
+
+    branched = {int(m.group(1)) for m in re.finditer(r"ty\s*==\s*(\d+)", body)}
+    # Type 0 is the default arm — the Smiler is what the untouched path draws.
+    missing = [i for i in ids if i != 0 and i not in branched]
+    check(not missing,
+          f"creature type(s) {missing} have no branch in the billboard shader — "
+          f"they draw the default silhouette, which is the Smiler")
+    print(f"   {len(ids)} creatures, {len(branched)} with their own silhouette "
+          f"(type 0 is the default)")
+
+
 def check_texture_sizes() -> None:
     """
     Every texture power-of-two and no larger than 1024.
@@ -1374,6 +1416,7 @@ def main() -> int:
     check_title_case()
     check_locales()
     check_character()
+    check_entity_silhouettes()
     check_texture_sizes()
     check_shield()
     check_story()
