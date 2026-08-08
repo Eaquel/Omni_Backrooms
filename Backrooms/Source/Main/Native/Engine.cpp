@@ -321,11 +321,26 @@ public:
         float targetRoll=std::sin(cam.bobPhase*0.5f)*cam.bobAmount*0.8f;
         cam.rollAngle+=(targetRoll-cam.rollAngle)*6.0f*dt;
     }
+    /**
+     * Degrees of view per density-independent pixel of drag, at sensitivity 1.
+     *
+     * dx and dy arrive in dp (GameHud converts before calling), and this is
+     * what turns them into an angle. Without it the delta WAS the angle: on a
+     * 1080p phone half a screen of drag came to about 500 degrees of yaw, so
+     * the smallest deliberate movement threw the view across the corridor.
+     *
+     * 0.42 puts a full swipe across a typical 411dp-wide phone at ~173
+     * degrees — just under a half turn, which is the standard this genre has
+     * settled on for a reason: you can find something behind you in one
+     * gesture without overshooting it.
+     */
+    static constexpr float kLookDegPerDp = 0.42f;
+
     void look(CameraState& cam,float dx,float dy,float sensitivity) noexcept {
         // Screen-right is (-cos(yaw),0,sin(yaw)) (gluLookAt side = forward x up),
         // so increasing yaw swings the view LEFT. Drag-right must decrease yaw.
-        cam.targetYaw  -=dx*sensitivity;
-        cam.targetPitch-=dy*sensitivity;
+        cam.targetYaw  -=dx*sensitivity*kLookDegPerDp;
+        cam.targetPitch-=dy*sensitivity*kLookDegPerDp;
         cam.targetPitch=std::clamp(cam.targetPitch,-89.0f,89.0f);
     }
 };

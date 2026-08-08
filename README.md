@@ -106,6 +106,28 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The flashlight swung the wrong way in first person.** The torch's world
+  position was built from a forward vector with two of its three components
+  negated relative to the one the camera itself was built from, so looking up
+  sent the beam down and looking left sent it right. Third person read the
+  avatar's own transform and was never wrong, which is why only half the game
+  showed it. Both now come from the same basis. The cone is wider and the
+  falloff gentler as well — it was a torch you had to aim at a wall to know was
+  on.
+- **Turning was about three times too fast, on every phone by a different
+  amount.** The look delta went into `cameraLook` as raw pixels and came out as
+  degrees, so a swipe across a 1080p screen was over 500 degrees of yaw at the
+  default sensitivity, and the same gesture on a denser screen turned further
+  still. It is measured in dp now, at 0.42 degrees each. Assets_Check simulates
+  a full-width swipe at both ends of the slider and fails if the default leaves
+  a quarter turn to three quarters — and it caught, on its first run, that the
+  pause menu's slider ran to 4.0 while the settings screen's ran to 3.0.
+- **The VHS effect stayed on when it was switched off.** The setting gated the
+  shader's grain and chroma terms, but the scanline overlay was a separate
+  Compose layer drawn unconditionally over the game — so the most visible part
+  of the effect ignored the switch. There was also a `GameState.vhsEnabled`
+  that returned a hardcoded `true`, shadowing the real value for anything that
+  read it off the game state rather than the settings state.
 - **Eight creatures became one, and the Smiler got a body.** A bestiary is a
   different game — you learn to read which one you are looking at, and the
   reading is the fun. Level 0 holds one thing you never get a good look at. The

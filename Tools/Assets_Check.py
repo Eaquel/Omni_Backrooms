@@ -1072,6 +1072,74 @@ def check_entity_silhouettes() -> None:
     print(f"   roster {names}, smoke field present, no per-type branching left")
 
 
+def check_look_sensitivity() -> None:
+    """
+    How far one swipe turns the view, simulated over the slider's whole range.
+
+    The look delta used to go into cameraLook as raw PIXELS and come out as
+    degrees: `targetYaw -= dx * sensitivity`. On a 1080p phone that made half a
+    screen of drag about 500 degrees of yaw at sensitivity 1.0 — the view span
+    round twice before the thumb reached the edge — and the same gesture turned
+    twice as far on a denser screen, because nothing in the chain knew about
+    density.
+
+    Nothing could see it. It is three lines of arithmetic with no wrong answer
+    to compute; it is only wrong against a hand, and a hand is the one thing a
+    check cannot have. So this does the next best thing: it takes the real
+    constant out of Engine.cpp and the real slider bounds out of Settings.kt,
+    and works out what a full-width swipe actually does at each end.
+    """
+    section("Look sensitivity")
+    eng = open(os.path.join(NATIVE, "Engine.cpp"), encoding="utf-8").read()
+    m = re.search(r"kLookDegPerDp\s*=\s*([\d.]+)f", eng)
+    check(m is not None, "no kLookDegPerDp in Engine.cpp — the look delta is "
+                         "being used as an angle directly")
+    if not m:
+        return
+    deg_per_dp = float(m.group(1))
+
+    # The same value has two sliders — one in the settings screen, one in the
+    # pause menu — and they disagreed: 0.1..3 in one, 0.1..4 in the other. The
+    # pause slider could therefore set a sensitivity the settings slider had no
+    # position for, and moving the settings slider afterwards would snap it
+    # down. Both are read here, and they have to say the same thing.
+    settings = open(os.path.join(KOTLIN, "Settings.kt"), encoding="utf-8").read()
+    b = re.search(r"controls_camera_sensitivity\)[^)]*?,\s*([\d.]+)f\s*\.\.\s*([\d.]+)f", settings)
+    check(b is not None, "the sensitivity slider's range could not be read")
+    if not b:
+        return
+    lo, hi = float(b.group(1)), float(b.group(2))
+
+    game = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
+    p = re.search(r"InGameSlider\([^)]*?controls_camera_sensitivity\)[^)]*?,"
+                  r"\s*([\d.]+)f\s*,\s*([\d.]+)f", game)
+    check(p is not None, "the pause menu's sensitivity slider range could not be read")
+    if p:
+        plo, phi = float(p.group(1)), float(p.group(2))
+        check((plo, phi) == (lo, hi),
+              f"the pause menu's sensitivity slider runs {plo}..{phi} while the "
+              f"settings screen's runs {lo}..{hi}; one of them can reach a value "
+              f"the other cannot show")
+
+    # A typical phone is ~411dp wide in portrait; a full-width swipe is the
+    # biggest gesture a thumb makes without repositioning.
+    SWIPE_DP = 411.0
+    for label, sens in (("min", lo), ("default", 1.0), ("max", hi)):
+        deg = SWIPE_DP * deg_per_dp * sens
+        print(f"   {label:8s} sensitivity {sens:4.2f} -> {deg:6.1f} deg per full swipe")
+        if label == "default":
+            check(90.0 <= deg <= 270.0,
+                  f"a full swipe at default sensitivity turns {deg:.0f} degrees; "
+                  f"under a quarter turn is unusable and over three quarters "
+                  f"overshoots whatever you were turning to face")
+    check(SWIPE_DP * deg_per_dp * hi <= 900.0,
+          f"even the slider's maximum must stay controllable; it reaches "
+          f"{SWIPE_DP * deg_per_dp * hi:.0f} degrees per swipe")
+    check(SWIPE_DP * deg_per_dp * lo >= 20.0,
+          f"the slider's minimum turns only {SWIPE_DP * deg_per_dp * lo:.0f} "
+          f"degrees per swipe, which is not a setting but a broken control")
+
+
 def check_texture_sizes() -> None:
     """
     Every texture power-of-two and no larger than 1024.
@@ -1422,6 +1490,7 @@ def main() -> int:
     check_locales()
     check_character()
     check_entity_silhouettes()
+    check_look_sensitivity()
     check_texture_sizes()
     check_shield()
     check_story()

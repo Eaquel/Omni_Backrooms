@@ -517,7 +517,7 @@ private fun ControlsTab(
     onUiEditor   : () -> Unit
 ) {
     SettingsSection(stringResource(R.string.settings_tab_controls))
-    SettingsSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, onSensitivity, 0.1f..3f)
+    SettingsSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, onSensitivity, 0.25f..3f)
     Spacer(Modifier.height(8.dp))
     AtmosphericButton(
         label   = stringResource(R.string.controls_ui_layout),

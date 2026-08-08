@@ -89,6 +89,27 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Birinci şahısta el feneri ters tarafa sapıyordu.** Fenerin dünya konumu,
+  kameranın kendi kurulduğu ileri vektörün üç bileşeninden ikisi ters
+  çevrilmiş bir vektörden hesaplanıyordu; yukarı bakınca ışın aşağı, sola
+  bakınca sağa gidiyordu. Üçüncü şahıs avatarın kendi dönüşümünü okuduğu için
+  hiç bozulmamıştı — hatanın yalnızca yarı yarıya görünmesinin sebebi buydu.
+  İkisi artık aynı temelden geliyor. Koni genişletildi ve zayıflama
+  yumuşatıldı; açık olduğunu anlamak için duvara tutman gereken bir fenerdi.
+- **Dönüş hızı yaklaşık üç kat fazlaydı ve her telefonda başka türlü.** Bakış
+  farkı `cameraLook`'a ham piksel olarak giriyor, derece olarak çıkıyordu;
+  1080p bir ekranda tek kaydırma varsayılan hassasiyette 500 dereceden fazla
+  ediyor, daha yoğun bir ekranda aynı hareket daha da çeviriyordu. Artık dp
+  cinsinden, her dp 0.42 derece. Assets_Check kaydırıcının iki ucunda tam
+  genişlikte bir kaydırmayı benzetiyor ve varsayılan çeyrek turun altına ya da
+  dörtte üçün üstüne çıkarsa hata veriyor — ilk çalıştırmasında da duraklatma
+  menüsündeki kaydırıcının 4.0'a, ayarlar ekranındakinin 3.0'a gittiğini
+  yakaladı.
+- **VHS efekti kapalıyken açık kalıyordu.** Ayar shader'daki gren ve kroma
+  terimlerini kapatıyordu ama tarama çizgileri oyunun üzerine koşulsuz çizilen
+  ayrı bir Compose katmanıydı — yani efektin en görünür parçası anahtarı hiç
+  dinlemiyordu. Ayrıca sabit `true` döndüren bir `GameState.vhsEnabled` vardı;
+  değeri ayarlardan değil oyun durumundan okuyan her yerin gördüğü buydu.
 - **Sekiz yaratık bire indi ve Smiler'a bir beden verildi.** Sekiz yaratık
   başka bir oyun demek — hangisine baktığını okumayı öğrenirsin ve asıl keyif o
   okumadadır. Seviye 0'da, hiçbir zaman doğru dürüst göremediğin tek bir şey

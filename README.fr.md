@@ -91,6 +91,19 @@ Tools/                           les huit vérifications
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
 
+- **The flashlight swung the wrong way in first person.** Its world position
+  came from a forward vector with two components negated relative to the
+  camera's own, so looking up sent the beam down. Third person read the
+  avatar's transform and was never wrong. Both use the same basis now, with a
+  wider cone and gentler falloff.
+- **Turning was about three times too fast, and phone-dependent.** The look
+  delta went in as raw pixels and came out as degrees — over 500 degrees of yaw
+  per swipe at the default. It is dp now, at 0.42 degrees each, and
+  Assets_Check simulates a full swipe at both ends of the slider.
+- **The VHS effect stayed on when switched off.** The setting gated the
+  shader's grain and chroma, but the scanline overlay was a separate Compose
+  layer drawn unconditionally — the most visible part of the effect ignored the
+  switch.
 - **Eight creatures became one, and the Smiler got a body.** Level 0 holds one
   thing you never get a good look at. The Smiler was a cut-out — one contour,
   the same thickness the whole way round — and is a drifting density field now,

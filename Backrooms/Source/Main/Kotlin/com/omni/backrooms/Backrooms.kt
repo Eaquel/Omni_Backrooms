@@ -2527,14 +2527,19 @@ void main(){
         vec3  L      = toFrag / max(d, 1e-4);
         float cosA   = dot(L, normalize(uTorchDir));
         // Hot core inside ~14 degrees, soft edge out to ~34.
-        float cone   = smoothstep(0.83, 0.97, cosA);
-        float atten  = 1.0 / (1.0 + 0.22 * d + 0.11 * d * d);
+        // Wider than it was, and it carries further. The first version used a
+        // 14-degree core with quadratic falloff at 0.11, which put almost
+        // nothing on a wall four metres away — a torch you could not navigate
+        // by. The cone is ~22 degrees of core out to ~40, and the quadratic
+        // term is a third of what it was.
+        float cone   = smoothstep(0.72, 0.93, cosA);
+        float atten  = 1.0 / (1.0 + 0.14 * d + 0.035 * d * d);
         float ndl    = max(dot(n, -L), 0.0);
         float beam   = cone * atten * uTorchOn;
-        col += albedo * vec3(1.00, 0.96, 0.86) * beam * (0.25 + 1.75 * ndl);
+        col += albedo * vec3(1.00, 0.96, 0.86) * beam * (0.55 + 2.60 * ndl);
         // A little of the beam catches the air in front of the lens.
-        col += vec3(0.9, 0.87, 0.76) * cone * uTorchOn * 0.05
-             * smoothstep(0.5, 4.0, d) * (1.0 - smoothstep(6.0, 16.0, d));
+        col += vec3(0.9, 0.87, 0.76) * cone * uTorchOn * 0.09
+             * smoothstep(0.5, 4.0, d) * (1.0 - smoothstep(8.0, 20.0, d));
     }
 
     // Dust in the air, drifting across the lit volume between the surface and
@@ -3633,13 +3638,21 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             // in the right hand would be: forward of the eye, a little right
             // and below it, pointing where she looks.
             if (!thirdPerson) {
-                val yawR = Math.toRadians(smoothYaw.toDouble()).toFloat()
-                val pitR = Math.toRadians(smoothPitch.toDouble()).toFloat()
-                val fx = kotlin.math.sin(yawR) * kotlin.math.cos(pitR)
-                val fy = -kotlin.math.sin(pitR)
-                val fz = -kotlin.math.cos(yawR) * kotlin.math.cos(pitR)
-                val rx = kotlin.math.cos(yawR)
-                val rz = kotlin.math.sin(yawR)
+                // The SAME forward the camera is built from, twelve lines up:
+                // (sin yaw cos pitch, sin pitch, cos yaw cos pitch).
+                //
+                // This had fy and fz negated, which is why looking up sent the
+                // beam down and turning left sent it right. Two sign errors,
+                // and the second is the one that made it look like the axes
+                // were swapped rather than merely inverted: flipping z reverses
+                // which way the cone swings as the yaw changes.
+                //
+                // Reusing fx/fy/fz directly rather than recomputing them is the
+                // actual fix. A second copy of a basis is a second chance to get
+                // its handedness wrong.
+                // Right-hand side of that basis: forward x up.
+                val rx = -kotlin.math.cos(Math.toRadians(smoothYaw.toDouble()).toFloat())
+                val rz = kotlin.math.sin(Math.toRadians(smoothYaw.toDouble()).toFloat())
                 torchLightPos[0] = eyeX + fx * 0.28f + rx * 0.20f
                 torchLightPos[1] = camY + fy * 0.28f - 0.18f
                 torchLightPos[2] = eyeZ + fz * 0.28f + rz * 0.20f
@@ -5283,7 +5296,14 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { glView }, modifier = Modifier.fillMaxSize())
-        CrtScanlineOverlay(0f)
+        // Gated, like the shader's VHS terms are.
+        //
+        // The tape look was two effects in two places: barrel, chroma shift,
+        // scanlines and grain inside OMNI_POST_FRAG behind uVhsStrength, and
+        // this Compose overlay drawn on top of the GL surface. Only the first
+        // was wired to the setting, so turning VHS off in settings left the
+        // scanlines running and the effect plainly still on.
+        if (settingsState.vhsEnabled) CrtScanlineOverlay(0f)
         when {
             state.isMadnessOver -> MadnessOverlay(state) { onExit() }
             state.isGameOver -> GameOverOverlay(state)  { onExit() }
@@ -6469,7 +6489,15 @@ fun GameHud(
                 .pointerInput(Unit) {
                     detectDragGestures(onDrag = { change, drag ->
                         change.consume()
-                        onLook(drag.x, drag.y)
+                        // Density-independent pixels, not raw ones.
+                        //
+                        // drag is in PIXELS, and it went straight into
+                        // cameraLook as degrees-times-sensitivity. On a 1080p
+                        // phone half a screen of drag was ~500 degrees of yaw
+                        // at sensitivity 1.0 — the view span twice round before
+                        // your thumb reached the edge. It also meant the same
+                        // gesture turned twice as far on a denser screen.
+                        onLook(drag.x.toDp().value, drag.y.toDp().value)
                     })
                 }
         )
@@ -7059,7 +7087,7 @@ fun PauseOverlay(onResume: () -> Unit, onExit: () -> Unit, settingsVm: SettingsV
                         }
                     }
                     DividerLine()
-                    InGameSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, 0.1f, 4f, settingsVm::onSensitivity)
+                    InGameSlider(stringResource(R.string.controls_camera_sensitivity), s.cameraSensitivity, 0.25f, 3f, settingsVm::onSensitivity)
                     InGameSlider(stringResource(R.string.audio_master_volume),  s.musicVolume,       0f,   1f, settingsVm::onMusic)
                     InGameSlider(stringResource(R.string.graphics_resolution_scale),  s.resolutionScale,   0.5f, 1f, settingsVm::onResolution)
                     InGameToggle(stringResource(R.string.graphics_fog),      s.fogEnabled,     settingsVm::onFog)
@@ -7768,7 +7796,6 @@ fun formatElapsed(ms: Long): String {
     return "%02d:%02d".format(m, s)
 }
 
-private val GameState.vhsEnabled: Boolean get() = true
 private val GameState.showFps   : Boolean get() = false
 
 
