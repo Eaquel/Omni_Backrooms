@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -174,6 +175,62 @@ def monster_voice(t: float, proximity: float) -> float:
     return (body * breath + grit) * (0.25 + 0.75 * p)
 
 
+def room_tone(t: float, damp: float) -> float:
+    """The empty building. See Sound/Synth.cpp for why each layer is there."""
+    n = _sample_index(t)
+    d = max(0.0, min(1.0, damp))
+    drone = (math.sin(2 * math.pi * 47.0 * t) * 0.055 +
+             math.sin(2 * math.pi * 47.2 * t) * 0.045)
+    lp = sum(white((n - k) & 0xFFFFFFFF) for k in range(12)) / 12.0
+    air = lp * 0.085
+    top = white(n + 991) * 0.012
+    cyc = t - 3.4 * math.floor(t / 3.4)
+    ring = math.exp(-cyc * 26.0)
+    drip = math.sin(2 * math.pi * (1180.0 - 260.0 * cyc) * cyc) * ring * 0.16 * d
+    return drone + air + top + drip
+
+
+def breath(t: float, exertion: float) -> float:
+    """Her breathing. In and out are different shapes on purpose."""
+    e = max(0.0, min(1.0, exertion))
+    rate = 0.30 + 0.85 * e
+    ph = t * rate - math.floor(t * rate)
+    inh = math.sin(math.pi * min(ph / 0.55, 1.0))
+    out = math.sin(math.pi * (ph - 0.55) / 0.45) if ph > 0.55 else 0.0
+    env = inh * 0.55 + out * 1.0
+    n = _sample_index(t)
+    lp = sum(white((n - k) & 0xFFFFFFFF) for k in range(5)) / 5.0
+    formant = (math.sin(2 * math.pi * 620.0 * t) * 0.25 +
+               math.sin(2 * math.pi * 1180.0 * t) * 0.12)
+    return (lp * 0.7 + lp * formant) * env * (0.12 + 0.5 * e)
+
+
+def heartbeat(t: float, fear: float) -> float:
+    """Lub and dub, the second softer and a fifth of a beat behind."""
+    f = max(0.0, min(1.0, fear))
+    bpm = 58.0 + 62.0 * f
+    period = 60.0 / bpm
+    ph = (t - period * math.floor(t / period)) / period
+
+    def thump(u: float, gain: float) -> float:
+        if u < 0.0:
+            return 0.0
+        env = math.exp(-u * 26.0) * (1.0 - math.exp(-u * 420.0))
+        return math.sin(2 * math.pi * (52.0 - 20.0 * u) * u) * env * gain
+
+    return (thump(ph * period, 1.0) + thump((ph - 0.22) * period, 0.62)) * (0.15 + 0.85 * f)
+
+
+def torch_click(t: float) -> float:
+    """The switch: a contact transient and a spring ring, over in 40 ms."""
+    if t < 0.0 or t > 0.06:
+        return 0.0
+    n = _sample_index(t)
+    snap = white(n) * math.exp(-t * 620.0)
+    ring = math.sin(2 * math.pi * 2400.0 * t) * math.exp(-t * 150.0) * 0.35
+    return (snap * 0.8 + ring) * 0.5
+
+
 GENERATORS = {
     "vhs_intro":        (lambda t: vhs_intro(t, 2.6), 2.6),
     "fluorescent_ok":   (lambda t: fluorescent_hum(t, 1.0), 2.0),
@@ -182,6 +239,13 @@ GENERATORS = {
     "footstep_run":     (lambda t: footstep(t, 1.0, 0.6), 0.35),
     "monster_far":      (lambda t: monster_voice(t, 0.15), 2.0),
     "monster_near":     (lambda t: monster_voice(t, 1.0), 2.0),
+    "room_tone_dry":    (lambda t: room_tone(t, 0.0), 4.0),
+    "room_tone_damp":   (lambda t: room_tone(t, 1.0), 4.0),
+    "breath_rest":      (lambda t: breath(t, 0.15), 4.0),
+    "breath_sprint":    (lambda t: breath(t, 1.0), 4.0),
+    "heartbeat_calm":   (lambda t: heartbeat(t, 0.2), 4.0),
+    "heartbeat_close":  (lambda t: heartbeat(t, 1.0), 4.0),
+    "torch_click":      (torch_click, 0.06),
 }
 
 
@@ -260,6 +324,13 @@ int main() {
     for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 1.0f, 0.6f));
     for (int i = 0; i < n; ++i) emit(monsterVoice(float(i) / kSynthRate, 0.15f));
     for (int i = 0; i < n; ++i) emit(monsterVoice(float(i) / kSynthRate, 1.0f));
+    for (int i = 0; i < n; ++i) emit(roomTone(float(i) / kSynthRate, 0.0f));
+    for (int i = 0; i < n; ++i) emit(roomTone(float(i) / kSynthRate, 1.0f));
+    for (int i = 0; i < n; ++i) emit(breath(float(i) / kSynthRate, 0.15f));
+    for (int i = 0; i < n; ++i) emit(breath(float(i) / kSynthRate, 1.0f));
+    for (int i = 0; i < n; ++i) emit(heartbeat(float(i) / kSynthRate, 0.2f));
+    for (int i = 0; i < n; ++i) emit(heartbeat(float(i) / kSynthRate, 1.0f));
+    for (int i = 0; i < n; ++i) emit(torchClick(float(i) / kSynthRate));
     return 0;
 }
 """
@@ -272,7 +343,68 @@ PARITY_ORDER = [
     ("footstep_run",       lambda t: footstep(t, 1.0, 0.6)),
     ("monster_far",        lambda t: monster_voice(t, 0.15)),
     ("monster_near",       lambda t: monster_voice(t, 1.0)),
+    ("room_tone_dry",      lambda t: room_tone(t, 0.0)),
+    ("room_tone_damp",     lambda t: room_tone(t, 1.0)),
+    ("breath_rest",        lambda t: breath(t, 0.15)),
+    ("breath_sprint",      lambda t: breath(t, 1.0)),
+    ("heartbeat_calm",     lambda t: heartbeat(t, 0.2)),
+    ("heartbeat_close",    lambda t: heartbeat(t, 1.0)),
+    ("torch_click",        torch_click),
 ]
+
+
+def check_reachable() -> None:
+    """
+    Every generator has to reach a speaker.
+
+    Sound/Synth.h opens with "code you cannot hear is code nobody checks" and
+    "what gets checked is what ships". Neither was true. fluorescentHum,
+    footstep and monsterVoice — three of the four generators, the ones this
+    file renders and compares against a Python reference sample for sample —
+    had no caller anywhere in the engine. Only the title sting reached the
+    speaker. What actually played was a second, cruder set of generators
+    written inline in Engine.cpp: an 800-radian-per-second "click" that is
+    really 127 Hz, a monster whose frequency modulation was applied to an
+    integer sample counter so its phase jumped whenever the pitch moved, and an
+    ambience layer of unfiltered white noise from a std::mt19937 — which is not
+    deterministic, so two players standing in the same place heard different
+    things, the one property the header says the design exists to guarantee.
+
+    So the tool was verifying three sounds nobody had ever heard, while four
+    unchecked ones played. Every generator declared in the header is now
+    required to appear in the engine that feeds the audio callback.
+    """
+    print("\n── Reachability")
+    header = open(os.path.join(NATIVE, "Sound/Synth.h"), encoding="utf-8").read()
+    engine = open(os.path.join(NATIVE, "Engine.cpp"), encoding="utf-8").read()
+
+    declared = re.findall(r"^\[\[nodiscard\]\] float (\w+)\(", header, re.M)
+    # hash01/white/valueNoise are the shared primitives every generator is built
+    # from, not sounds in their own right.
+    PRIMITIVES = {"hash01", "white", "valueNoise"}
+    gens = [g for g in declared if g not in PRIMITIVES]
+    check(len(gens) >= 4, "the header declares almost no generators — has it moved?")
+
+    for g in gens:
+        # A generator counts as reachable if the engine names it, or if the
+        # header's own OneShot plays it (the engine names OneShot).
+        in_engine = re.search(r"\b" + g + r"\s*\(", engine) is not None
+        in_oneshot = re.search(r"\b" + g + r"\s*\(", header[header.index("class OneShot"):]) \
+            if "class OneShot" in header else None
+        ok = in_engine or in_oneshot is not None
+        where = "engine" if in_engine else ("OneShot" if ok else "NOWHERE")
+        print(f"   {g:20s} {where}")
+        check(ok, f"{g} is synthesised, rendered and checked here, and nothing "
+                  f"in the engine ever plays it — it is a sound no player can hear")
+
+    # And the reverse: the engine must not carry a second set of generators of
+    # its own. An oscillator in the audio callback is one this file cannot see.
+    callback = engine[engine.index("aaudioDataCallback"):] if "aaudioDataCallback" in engine else ""
+    stray = re.findall(r"std::mt19937|uniform_real_distribution", callback[:4000])
+    check(not stray,
+          "the audio callback draws from a random number generator, so what it "
+          "plays cannot be rendered, cannot be compared, and differs between two "
+          "players standing in the same place")
 
 
 def check_parity() -> None:
@@ -343,6 +475,7 @@ def main() -> int:
         return 0
 
     check_generators()
+    check_reachable()
     check_parity()
 
     if args.render:

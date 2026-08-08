@@ -107,5 +107,91 @@ float monsterVoice(float t, float proximity) noexcept {
     return (body * breath + grit) * (0.25f + 0.75f * p);
 }
 
+float roomTone(float t, float damp) noexcept {
+    const uint32_t n = sampleIndex(t);
+    const float d = std::clamp(damp, 0.0f, 1.0f);
+
+    // The building itself. Two very low tones a fifth of a hertz apart, so they
+    // beat against each other over about five seconds and the drone never sits
+    // still — a single sine at this pitch reads as a test tone.
+    const float drone = std::sin(kTwoPi * 47.0f * t) * 0.055f +
+                        std::sin(kTwoPi * 47.2f * t) * 0.045f;
+
+    // Air handling, three floors away. White noise through a one-pole low pass
+    // done the only way a stateless generator can: average the neighbourhood.
+    // Unfiltered white noise is the single rawest thing you can put in a mix,
+    // and it was what the ambience layer played.
+    float lp = 0.0f;
+    for (uint32_t k = 0; k < 12; ++k) lp += white(n - k);
+    lp /= 12.0f;
+    const float air = lp * 0.085f;
+
+    // A little high hiss, so the low-passed part does not sound muffled.
+    const float top = white(n + 991u) * 0.012f;
+
+    // Water, somewhere. Deterministic from the clock: a drip every 3.4 seconds
+    // with a long enough tail to ring, damp deciding how wet the place is.
+    const float cyc = t - 3.4f * std::floor(t / 3.4f);
+    const float ring = std::exp(-cyc * 26.0f);
+    const float drip = std::sin(kTwoPi * (1180.0f - 260.0f * cyc) * cyc) * ring * 0.16f * d;
+
+    return drone + air + top + drip;
+}
+
+float breath(float t, float exertion) noexcept {
+    // One cycle in and out. Faster and harder the more she is working, and it
+    // is breath rather than noise because the in and the out are not the same
+    // shape: drawing in is longer and quieter than pushing out.
+    const float e = std::clamp(exertion, 0.0f, 1.0f);
+    const float rate = 0.30f + 0.85f * e;
+    const float ph = t * rate - std::floor(t * rate);
+
+    const float in  = std::sin(std::numbers::pi_v<float> * std::min(ph / 0.55f, 1.0f));
+    const float out = ph > 0.55f
+                    ? std::sin(std::numbers::pi_v<float> * (ph - 0.55f) / 0.45f)
+                    : 0.0f;
+    const float env = in * 0.55f + out * 1.0f;
+
+    // Breath is noise shaped by a throat, so it needs a formant rather than a
+    // flat spectrum. Two narrow resonances is enough to stop it being wind.
+    const uint32_t n = sampleIndex(t);
+    float lp = 0.0f;
+    for (uint32_t k = 0; k < 5; ++k) lp += white(n - k);
+    lp /= 5.0f;
+    const float formant = std::sin(kTwoPi * 620.0f * t) * 0.25f +
+                          std::sin(kTwoPi * 1180.0f * t) * 0.12f;
+
+    return (lp * 0.7f + lp * formant) * env * (0.12f + 0.5f * e);
+}
+
+float heartbeat(float t, float fear) noexcept {
+    // Two thumps, lub then dub, the second softer and a fifth of a beat later.
+    // Rate rises with fear; so does how much of the beat you feel rather than
+    // hear, which is the low end.
+    const float f = std::clamp(fear, 0.0f, 1.0f);
+    const float bpm = 58.0f + 62.0f * f;
+    const float period = 60.0f / bpm;
+    const float ph = (t - period * std::floor(t / period)) / period;
+
+    auto thump = [](float u, float gain) noexcept -> float {
+        if (u < 0.0f) return 0.0f;
+        const float env = std::exp(-u * 26.0f) * (1.0f - std::exp(-u * 420.0f));
+        return std::sin(kTwoPi * (52.0f - 20.0f * u) * u) * env * gain;
+    };
+    const float lub = thump(ph * period, 1.0f);
+    const float dub = thump((ph - 0.22f) * period, 0.62f);
+    return (lub + dub) * (0.15f + 0.85f * f);
+}
+
+float torchClick(float t) noexcept {
+    // A switch, not a beep: a hard contact transient with a tiny spring ring
+    // after it, over in about 40 ms.
+    if (t < 0.0f || t > 0.06f) return 0.0f;
+    const uint32_t n = sampleIndex(t);
+    const float snap = white(n) * std::exp(-t * 620.0f);
+    const float ring = std::sin(kTwoPi * 2400.0f * t) * std::exp(-t * 150.0f) * 0.35f;
+    return (snap * 0.8f + ring) * 0.5f;
+}
+
 } // namespace sound
 } // namespace omni

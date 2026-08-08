@@ -106,6 +106,42 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **Three of the four sounds in the game had never been played.** `Sound/Synth.h`
+  opens by saying that code you cannot hear is code nobody checks, and that what
+  gets checked is what ships. Neither was true. `fluorescentHum`, `footstep` and
+  `monsterVoice` — the three that Code_To_Sound renders to WAV and compares
+  against a Python reference sample for sample — had no caller anywhere in the
+  engine. Only the title sting reached a speaker. What actually played was a
+  second, cruder set of generators written inline in `Engine.cpp`: an
+  800-radian-per-second "click" that is really 127 Hz, a monster whose frequency
+  modulation was applied to an integer sample counter so its phase jumped every
+  time the pitch moved, and an ambience layer of unfiltered white noise straight
+  out of a `std::mt19937` — which is not deterministic, so two players standing
+  in the same place heard different things, the one property the header says the
+  whole design exists to guarantee. The tool was verifying three sounds nobody
+  had ever heard while four unchecked ones played. That is the fourth time one
+  rule has lived in two copies here with only one of them checked, after the
+  doorway, the two media3 artifacts and the light fittings — and the first time
+  the checked copy was the dead one. The engine's classes are frame counters in
+  front of the real generators now, and Code_To_Sound fails if any generator in
+  the header has no caller, or if the audio callback draws from a random number
+  generator again.
+- **Four new sounds, and the room finally has a floor to stand on.** `roomTone`
+  is the empty building: two drones a fifth of a hertz apart so they beat
+  against each other over five seconds, air handling low-passed a long way down,
+  a little top so it is not muffled, and a drip every 3.4 seconds whose
+  wetness follows the mains — a section whose power has failed is the section
+  the water got into, so the tube overhead and the drip are one fact heard
+  twice. `breath` has different shapes going in and coming out, because a
+  symmetric envelope reads as wind. `heartbeat` is lub and dub, the second
+  softer and a fifth of a beat behind. `torchClick` is a contact transient and a
+  spring ring, over in 40 ms, because a torch that turns on in silence reads as
+  a UI toggle rather than something she is holding. Breath and heart are silent
+  at rest and are driven from the tick, along with the ballast health and the
+  damp, rather than through setters Kotlin would have to keep in step. Eleven
+  generators now agree with their C++ to within 1e-6.
+- **Footsteps never stopped.** They ran on a fixed interval forever once
+  triggered, so letting go of the stick left her walking on the spot.
 - **The body came through the dress, and the legs had no calves.** Two faults
   that no structural check can see: the file parses, the shells are closed, the
   rig survives its poses, and the character still does not sit in her clothes.

@@ -1564,6 +1564,12 @@ class GameVM @Inject constructor(
                             runCatching { bridge.trailStep(c.posX, c.posZ, c.yaw, footSide) }
                         }
                     }
+                } else {
+                    // Footsteps used to run on a fixed interval forever once
+                    // triggered: nothing ever told them to stop, so she went on
+                    // walking on the spot the moment you let go of the stick.
+                    footstepTimer = 0f
+                    runCatching { bridge.stopFootstep() }
                 }
                 // Stamina is spent only on sprinting; walking is free. Recovery is
                 // handled by applyTickToState, so this only ever subtracts.
@@ -1699,7 +1705,12 @@ class GameVM @Inject constructor(
         if (_state.value.isSprinting != allowed) _state.update { it.copy(isSprinting = allowed) }
     }
 
-    fun toggleFlashlight() { _state.update { it.copy(flashlightOn = !it.flashlightOn) } }
+    fun toggleFlashlight() {
+        _state.update { it.copy(flashlightOn = !it.flashlightOn) }
+        // The switch itself. A torch that turns on in silence reads as a UI
+        // toggle rather than as something she is holding.
+        runCatching { bridge.playTorchClick() }
+    }
     fun togglePause() {
         val nowPaused = !_state.value.isPaused
         _state.update { it.copy(isPaused = nowPaused) }

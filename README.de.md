@@ -91,6 +91,21 @@ Tools/                           die acht Prüfungen
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
 
+- **Three of the four sounds in the game had never been played.**
+  `fluorescentHum`, `footstep` and `monsterVoice` — the three the sound tool
+  renders and compares against a Python reference sample for sample — had no
+  caller anywhere in the engine. What played instead was a cruder set written
+  inline in `Engine.cpp`, including an ambience layer of unfiltered white noise
+  from a `std::mt19937`, which is not deterministic. The tool was verifying
+  sounds nobody had heard while unchecked ones played. Fourth time one rule has
+  lived in two copies here with only one checked, and the first time the checked
+  copy was the dead one.
+- **Four new sounds.** Room tone with a beating drone, low-passed air and a drip
+  whose wetness follows the mains; breathing with different shapes in and out;
+  a two-part heartbeat; and a torch switch. Eleven generators now agree with
+  their C++ to within 1e-6, and the tool fails if any of them has no caller.
+- **Footsteps never stopped** once triggered, so letting go of the stick left
+  her walking on the spot.
 - **The body came through the dress, and the legs had no calves.** Neither is
   a structural fault — the file parses, the shells are closed, the rig survives
   its poses — so nothing could see them. Skin was outside the fabric in 10 of 34

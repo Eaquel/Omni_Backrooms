@@ -127,6 +127,8 @@ class NativeBridge @Inject constructor() {
     external fun setMonsterVolume(v: Float)
     external fun setAmbienceLevel(v: Float)
     external fun triggerFootstep(bpm: Float, surface: Float)
+    external fun stopFootstep()
+    external fun playTorchClick()
     external fun triggerMonster(intensity: Float)
     /** The title sting, synthesised on the device — there is no audio file. */
     external fun playIntroSting(seconds: Float)

@@ -89,6 +89,41 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Oyundaki dört sesin üçü hiç çalınmamıştı.** `Sound/Synth.h`, duyamadığın
+  kodun kimsenin denetlemediği kod olduğunu ve denetlenenin yayınlanan olduğunu
+  söyleyerek başlıyor. İkisi de doğru değildi. `fluorescentHum`, `footstep` ve
+  `monsterVoice` — Code_To_Sound'un WAV'a çizip Python referansıyla örnek örnek
+  karşılaştırdığı üçü — motorun hiçbir yerinde çağrılmıyordu. Hoparlöre yalnızca
+  jenerik sesi ulaşıyordu. Asıl çalan şey `Engine.cpp` içine satır arası
+  yazılmış, çok daha kaba ikinci bir üreteç takımıydı: saniyede 800 radyanlık,
+  aslında 127 Hz olan bir "klik"; frekans modülasyonu tamsayı örnek sayacına
+  uygulandığı için perde her değiştiğinde fazı zıplayan bir yaratık; ve doğrudan
+  `std::mt19937`'den gelen filtresiz beyaz gürültüden ibaret bir ortam katmanı —
+  ki deterministik değil, yani aynı yerde duran iki oyuncu farklı şeyler
+  duyuyordu. Oysa başlıktaki metin tüm tasarımın var oluş sebebinin tam da bu
+  özellik olduğunu söylüyor. Araç, hiç duyulmamış üç sesi doğrularken denetimsiz
+  dört ses çalıyordu. Bu, tek bir kuralın burada iki kopya hâlinde yaşayıp
+  yalnızca birinin denetlendiği dördüncü olay — kapı aralığı, iki media3 bileşeni
+  ve armatürlerden sonra — ve denetlenen kopyanın ölü olduğu ilk olay. Motorun
+  sınıfları artık gerçek üreteçlerin önündeki kare sayaçları. Code_To_Sound,
+  başlıktaki herhangi bir üretecin çağıranı yoksa ya da ses geri çağrısı yeniden
+  rastgele sayı üretecine başvurursa hata veriyor.
+- **Dört yeni ses ve odanın nihayet basacağı bir zemini var.** `roomTone` boş
+  binanın kendisi: beş saniyede birbirine vuran, yarım hertz aralıklı iki alçak
+  ton; çok aşağı alçak-geçiren süzülmüş havalandırma; boğuk durmasın diye biraz
+  tiz; ve 3.4 saniyede bir, ıslaklığı şebekeyi takip eden bir damla — elektriği
+  gitmiş bölge suyun girdiği bölgedir, yani baştaki tüp ile damlama aynı olgunun
+  iki kez duyulmasıdır. `breath`'in nefes alışı ile verişi farklı biçimlerde,
+  çünkü simetrik bir zarf rüzgâr gibi duyulur. `heartbeat` lup ve dup; ikincisi
+  daha yumuşak ve vuruşun beşte biri kadar geride. `torchClick` bir kontak
+  darbesi ve yay çınlaması, 40 ms'de biter; sessizce yanan bir el feneri elde
+  tutulan bir nesne değil bir arayüz düğmesi gibi duyulur. Nefes ve kalp
+  dinlenirken sessiz ve Kotlin'in eşlemesi gereken ayarlayıcılar yerine tick
+  içinden sürülüyor — balast sağlığı ve rutubet de öyle. On bir üreteç artık
+  kendi C++'ıyla 1e-6 içinde uyuşuyor.
+- **Ayak sesleri hiç durmuyordu.** Bir kez tetiklendikten sonra sabit aralıkla
+  sonsuza kadar çalıyorlardı; çubuğu bırakınca karakter olduğu yerde yürümeye
+  devam ediyordu.
 - **Beden elbisenin içinden çıkıyordu ve bacakların baldırı yoktu.** Hiçbir
   yapısal kontrolün göremeyeceği iki kusur: dosya ayrıştırılıyor, kabuklar
   kapalı, rig pozlarını atlatıyor — ve karakter yine de kıyafetine oturmuyor.

@@ -406,74 +406,141 @@ struct SpatialParams {
     float refDistance=1.0f,maxDistance=30.0f;
 };
 
-class HumGenerator {
+// ---------------------------------------------------------------------------
+// Every one of these is a frame counter in front of a generator in Sound/Synth.
+//
+// They used to be generators in their own right, written out here a second
+// time and much more crudely, and THEY were what the speaker actually played.
+// Sound/Synth.h opens by saying "code you cannot hear is code nobody checks"
+// and "what gets checked is what ships" -- and then fluorescentHum, footstep
+// and monsterVoice, the three that Code_To_Sound.py renders and compares
+// against a Python reference sample for sample, had no caller anywhere in the
+// engine. Only the title sting reached the speaker. The tool was verifying
+// three sounds nobody had ever heard while four cruder ones played unchecked.
+//
+// That is the fourth time one rule has existed in two copies here with only one
+// of them checked -- the doorway, the two media3 artifacts, the light fittings,
+// now this -- and the first time the checked copy was the dead one.
+//
+// What played instead: an 800-radian-per-second "click" that is really 127 Hz,
+// a monster whose frequency modulation was applied to an integer sample counter
+// so its phase jumped every time the pitch moved, and an ambience layer that
+// was unfiltered white noise out of a std::mt19937 -- non-deterministic, so two
+// players in the same place heard different things, which is the one property
+// the header says the whole design exists to guarantee.
+// ---------------------------------------------------------------------------
+
+/** A continuous generator sampled by the callback. Holds a phase in seconds so
+ *  the generator stays a pure function of time, and a parameter the game moves
+ *  underneath it. */
+class Continuous {
 public:
-    void fill(std::vector<float>& buf) noexcept {
-        for(auto& s: buf){
-            s=(std::sin(phase_)*0.35f+std::sin(phase_*3.0f)*0.08f+std::sin(phase_*5.0f)*0.04f)*vol_.load();
-            phase_+=2.0f*std::numbers::pi_v<float>*60.0f/kSampleRate;
-        }
+    explicit Continuous(float param) noexcept : param_(param) {}
+    void  set(float v)   noexcept { param_.store(std::clamp(v,0.0f,1.0f)); }
+    float get()    const noexcept { return param_.load(); }
+protected:
+    /** Seconds since the stream started, wrapped at an hour so a long session
+     *  cannot lose float precision in the low bits of t. */
+    float advance() noexcept {
+        const float t = static_cast<float>(frame_) / kSampleRate;
+        if (++frame_ >= kSampleRate * 3600) frame_ = 0;
+        return t;
     }
-    void setVolume(float v) noexcept { vol_.store(std::clamp(v,0.0f,1.0f)); }
-    float volume() const noexcept    { return vol_.load(); }
+    std::atomic<float> param_;
 private:
-    float phase_=0.0f;
-    std::atomic<float> vol_{0.6f};
+    int frame_ = 0;
 };
 
+class HumGenerator : public Continuous {
+public:
+    HumGenerator() noexcept : Continuous(0.6f) {}
+    void fill(std::vector<float>& buf) noexcept {
+        for(auto& s: buf) s = omni::sound::fluorescentHum(advance(), health_.load());
+    }
+    void setVolume(float v) noexcept { set(v); }
+    float volume() const noexcept    { return get(); }
+    /** 1 a good fitting, 0 a failing ballast. Driven from the cell the player
+     *  is standing in, so the buzz belongs to the tube overhead. */
+    void setHealth(float h) noexcept { health_.store(std::clamp(h,0.0f,1.0f)); }
+private:
+    std::atomic<float> health_{1.0f};
+};
+
+/** Footfalls at a fixed interval. Each one restarts the generator's clock, so
+ *  what plays is one footstep from t=0 rather than a continuous tone gated by
+ *  an envelope. */
 class FootstepSynth {
 public:
     void trigger(float bpm,float surface) noexcept {
         std::lock_guard lk(mtx_);
-        interval_=static_cast<int>(60.0f/bpm*kSampleRate);
-        surface_=surface; counter_=0; active_=true;
+        interval_=static_cast<int>(60.0f/std::max(bpm,1.0f)*kSampleRate);
+        surface_=std::clamp(surface,0.0f,1.0f);
+        pace_=std::clamp((bpm-90.0f)/90.0f,0.0f,1.0f);
+        counter_=0; active_=true;
     }
+    void stop() noexcept { std::lock_guard lk(mtx_); active_=false; }
     float next() noexcept {
         std::lock_guard lk(mtx_);
         if(!active_) return 0.0f;
-        if(counter_>=interval_){ counter_=0; }
-        float t=static_cast<float>(counter_)/kSampleRate;
-        float env=std::exp(-t*30.0f*(1.0f+surface_*2.0f));
-        float click=std::sin(t*800.0f*(1.0f-surface_*0.5f))*env*0.6f;
-        ++counter_; return click;
+        if(counter_>=interval_) counter_=0;
+        const float t=static_cast<float>(counter_)/kSampleRate;
+        ++counter_;
+        return omni::sound::footstep(t,pace_,surface_);
     }
 private:
     mutable std::mutex mtx_;
-    int counter_=0,interval_=22050; float surface_=0; bool active_=false;
+    int counter_=0,interval_=22050;
+    float surface_=0.0f,pace_=0.0f; bool active_=false;
 };
 
 class MonsterSynth {
 public:
-    void trigger(float intensity) noexcept { std::lock_guard lk(mtx_); intensity_=std::clamp(intensity,0.0f,1.0f); active_=true; phase_=0; }
-    void stop()                   noexcept { std::lock_guard lk(mtx_); active_=false; }
+    void trigger(float intensity) noexcept {
+        std::lock_guard lk(mtx_);
+        intensity_=std::clamp(intensity,0.0f,1.0f); active_=true; frame_=0;
+    }
+    void stop() noexcept { std::lock_guard lk(mtx_); active_=false; }
     float next() noexcept {
         std::lock_guard lk(mtx_);
         if(!active_) return 0.0f;
-        float f=80.0f+intensity_*120.0f+std::sin(phase_*0.01f)*20.0f;
-        float s=std::sin(phase_*2.0f*std::numbers::pi_v<float>*f/kSampleRate);
-        float rumble=std::sin(phase_*2.0f*std::numbers::pi_v<float>*40.0f/kSampleRate)*0.3f;
-        float env=std::min(1.0f,static_cast<float>(phase_)/kSampleRate)*intensity_;
-        ++phase_;
-        return (s+rumble)*env*0.5f;
+        const float t=static_cast<float>(frame_)/kSampleRate;
+        if(++frame_>=kSampleRate*3600) frame_=0;
+        // Fade in over a second so a creature does not appear at full voice.
+        return omni::sound::monsterVoice(t,intensity_)*std::min(1.0f,t);
     }
 private:
-    mutable std::mutex mtx_; int phase_=0; float intensity_=0; bool active_=false;
+    mutable std::mutex mtx_; int frame_=0; float intensity_=0; bool active_=false;
 };
 
-class AmbienceLayer {
+class AmbienceLayer : public Continuous {
 public:
-    void setLevel(float l) noexcept { level_.store(std::clamp(l,0.0f,1.0f)); }
+    AmbienceLayer() noexcept : Continuous(0.4f) {}
+    void setLevel(float l) noexcept { set(l); }
+    float next() noexcept { return omni::sound::roomTone(advance(),damp_.load())*get(); }
+    void setDamp(float d) noexcept { damp_.store(std::clamp(d,0.0f,1.0f)); }
+private:
+    std::atomic<float> damp_{0.35f};
+};
+
+/** Her breathing, and her heart. Both ride the ambience gain rather than a
+ *  channel of their own: they are the player's own body, and a player who has
+ *  turned the ambience down has said they want the room quiet. */
+class BodyLayer : public Continuous {
+public:
+    BodyLayer() noexcept : Continuous(1.0f) {}
+    void setExertion(float e) noexcept { exertion_.store(std::clamp(e,0.0f,1.0f)); }
+    void setFear(float f)     noexcept { fear_.store(std::clamp(f,0.0f,1.0f)); }
     float next() noexcept {
-        float n=dist_(rng_)*level_.load()*0.08f;
-        float hum=std::sin(humPhase_)*0.04f*level_.load();
-        humPhase_+=2.0f*std::numbers::pi_v<float>*50.0f/kSampleRate;
-        return n+hum;
+        const float t = advance();
+        const float e = exertion_.load(), f = fear_.load();
+        // Neither is audible at rest. You hear your own breath when you have
+        // been running and your own heart when something is close, and at no
+        // other time -- otherwise they are just two more loops.
+        return omni::sound::breath(t,e)     * std::min(1.0f,e*1.6f)
+             + omni::sound::heartbeat(t,f)  * std::min(1.0f,std::max(0.0f,f-0.25f)*2.0f);
     }
 private:
-    std::mt19937 rng_{9999};
-    std::uniform_real_distribution<float> dist_{-1.0f,1.0f};
-    std::atomic<float> level_{0.4f};
-    float humPhase_=0;
+    std::atomic<float> exertion_{0.0f}, fear_{0.0f};
 };
 
 class MixBus {
@@ -498,7 +565,9 @@ struct SoundEngine {
     FootstepSynth  foot;
     MonsterSynth   monster;
     AmbienceLayer  ambience;
+    BodyLayer      body;
     OneShot        sting;
+    OneShot        click;
     MixBus         bus;
     SpatialParams  spatial;
     std::vector<float>   mixBuf;
@@ -536,9 +605,12 @@ static aaudio_data_callback_result_t aaudioDataCallback(
     std::vector<float> humBuf(numFrames),footBuf(numFrames),monBuf(numFrames),ambBuf(numFrames);
     eng->hum.fill(humBuf);
     for(int i=0;i<numFrames;++i){
-        footBuf[i]=eng->foot.next(); monBuf[i]=eng->monster.next(); ambBuf[i]=eng->ambience.next();
+        footBuf[i]=eng->foot.next(); monBuf[i]=eng->monster.next();
+        // The room and her own body are one bed: both answer to the ambience
+        // gain, so turning the room down turns the breathing down with it.
+        ambBuf[i]=eng->ambience.next()+eng->body.next()*eng->ambience.get();
         float s=eng->bus.mix(humBuf[i]*eng->hum.volume(),footBuf[i],monBuf[i],ambBuf[i]);
-        s=eng->bus.mixSting(s,eng->sting.next());
+        s=eng->bus.mixSting(s,eng->sting.next()+eng->click.next());
         int16_t pcm=static_cast<int16_t>(std::clamp(s*32767.0f,-32767.0f,32767.0f));
         out[i*2]=pcm; out[i*2+1]=pcm;
     }
@@ -962,6 +1034,36 @@ Java_com_omni_backrooms_NativeBridge_tickEntities(
     gEntitySys.sense.torchOn   = (torchOn == JNI_TRUE);
     gEntitySys.tick(dt);
 
+    // ---- the sound of standing here ------------------------------------
+    //
+    // Set from the tick rather than through JNI setters of their own. Every
+    // one of these is something the engine already knows to the frame -- how
+    // close the creature is, what the mains are doing overhead, how fast she
+    // is going -- and a setter would mean Kotlin keeping a second copy of it
+    // in step. This file has lost four days to rules kept in two places.
+    {
+        float nearest = 1e9f;
+        for (const auto& e : gEntitySys.entities) {
+            if (!e.active) continue;
+            const float dx = e.pos.x - px, dz = e.pos.z - pz;
+            nearest = std::min(nearest, std::sqrt(dx * dx + dz * dz));
+        }
+        // Nothing at 24 m, everything inside 4. Her heart is not a proximity
+        // meter -- it does not start until the thing is close enough to matter.
+        const float fear = std::clamp((24.0f - nearest) / 20.0f, 0.0f, 1.0f);
+
+        const float power = gField.powerAt(omni::map::Level0Field::cellX(px),
+                                           omni::map::Level0Field::cellZ(pz));
+        // A section whose mains have failed is the section the water got into,
+        // so the tube overhead and the drip are the same fact heard twice.
+        gSound.hum.setHealth(power);
+        gSound.ambience.setDamp(1.0f - power);
+        gSound.body.setFear(fear);
+
+        const float vx = gPlayerBody.vel.x, vz = gPlayerBody.vel.z;
+        gSound.body.setExertion(std::clamp(std::sqrt(vx * vx + vz * vz) / 5.5f, 0.0f, 1.0f));
+    }
+
     const int fpn = 11;
     auto count = static_cast<jsize>(gEntitySys.entities.size() * fpn);
     auto arr = env->NewFloatArray(count); if(!arr) return nullptr;
@@ -1058,6 +1160,13 @@ JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setHumVolume(JNIEnv*
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setFootstepVolume(JNIEnv*, jobject, jfloat v)  { gSound.bus.footGain.store(std::clamp(v,0.0f,1.0f)); }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setMonsterVolume(JNIEnv*, jobject, jfloat v)   { gSound.bus.monsterGain.store(std::clamp(v,0.0f,1.0f)); }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setAmbienceLevel(JNIEnv*, jobject, jfloat v)   { gSound.ambience.setLevel(v); }
+/** Stops the footfalls. They ran on a fixed interval forever once triggered,
+ *  so letting go of the stick left her walking on the spot. */
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopFootstep(JNIEnv*, jobject)                 { gSound.foot.stop(); }
+/** The torch switch. 60 ms, which is the whole sound. */
+JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_playTorchClick(JNIEnv*, jobject) {
+    std::lock_guard lk(gSound.mtx); gSound.click.start(0.06f, omni::sound::Shot::TorchClick);
+}
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_triggerFootstep(JNIEnv*, jobject, jfloat bpm, jfloat surface) {
     std::lock_guard lk(gSound.mtx); gSound.foot.trigger(bpm,surface);
 }
@@ -1075,7 +1184,7 @@ JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopMonster(JNIEnv*,
  * translation unit, so what is checked is what plays.
  */
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_playIntroSting(JNIEnv*, jobject, jfloat seconds) {
-    std::lock_guard lk(gSound.mtx); gSound.sting.start(seconds);
+    std::lock_guard lk(gSound.mtx); gSound.sting.start(seconds, omni::sound::Shot::Sting);
 }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopIntroSting(JNIEnv*, jobject) {
     std::lock_guard lk(gSound.mtx); gSound.sting.stop();
