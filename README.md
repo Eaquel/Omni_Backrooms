@@ -106,6 +106,16 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **Eight creatures became one, and the Smiler got a body.** A bestiary is a
+  different game — you learn to read which one you are looking at, and the
+  reading is the fun. Level 0 holds one thing you never get a good look at. The
+  Smiler itself was a cut-out: an ovoid with a noise-displaced edge is one
+  contour, the same thickness the whole way round. It is a density field now —
+  four octaves of drifting noise pushed along a curl, wide at the hem, narrowing
+  and swaying as it rises, throwing tendrils. The face is multiplied by the
+  smoke around it, so it surfaces where the column is thick and swims where it
+  is not; painted on at full strength it was a decal. Seven behaviour trees in
+  the native AI went with the seven creatures.
 - **A texture hung in mid-air, and it was the doorway.** The mesher drew a
   single horizontal quad at 0.82 of the wall height with both long edges ending
   in open space. The comment above it described "a lintel and two jambs";

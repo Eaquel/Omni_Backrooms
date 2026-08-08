@@ -89,6 +89,16 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Sekiz yaratık bire indi ve Smiler'a bir beden verildi.** Sekiz yaratık
+  başka bir oyun demek — hangisine baktığını okumayı öğrenirsin ve asıl keyif o
+  okumadadır. Seviye 0'da, hiçbir zaman doğru dürüst göremediğin tek bir şey
+  var. Smiler'ın kendisi bir mukavva kesiğiydi: kenarı gürültüyle oynatılmış bir
+  yumurta, tek bir kontur, her yerinde aynı kalınlıkta. Artık bir yoğunluk
+  alanı — kıvrım boyunca sürüklenen dört oktav gürültü, etekte geniş, yükseldikçe
+  daralıp savrulan, kopan tutamlar bırakan bir sütun. Yüz, çevresindeki dumanla
+  çarpılıyor: sütun kalınken beliriyor, inceldiğinde dağılıyor. Tam güçle
+  boyandığında sadece bir çıkartmaydı. Native AI'daki yedi davranış ağacı da
+  yedi yaratıkla birlikte gitti.
 - **Havada asılı duran texture kapıydı.** Mesher, duvar yüksekliğinin 0.82'sinde
   tek bir yatay dörtgen çiziyordu ve uzun kenarlarının ikisi de boşlukta
   bitiyordu. Üstündeki yorum "bir lento ve iki söve" diyordu; ikisi de hiç

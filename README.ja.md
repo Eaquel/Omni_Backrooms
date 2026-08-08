@@ -89,6 +89,11 @@ Tools/                           8つのチェック
 
 新しい順。この一覧は修正のたびに更新されます。
 
+- **Eight creatures became one, and the Smiler got a body.** Level 0 holds one
+  thing you never get a good look at. The Smiler was a cut-out — one contour,
+  the same thickness the whole way round — and is a drifting density field now,
+  with the face multiplied by the smoke so it surfaces and swims with it. Seven
+  behaviour trees in the native AI went with the seven creatures.
 - **A texture hung in mid-air, and it was the doorway.** A single horizontal
   quad at 0.82 of the wall height, both long edges ending in open space.
 - **Frames were drawn across the photo**, and tilted 0.62 rad so a circular
