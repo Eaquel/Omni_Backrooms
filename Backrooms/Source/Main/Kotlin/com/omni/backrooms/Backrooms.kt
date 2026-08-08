@@ -690,7 +690,6 @@ enum class EntityType(
 }
 
 data class SpawnConfig(val count: Int, val speedMult: Float, val sightMult: Float, val spawnIntervalMs: Long)
-data class LevelTheme(val id: String, val primaryColor: Color = Yellow, val bgColor: Color = DarkBg)
 
 /** Internal intermediate between the bundled per-language story files and the
  *  UI. "Localised" is whichever language was loaded; "source" is the English
@@ -726,39 +725,11 @@ private data class StoryChapterMono(
 @Serializable
 private data class StoryFileMono(val version: Int = 1, val chapters: List<StoryChapterMono> = emptyList())
 
-data class CharacterDef(
-    val id: String, val name: String, val clazz: CharClass,
-    val maxHp: Float, val baseSpeed: Float, val stealthMult: Float, val staminaMult: Float,
-    val abilities: List<String>, val isUnlocked: Boolean, val isEquipped: Boolean
-)
-
-enum class CharClass { WANDERER, SCOUT, SURVIVOR, ENGINEER, GHOST }
-
 @Singleton
 class AssetManager @Inject constructor(@ApplicationContext private val ctx: Context) {
     private val json       = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val storyCacheByLang = mutableMapOf<String, StoryJson>()
 
-    private val levelThemes = mapOf(
-        0 to LevelTheme("level_0", Yellow,              DarkBg),
-        1 to LevelTheme("level_1", CrtAmber,            DarkBg),
-        2 to LevelTheme("level_2", Color(0xFF4FC3F7),   DarkBg),
-        3 to LevelTheme("level_3", Color(0xFFEF9A9A),   DarkBg),
-        4 to LevelTheme("level_4", SuccessGreen,        DarkBg),
-        5 to LevelTheme("level_5", SouliumCol,          DarkBg),
-        6 to LevelTheme("level_6", TextDim,             DarkBg),
-        7 to LevelTheme("level_7", OmniumCol,           DarkBg)
-    )
-
-    val defaultCharacters: List<CharacterDef> = listOf(
-        CharacterDef("wanderer","Wanderer",CharClass.WANDERER, 100f,3.0f,1.0f,1.0f, listOf("Hayatta Kalma İçgüdüsü","Çevre Adaptasyonu"), isUnlocked=true,  isEquipped=true),
-        CharacterDef("scout",   "Scout",   CharClass.SCOUT,     80f,4.5f,1.6f,1.2f, listOf("Hızlı Koşu","Sessiz Adım","Erken Uyarı"),     isUnlocked=false, isEquipped=false),
-        CharacterDef("survivor","Survivor",CharClass.SURVIVOR, 150f,2.5f,0.8f,0.9f, listOf("Ağır Zırh","Son Nefes","HP Rejenerasyonu"),   isUnlocked=false, isEquipped=false),
-        CharacterDef("engineer","Engineer",CharClass.ENGINEER,  90f,3.2f,1.0f,1.1f, listOf("Tuzak Kurma","Işık Tamiri","Pil Uzatma"),     isUnlocked=false, isEquipped=false),
-        CharacterDef("ghost",   "Ghost",   CharClass.GHOST,     70f,3.8f,1.9f,0.8f, listOf("Geçici Görünmezlik","Yankısız Hareket"),      isUnlocked=false, isEquipped=false)
-    )
-
-    fun getLevelTheme(level: Int): LevelTheme = levelThemes[level] ?: LevelTheme("level_$level")
 
     /**
      * Level 0 carries exactly one creature, on every difficulty.
@@ -846,7 +817,6 @@ data class GuardReport(
     val report          : String      = "CLEAN",
     val threatLevel     : ThreatLevel = ThreatLevel.CLEAN
 ) {
-    val isThreatDetected: Boolean get() = flags != 0
 }
 
 @Singleton
@@ -929,20 +899,7 @@ class GuardManager @Inject constructor(
 
     private fun startContinuousMonitor() {
         monitorJob = guardScope.launch { while (isActive) { delay(30_000); runFullScan() } }
-    }
-
-    fun destroy() { monitorJob?.cancel(); guardScope.cancel(); bridge.destroyGuard() }
-
-    fun verifyApkSignature(): Boolean = runCatching {
-        val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()))
-        else @Suppress("DEPRECATION") ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.GET_SIGNATURES)
-        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pInfo.signingInfo?.apkContentsSigners
-                         else @Suppress("DEPRECATION") pInfo.signatures
-        if (signatures.isNullOrEmpty()) return false
-        val hash = MessageDigest.getInstance("SHA-256").digest(signatures[0].toByteArray()).joinToString("") { "%02x".format(it) }
-        hash == BuildConfig.EXPECTED_SIG_HASH
-    }.getOrElse { false }
+.getOrElse { false }
 
     /** The offending frame, or null. Returned rather than a boolean so the log
      *  can name what was actually found. */
@@ -1005,10 +962,7 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
             }
         }
     }
-    fun refresh() { viewModelScope.launch(Dispatchers.IO) { guardManager.runFullScan() } }
-    fun verifySignature(): Boolean = guardManager.verifyApkSignature()
-}
-
+private const val ANON_NAME_FRAME_MS = 120L
 /** Cosmetic-only storefront. There is deliberately no tab that sells power:
  *  nothing purchasable may change HP, speed, stamina, sanity drain or spawn
  *  rates, so buying is never a shortcut past the game. */
@@ -1018,16 +972,6 @@ enum class MarketTab(val labelRes: Int, val icon: ImageVector) {
     Trails    (R.string.market_tab_trails,     Icons.Default.AutoAwesome),
     Vip       (R.string.market_tab_vip,        Icons.Default.Star),
     Daily     (R.string.market_tab_daily,      Icons.Default.LocalOffer)
-}
-
-private val ANON_NAME_CHARS = listOf('%','#','₺','&','@','!','?','*','§','¿','¡','†','‡','~','^','|','≈','∆','√','∞')
-private const val ANON_NAME_FRAME_MS = 120L
-
-@Composable
-fun rememberAnonDisplayName(): String {
-    var frame by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { delay(ANON_NAME_FRAME_MS); frame++ } }
-    return (0..5).joinToString("") { slot -> ANON_NAME_CHARS[(frame + slot * 3) % ANON_NAME_CHARS.size].toString() }
 }
 
 data class MarketUiState(
@@ -1060,8 +1004,7 @@ data class MarketUiState(
 @HiltViewModel
 class MarketVM @Inject constructor(
     private val assetManager: AssetManager,
-    private val cosmetics   : CosmeticsStore,
-    @ApplicationContext private val appCtx: Context
+    private val cosmetics   : CosmeticsStore
 ) : ViewModel() {
     private val _state = MutableStateFlow(MarketUiState())
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
@@ -1131,9 +1074,6 @@ class MarketVM @Inject constructor(
             _state.update { it.copy(charsLoading = false, characters = emptyList()) }
         }
     }
-
-    fun selectChar(char: CharacterDto) { _state.update { it.copy(selectedChar = char) } }
-
     fun equip(char: CharacterDto) {
         viewModelScope.launch {
             _state.update { it.copy(equipping = char.id) }
@@ -1894,12 +1834,6 @@ class GameVM @Inject constructor(
             finishRun()
         }
     }
-
-    fun onDamageEntity(id: Int) {
-        bridge.damageEntity(id, 25f); kills++; score += 100L
-        _state.update { it.copy(kills = kills, score = score) }
-    }
-
     /** The live footstep marks. Called from the GL thread once a frame; the
      *  native side hands back a fresh array, so nothing is shared. */
     fun collectTrail(): FloatArray? = runCatching { bridge.trailCollect() }.getOrNull()
@@ -2140,46 +2074,6 @@ fun MainMenu(
         NoiseScanlineBottom()
     }
 }
-
-@Composable
-private fun GlitchText(
-    text     : String,
-    fontSize : androidx.compose.ui.unit.TextUnit,
-    color    : Color,
-    glitchVal: Float
-) {
-    val glitchOffset = remember(glitchVal) {
-        if (glitchVal > 0.92f) (Math.random() * 6 - 3).toFloat() else 0f
-    }
-    Box {
-        if (glitchOffset != 0f) {
-            Text(
-                text,
-                color        = OmniumCol.copy(0.35f),
-                fontSize     = fontSize,
-                fontWeight   = FontWeight.Black,
-                letterSpacing = 6.sp,
-                modifier     = Modifier.offset(x = glitchOffset.dp, y = 1.dp)
-            )
-            Text(
-                text,
-                color        = DangerRed.copy(0.35f),
-                fontSize     = fontSize,
-                fontWeight   = FontWeight.Black,
-                letterSpacing = 6.sp,
-                modifier     = Modifier.offset(x = (-glitchOffset).dp, y = (-1).dp)
-            )
-        }
-        Text(
-            text,
-            color        = color,
-            fontSize     = fontSize,
-            fontWeight   = FontWeight.Black,
-            letterSpacing = 6.sp
-        )
-    }
-}
-
 @Composable
 fun AtmosphericButton(
     label   : String,
@@ -2250,21 +2144,6 @@ fun AtmosphericButton(
         }
     }
 }
-
-@Composable
-private fun FlickerDivider() {
-    val inf  = rememberInfiniteTransition(label = "div")
-    val flkr by inf.animateFloat(0.3f, 1f, infiniteRepeatable(tween(180, easing = LinearEasing), RepeatMode.Reverse), "f")
-    Canvas(Modifier.fillMaxWidth().height(1.dp)) {
-        drawLine(
-            brush       = Brush.horizontalGradient(listOf(Color.Transparent, Yellow.copy(flkr), Color.Transparent)),
-            start       = Offset(0f, size.height / 2),
-            end         = Offset(size.width, size.height / 2),
-            strokeWidth = 1.5f
-        )
-    }
-}
-
 @Composable
 private fun CrtScanlineOverlay(scanProgress: Float) {
     Canvas(Modifier.fillMaxSize()) {
@@ -4514,7 +4393,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
                 val u0 = x0; val u1 = x1
                 val v0 = z0; val v1 = z1
-                val wallV0 = 0f; val wallV1 = hgt
 
                 // Floor and ceiling are emitted for EVERY open cell, always.
                 //
@@ -6308,50 +6186,6 @@ private fun formatDuration(ms: Long): String {
     return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s)
     else String.format(Locale.US, "%02d:%02d", m, s)
 }
-
-@Composable
-fun OmniTextField(
-    value    : String,
-    onValue  : (String) -> Unit,
-    hint     : String,
-    error    : String?  = null,
-    isPassword: Boolean = false
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp))
-                .background(MetalBg)
-                .border(1.dp, if (error != null) DangerRed.copy(0.7f) else BorderCol, RoundedCornerShape(2.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            androidx.compose.foundation.text.BasicTextField(
-                value                = value,
-                onValueChange        = onValue,
-                singleLine           = true,
-                textStyle            = TextStyle(color = Yellow, fontSize = 13.sp),
-                cursorBrush          = SolidColor(Yellow),
-                visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-                decorationBox        = { inner ->
-                    if (value.isEmpty()) Text(hint, color = TextDim, fontSize = 13.sp)
-                    inner()
-                }
-            )
-        }
-        error?.let { Text(it, color = DangerRed, fontSize = 10.sp) }
-    }
-}
-
-@Composable
-fun OmniPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp))
-            .background(MetalBg)
-            .border(1.dp, BorderCol, RoundedCornerShape(3.dp))
-            .padding(12.dp),
-        content = content
-    )
-}
-
 @Composable
 fun StatusBar(label: String, progress: Float, color: Color) {
     val animProgress by animateFloatAsState(
@@ -7465,23 +7299,6 @@ private fun BookReadingView(chapter: StoryChapterDto, onClose: () -> Unit) {
         }
     }
 }
-
-@Composable
-fun CarpetProgressBar(progress: Float, modifier: Modifier) {
-    val animProg by animateFloatAsState(progress.coerceIn(0f, 1f), tween(600, easing = EaseOutCubic), label = "carpet_prog")
-    androidx.compose.foundation.Canvas(modifier) {
-        val w = size.width; val h = size.height
-        drawRoundRect(Color(0xFF1A1208), cornerRadius = CornerRadius(h / 2f))
-        if (animProg > 0f) {
-            val fw = w * animProg
-            drawRoundRect(Brush.horizontalGradient(listOf(Color(0xFF3D2B10), Color(0xFF7A5A18), Color(0xFFD4A84B), Color(0xFF9A7228)), 0f, fw),
-                size = Size(fw, h), cornerRadius = CornerRadius(h / 2f))
-            drawRect(Brush.verticalGradient(listOf(Color.White.copy(0.18f), Color.Transparent)), Offset(0f, 0f), Size(fw, h / 2f))
-        }
-        drawRoundRect(Color(0xFF5A4020), cornerRadius = CornerRadius(h / 2f), style = Stroke(1f))
-    }
-}
-
 @Composable
 private fun MarketCard(
     item: MarketItemDto,
@@ -7709,46 +7526,6 @@ private fun VipBadge() {
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) { Text("VIP", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp) }
 }
-
-@Composable
-private fun CharStatBar(label: String, value: Float, display: String, color: Color) {
-    val animVal by animateFloatAsState(value.coerceIn(0f, 1f), tween(500, easing = EaseOutCubic), label = "stat_bar")
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-            Text(label, color = TextSec, fontSize = 11.sp)
-            Text(display, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
-        LinearProgressIndicator(progress = { animVal }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)), color = color, trackColor = MetalBg)
-    }
-}
-
-@Composable
-private fun PlayerCard(profile: PlayerProfile) {
-    OmniPanel {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(46.dp).clip(CircleShape).background(MetalBg), Alignment.Center) {
-                // Locale-aware: a Turkish name starting with "i" has to show
-                // "İ", and the locale-invariant uppercase() gives "I".
-                Text(
-                    profile.name.take(1).uppercase(Locale.getDefault()),
-                    color = Yellow, fontSize = 18.sp, fontWeight = FontWeight.Black
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(profile.name, color = Yellow, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(stringResource(R.string.player_level_prefix) + profile.level, color = TextSec, fontSize = 11.sp)
-                    if (profile.isVip) Box(
-                        Modifier.clip(RoundedCornerShape(1.dp)).background(Color(0xFFFFD700).copy(0.2f)).padding(horizontal = 4.dp, vertical = 1.dp)
-                    ) { Text("VIP", color = Color(0xFFFFD700), fontSize = 7.sp, fontWeight = FontWeight.Black) }
-                }
-                val xpAnim by animateFloatAsState(profile.xpProgress, tween(800, easing = EaseOutCubic), label = "xp")
-                LinearProgressIndicator(progress = { xpAnim }, modifier = Modifier.width(88.dp).height(4.dp).clip(RoundedCornerShape(2.dp)), color = Yellow, trackColor = MetalBg)
-            }
-        }
-    }
-}
-
 @Composable
 private fun StatRow(label: String, value: String, color: Color) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {

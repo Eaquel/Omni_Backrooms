@@ -118,12 +118,6 @@ class SettingsRepository @Inject constructor(
             pushNotifications = p[KEY_PUSH_NOTIF]   ?: true
         )
     }
-
-    fun observeVhs()    : Flow<Boolean> = store.data.map { it[KEY_VHS]     ?: true     }
-    fun observeMusic()  : Flow<Float>   = store.data.map { it[KEY_MUSIC]   ?: 0.7f     }
-    fun observeVoice()  : Flow<Float>   = store.data.map { it[KEY_VOICE]   ?: 0.8f     }
-    fun observeQuality(): Flow<String>  = store.data.map { it[KEY_QUALITY] ?: "medium" }
-
     suspend fun saveName(v: String)          { store.edit { it[KEY_NAME]         = v } }
     suspend fun saveQuality(v: String)       { store.edit { it[KEY_QUALITY]      = v } }
     suspend fun saveVhs(v: Boolean)          { store.edit { it[KEY_VHS]          = v } }
@@ -299,12 +293,6 @@ class SettingsVM @Inject constructor(
         viewModelScope.launch { identity.setDisplayName(v) }
     }
     fun onQuality(v: String)       { pendingWrites.add("quality"); _state.update { it.copy(graphicsQuality   = v) }; save { repo.saveQuality(v) } }
-    fun onVhs(v: Boolean)          { pendingWrites.add("vhs"); _state.update { it.copy(vhsEnabled        = v) }; save { repo.saveVhs(v) } }
-    fun onResolution(v: Float)     { pendingWrites.add("res"); _state.update { it.copy(resolutionScale   = v) }; save { repo.saveResolution(v) } }
-    fun onMusic(v: Float)          { pendingWrites.add("music"); _state.update { it.copy(musicVolume       = v) }; save { repo.saveMusic(v) } }
-    fun onFootstep(v: Float)       { pendingWrites.add("foot"); _state.update { it.copy(footstepVolume    = v) }; save { repo.saveFootstep(v) } }
-    fun onMonster(v: Float)        { pendingWrites.add("monster"); _state.update { it.copy(monsterVolume     = v) }; save { repo.saveMonster(v) } }
-    fun onVoice(v: Float)          { pendingWrites.add("voice"); _state.update { it.copy(voiceVolume       = v) }; save { repo.saveVoice(v) } }
     fun onSensitivity(v: Float)    { pendingWrites.add("sens"); _state.update { it.copy(cameraSensitivity = v) }; save { repo.saveSensitivity(v) } }
     fun onFpsLimit(v: Int)         { pendingWrites.add("fps"); _state.update { it.copy(fpsLimit          = v) }; save { repo.saveFpsLimit(v) } }
     fun onShadows(v: Boolean)      { pendingWrites.add("shadows"); _state.update { it.copy(shadowsEnabled    = v) }; save { repo.saveShadows(v) } }
