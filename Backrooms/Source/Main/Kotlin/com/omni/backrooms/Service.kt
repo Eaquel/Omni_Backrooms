@@ -690,6 +690,23 @@ class SessionService : Service() {
         }
     }
 
+
+    fun applyDamage(amount: Float) {
+        val s  = _gameState.value
+        val hp = (s.playerHp - amount).coerceAtLeast(0f)
+        _gameState.update { it.copy(playerHp = hp, isGameOver = hp <= 0f) }
+        if (hp <= 0f) onGameOver()
+    }
+
+    fun heal(amount: Float) {
+        val s = _gameState.value
+        _gameState.update { it.copy(playerHp = (s.playerHp + amount).coerceAtMost(s.playerMaxHp)) }
+    }
+
+    fun consumeStamina(amount: Float) {
+        _gameState.update { it.copy(stamina = (_gameState.value.stamina - amount).coerceAtLeast(0f)) }
+    }
+
     private fun onGameOver() {
         bridge.triggerMonster(1.0f)
         physicsJob?.cancel(); entityJob?.cancel(); scoreJob?.cancel()
@@ -988,6 +1005,8 @@ object OmniLog {
     /** The recent history, newest last — this is what gets attached to a crash
      *  report so the lines leading up to the failure are visible. */
     fun recentHistory(): String = synchronized(lock) { ring.joinToString("\n") }
+
+    fun clearRing() = synchronized(lock) { ring.clear() }
 }
 
 
@@ -1286,4 +1305,38 @@ class WorldChunk(
     /** Baked illuminance, continuous. ~1.0 is a normally lit corridor. */
     fun lightAt(x: Int, z: Int): Float =
         if (!inRange(x, z)) 0.6f else light[index(x, z)]
+
+    /** 0..1 mains health, used to scale how badly the lights struggle. */
+    fun powerAt(x: Int, z: Int): Float =
+        if (!inRange(x, z)) 1f else power[index(x, z)]
+
+    fun featureAt(x: Int, z: Int): Int =
+        if (!inRange(x, z)) 0 else feature[index(x, z)].toInt()
+
+    fun fixtureAt(x: Int, z: Int): Int =
+        if (!inRange(x, z)) 0 else fixture[index(x, z)].toInt()
+
+    companion object {
+        const val FLOATS_PER_CELL = 5
+
+        fun parse(chunkX: Int, chunkZ: Int, cells: Int, data: FloatArray?): WorldChunk? {
+            if (data == null || cells <= 0) return null
+            val padded = cells + 2
+            val n = padded * padded
+            if (data.size < n * FLOATS_PER_CELL) return null
+            val solid = ByteArray(n); val light = FloatArray(n)
+            val feature = ByteArray(n); val fixture = ByteArray(n)
+            val power = FloatArray(n)
+            var p = 0
+            for (i in 0 until n) {
+                solid[i]   = data[p].toInt().toByte()
+                light[i]   = data[p + 1]
+                feature[i] = data[p + 2].toInt().toByte()
+                fixture[i] = data[p + 3].toInt().toByte()
+                power[i]   = data[p + 4]
+                p += FLOATS_PER_CELL
+            }
+            return WorldChunk(chunkX, chunkZ, cells, solid, light, feature, fixture, power)
+        }
+    }
 }
