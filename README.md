@@ -98,7 +98,7 @@ Backrooms/Source/Main/
     Frame/      profile frame cosmetics
     Trail/      footstep trail cosmetics
     Shield/     the detectors, and what the binary claims to be
-  Assets/                        textures, meshes, story
+  Assets/                        the character, and the story
   res/values*/                   ten languages
 Tools/                           the eight checks
 ```
@@ -107,6 +107,42 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The walls, floor and ceiling are generated now, and the three images are
+  gone.** 4.6 MB of a small APK went on Floor.png, Wall.png and Roof.png, and
+  measured at 128x128 before deleting them, what they held was a flat colour
+  with grain on it: wall (0.470, 0.423, 0.158) with a luma standard deviation of
+  0.076, floor (0.432, 0.375, 0.107) at 0.069, ceiling a neutral 0.827 at 0.072.
+  Five hundred bytes of arithmetic in the scene fragment shader reproduces that,
+  and unlike a 1024-square image it never repeats, cannot be seen to tile, and
+  costs nothing at any distance. The hue is the one thing that did not come from
+  the old files: 60 frames of the lobby background clip were measured, and its
+  lit third averages a ratio of (1.00, 0.80, 0.42) — warmer and more amber than
+  the walls were at (1.00, 0.90, 0.34), which read green beside it. The bases
+  sit on the clip's ratio at the old files' brightness. Assets_Check holds all
+  six numbers against those measurements, and fails if the images come back.
+- **Walking went "dit dit".** It did, and the reason was measurable: the
+  footstep generator put its dominant energy at about 1.1 kHz and was over in
+  53 ms, which is a click. A real footfall on carpet lives under 200 Hz and
+  lasts 120-180 ms. The unfiltered white noise in its scuff term was what pushed
+  the spectrum an octave and a half above where a step belongs. The other half
+  was worse and had nothing to do with spectrum: the synth restarted the
+  generator at t = 0 with the same three arguments every time, so every footfall
+  of a walk was the *same waveform*, on a metronome — anything both perfectly
+  periodic and perfectly identical reads as a UI beep. It is now heel and toe a
+  few milliseconds apart, a low body under a low-passed scuff, a click that
+  belongs only to a hard floor, and a step index that moves the pitch, the decay
+  and the level so no two consecutive steps match. Measured: 1131 Hz to 67 Hz,
+  53 ms to 134 ms, and consecutive steps that differed by exactly 0.000 now
+  differ by 0.549.
+- **The exit was never where the level said it was.** findExit places the door
+  110-170 cells from the spawn, which is 352-544 m. EXIT_LEASH_M — how far the
+  player may drift before it is re-anchored 46 cells ahead of them — was 320 m.
+  Over 40 seeds the door was born outside the leash on 40 of them, so the first
+  two-second check pulled it in to 147 m before the player had taken a step. The
+  authored run length had never been played on any seed. Two numbers, in two
+  languages, in two files, describing one thing, and neither is wrong on its
+  own — which is why nothing saw it. The leash is 620 m now and Assets_Check
+  compares the two.
 - **The ending sampler broke the release build.** `OmniGLRenderer` holds a
   Context and nothing else — chunks, the trail and now the run-over parameters
   all arrive as provider lambdas assigned from the composable, because the

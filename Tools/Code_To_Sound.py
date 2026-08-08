@@ -141,22 +141,36 @@ def fluorescent_hum(t: float, health: float) -> float:
     return (hum + buzz) * stutter
 
 
-def footstep(t: float, pace: float, surface: float) -> float:
-    """
-    One footfall. `pace` 0 walking, 1 running; `surface` 0 carpet, 1 hard.
-
-    A step is a transient with almost no sustain — the mistake in a synthesised
-    footstep is always too much tail. Carpet is a soft thud plus cloth; a hard
-    floor adds a click on top.
-    """
-    if t < 0.0:
+def footstep(t: float, pace: float, surface: float, step: float) -> float:
+    """One footfall. See Sound/Synth.cpp for why each term is shaped this way."""
+    if t < 0.0 or t > 0.42:
         return 0.0
     n = _sample_index(t)
-    decay = math.exp(-t * (34.0 + 22.0 * surface))
-    thud = math.sin(2 * math.pi * (78.0 - 18.0 * surface) * t) * decay
-    scuff = white(n) * decay * (0.30 + 0.45 * surface)
-    click = math.exp(-t * 260.0) * white(n + 7) * surface * 0.7
-    return (thud * 0.6 + scuff * 0.35 + click) * (0.7 + 0.5 * pace)
+    p = max(0.0, min(1.0, pace))
+    s = max(0.0, min(1.0, surface))
+
+    si = int(step) & 0xFFFFFFFF
+    j0 = _hash01(si * 2654435761)
+    j1 = _hash01(si * 40503 + 17)
+    j2 = _hash01(si * 2246822519 + 5)
+
+    f0 = (54.0 + 14.0 * s) * (0.90 + 0.20 * j0)
+    body_decay = (13.0 + 9.0 * s) * (0.88 + 0.24 * j1)
+    body_env = math.exp(-t * body_decay) * (1.0 - math.exp(-t * 900.0))
+    body = math.sin(2 * math.pi * f0 * t * (1.0 - 0.35 * t)) * body_env
+
+    tt = t - (0.026 + 0.010 * j2)
+    toe_env = (math.exp(-tt * (body_decay * 1.9)) * (1.0 - math.exp(-tt * 1400.0))
+               if tt > 0.0 else 0.0)
+    toe = math.sin(2 * math.pi * f0 * 1.6 * tt) * toe_env * 0.42
+
+    lp = sum(white((n - k + si * 977) & 0xFFFFFFFF) for k in range(8)) / 8.0
+    scuff = lp * math.exp(-t * (26.0 + 14.0 * s)) * (0.22 + 0.30 * s)
+
+    click = math.exp(-t * 300.0) * white((n + 7 + si * 31) & 0xFFFFFFFF) * s * s * 0.55
+
+    gain = (0.62 + 0.45 * p) * (0.86 + 0.28 * j2)
+    return (body * 0.72 + toe + scuff + click) * gain
 
 
 def monster_voice(t: float, proximity: float) -> float:
@@ -235,8 +249,9 @@ GENERATORS = {
     "vhs_intro":        (lambda t: vhs_intro(t, 2.6), 2.6),
     "fluorescent_ok":   (lambda t: fluorescent_hum(t, 1.0), 2.0),
     "fluorescent_dying": (lambda t: fluorescent_hum(t, 0.15), 2.0),
-    "footstep_carpet":  (lambda t: footstep(t, 0.0, 0.0), 0.35),
-    "footstep_run":     (lambda t: footstep(t, 1.0, 0.6), 0.35),
+    "footstep_carpet":  (lambda t: footstep(t, 0.0, 0.0, 3), 0.42),
+    "footstep_carpet2": (lambda t: footstep(t, 0.0, 0.0, 4), 0.42),
+    "footstep_run":     (lambda t: footstep(t, 1.0, 0.6, 7), 0.42),
     "monster_far":      (lambda t: monster_voice(t, 0.15), 2.0),
     "monster_near":     (lambda t: monster_voice(t, 1.0), 2.0),
     "room_tone_dry":    (lambda t: room_tone(t, 0.0), 4.0),
@@ -320,8 +335,9 @@ int main() {
     for (int i = 0; i < n; ++i) emit(vhsIntro(float(i) / kSynthRate, 2.6f));
     for (int i = 0; i < n; ++i) emit(fluorescentHum(float(i) / kSynthRate, 1.0f));
     for (int i = 0; i < n; ++i) emit(fluorescentHum(float(i) / kSynthRate, 0.15f));
-    for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 0.0f, 0.0f));
-    for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 1.0f, 0.6f));
+    for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 0.0f, 0.0f, 3.0f));
+    for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 0.0f, 0.0f, 4.0f));
+    for (int i = 0; i < n; ++i) emit(footstep(float(i) / kSynthRate, 1.0f, 0.6f, 7.0f));
     for (int i = 0; i < n; ++i) emit(monsterVoice(float(i) / kSynthRate, 0.15f));
     for (int i = 0; i < n; ++i) emit(monsterVoice(float(i) / kSynthRate, 1.0f));
     for (int i = 0; i < n; ++i) emit(roomTone(float(i) / kSynthRate, 0.0f));
@@ -339,8 +355,9 @@ PARITY_ORDER = [
     ("vhs_intro",          lambda t: vhs_intro(t, 2.6)),
     ("fluorescent_ok",     lambda t: fluorescent_hum(t, 1.0)),
     ("fluorescent_dying",  lambda t: fluorescent_hum(t, 0.15)),
-    ("footstep_carpet",    lambda t: footstep(t, 0.0, 0.0)),
-    ("footstep_run",       lambda t: footstep(t, 1.0, 0.6)),
+    ("footstep_carpet",    lambda t: footstep(t, 0.0, 0.0, 3)),
+    ("footstep_carpet2",   lambda t: footstep(t, 0.0, 0.0, 4)),
+    ("footstep_run",       lambda t: footstep(t, 1.0, 0.6, 7)),
     ("monster_far",        lambda t: monster_voice(t, 0.15)),
     ("monster_near",       lambda t: monster_voice(t, 1.0)),
     ("room_tone_dry",      lambda t: room_tone(t, 0.0)),
@@ -351,6 +368,62 @@ PARITY_ORDER = [
     ("heartbeat_close",    lambda t: heartbeat(t, 1.0)),
     ("torch_click",        torch_click),
 ]
+
+
+def check_footstep_character() -> None:
+    """
+    A footstep has to sound like a foot, not a tick.
+
+    The report was that walking went "dit dit" and was hard to listen to. It
+    did, and the reason was measurable: the old generator put its dominant
+    energy at about 1.1 kHz and was over in 53 ms, which is a click. A real
+    footfall on carpet lives under 200 Hz and lasts 120-180 ms. The unfiltered
+    white noise in its scuff term was what pushed the spectrum an octave and a
+    half above where a step belongs.
+
+    The other half was worse and has nothing to do with spectrum: the synth
+    restarted the generator at t = 0 with the same arguments every time, so
+    every footfall of a walk was the same waveform, on a metronome. Anything
+    both perfectly periodic and perfectly identical reads as a UI beep.
+
+    None of that is visible in the code and none of it is audible in CI, so it
+    is measured here: where the energy sits, how long it lasts, and whether two
+    consecutive steps differ at all.
+    """
+    print("\n── Footstep character")
+    dur = 0.42
+
+    def dominant_hz(sig):
+        zc = sum(1 for i in range(1, len(sig)) if (sig[i - 1] < 0) != (sig[i] < 0))
+        return zc / 2 / dur
+
+    def tail_ms(sig):
+        peak = max(abs(v) for v in sig) or 1.0
+        for i in range(len(sig)):
+            if all(abs(v) < peak * 0.1 for v in sig[i:i + 400]):
+                return 1000.0 * i / RATE
+        return 1000.0 * len(sig) / RATE
+
+    for label, pace, surf in (("carpet", 0.0, 0.0), ("in game", 0.0, 0.3),
+                              ("running", 1.0, 0.6)):
+        sig = render(lambda t: footstep(t, pace, surf, 3), dur)
+        hz, ms = dominant_hz(sig), tail_ms(sig)
+        print(f"   {label:8s} dominant ~{hz:4.0f} Hz, decays by {ms:4.0f} ms")
+        check(hz < 260.0,
+              f"the {label} footstep's energy sits at {hz:.0f} Hz — a step is a "
+              f"low thump under 200 Hz, and anything up here is a tick")
+        check(ms > 85.0,
+              f"the {label} footstep is over in {ms:.0f} ms; under about 85 there "
+              f"is no body to it, only the attack")
+
+    # Consecutive footfalls. This measured exactly zero before.
+    a = render(lambda t: footstep(t, 0.0, 0.3, 3), dur)
+    b = render(lambda t: footstep(t, 0.0, 0.3, 4), dur)
+    d = max(abs(x - y) for x, y in zip(a, b))
+    print(f"   two consecutive steps differ by {d:.3f}")
+    check(d > 0.05,
+          f"two consecutive footfalls differ by {d:.3f} — a walk made of one "
+          f"repeated waveform is a metronome, whatever the waveform is")
 
 
 def check_reachable() -> None:
@@ -475,6 +548,7 @@ def main() -> int:
         return 0
 
     check_generators()
+    check_footstep_character()
     check_reachable()
     check_parity()
 

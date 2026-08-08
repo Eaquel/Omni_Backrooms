@@ -92,6 +92,20 @@ Tools/                           die acht Prüfungen
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
 
+- **The walls, floor and ceiling are generated now, and the three images are
+  gone** — 4.6 MB for a flat colour with grain on it. The shader reproduces the
+  measured mean and grain of each file, at the hue of the lobby background clip
+  (a ratio of 1.00, 0.80, 0.42, warmer than the walls' old 1.00, 0.90, 0.34).
+  It never repeats and cannot be seen to tile.
+- **Walking went "dit dit."** The footstep put its energy at 1.1 kHz and was
+  over in 53 ms — a click, not a step — and every footfall of a walk was the
+  same waveform on a metronome. Now heel and toe, a low body under a low-passed
+  scuff, and a step index that varies pitch, decay and level: 1131 Hz to 67 Hz,
+  53 ms to 134 ms, consecutive steps from 0.000 apart to 0.549.
+- **The exit was never where the level said it was.** The door is placed
+  352-544 m out and the leash that re-anchors it was 320 m, so on 40 of 40 seeds
+  it was pulled in to 147 m before the player moved. The authored run length had
+  never been played.
 - **The ending sampler broke the release build.** `OmniGLRenderer` holds a
   Context and nothing else; everything it needs arrives as a provider lambda.
   The new code called `bridge.endingParams` from inside it, and there is no

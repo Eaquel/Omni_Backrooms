@@ -90,6 +90,40 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Duvarlar, zemin ve tavan artık kodla üretiliyor; üç görsel silindi.**
+  Floor.png, Wall.png ve Roof.png küçük bir APK'nın 4.6 MB'ını yiyordu ve
+  silmeden önce 128x128'de ölçüldüğünde tuttukları şey üzerine gren serpilmiş
+  düz bir renkti: duvar (0.470, 0.423, 0.158), luma standart sapması 0.076;
+  zemin (0.432, 0.375, 0.107), 0.069; tavan nötr 0.827, 0.072. Sahne fragment
+  shader'ındaki beş yüz baytlık aritmetik bunu yeniden üretiyor — ve 1024'lük
+  bir görselin aksine hiç tekrarlamıyor, döşeme izi vermiyor ve hiçbir mesafede
+  maliyeti yok. Eski dosyalardan gelmeyen tek şey ton: lobi arkaplan klibinin 60
+  karesi ölçüldü ve aydınlık üçte biri (1.00, 0.80, 0.42) oranını veriyor —
+  duvarların (1.00, 0.90, 0.34)'ünden daha sıcak ve daha kehribar; eskisi onun
+  yanında yeşil okunuyordu. Tabanlar artık klibin oranında, eski dosyaların
+  parlaklığında. Assets_Check altı sayıyı da bu ölçümlere karşı tutuyor ve
+  görseller geri gelirse hata veriyor.
+- **Yürüyüş "dıt dıt" ediyordu.** Ediyordu ve sebebi ölçülebilirdi: ayak sesi
+  üretecinin baskın enerjisi ~1.1 kHz'deydi ve 53 ms'de bitiyordu — bu bir tık.
+  Halıda gerçek bir adım 200 Hz altındadır ve 120-180 ms sürer. Spektrumu bir
+  buçuk oktav yukarı iten şey, sürtünme teriminin filtresiz beyaz gürültüsüydü.
+  Diğer yarısı daha kötüydü ve spektrumla ilgisi yoktu: sentezleyici her
+  seferinde üreteci aynı üç argümanla t = 0'dan başlatıyordu, yani bir yürüyüşün
+  her adımı *aynı dalga formuydu*, metronom üzerinde — hem kusursuz periyodik
+  hem kusursuz özdeş olan her şey arayüz bip'i gibi duyulur. Artık birkaç
+  milisaniye arayla topuk ve parmak, alçak geçiren süzülmüş bir sürtünmenin
+  altında alçak bir gövde, yalnızca sert zemine ait bir klik, ve perdeyi,
+  sönümü, seviyeyi kaydıran bir adım indeksi var; ardışık iki adım artık
+  eşleşmiyor. Ölçüm: 1131 Hz'den 67 Hz'e, 53 ms'den 134 ms'e, ve tam olarak
+  0.000 fark eden ardışık adımlar artık 0.549 fark ediyor.
+- **Çıkış hiçbir zaman seviyenin söylediği yerde değildi.** findExit kapıyı
+  spawn'dan 110-170 hücreye, yani 352-544 m'ye koyuyor. EXIT_LEASH_M — oyuncunun
+  kapı 46 hücre ileriye taşınmadan önce ne kadar uzaklaşabileceği — 320 m'ydi.
+  40 tohumun 40'ında kapı tasmanın dışında doğuyordu, yani ilk iki saniyelik
+  kontrol, oyuncu tek adım atmadan onu 147 m'ye çekiyordu. Tasarlanan tur
+  uzunluğu hiçbir tohumda oynanmamıştı. İki dilde, iki dosyada, tek bir şeyi
+  anlatan iki sayı — ve hiçbiri tek başına yanlış değil; hiçbir şeyin görememe
+  sebebi buydu. Tasma artık 620 m ve Assets_Check ikisini karşılaştırıyor.
 - **Son sekansı örnekleyen kod yayın derlemesini kırdı.** `OmniGLRenderer` bir
   Context'ten başka bir şey tutmuyor — chunk'lar, iz ve artık tur-sonu
   parametreleri de composable'dan atanan sağlayıcı lambda'larla geliyor, çünkü

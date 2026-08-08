@@ -57,13 +57,15 @@ constexpr int kSynthRate = 44100;
 [[nodiscard]] float fluorescentHum(float t, float health) noexcept;
 
 /**
- * One footfall. `pace` 0 walking, 1 running; `surface` 0 carpet, 1 hard.
+ * One footfall. `pace` 0 walking, 1 running; `surface` 0 carpet, 1 hard;
+ * `step` the footfall's index, which is what stops every step being the same
+ * waveform on a metronome.
  *
- * A step is a transient with almost no sustain — the mistake in a synthesised
- * footstep is always too much tail. Carpet is a soft thud plus cloth; a hard
- * floor adds a click on top.
+ * Heel then toe, a low body under a low-passed scuff, and a click that belongs
+ * only to a hard floor. The previous one put its energy at about 1.1 kHz and
+ * was over in 53 ms — a tick, not a step.
  */
-[[nodiscard]] float footstep(float t, float pace, float surface) noexcept;
+[[nodiscard]] float footstep(float t, float pace, float surface, float step) noexcept;
 
 /**
  * Not a growl. A resonance that should not be there — an inharmonic pair well

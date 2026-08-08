@@ -1365,6 +1365,145 @@ def check_architectural_scale() -> None:
               f"a {height:.2f} m ceiling is not an office ceiling")
 
 
+def check_surface_palette() -> None:
+    """
+    The building is generated, and it is generated to a measurement.
+
+    There are no wall, floor or ceiling images in this project. Three PNGs came
+    to 4.6 MB of a small APK and what they held was a flat colour with grain on
+    it, so the scene fragment shader makes them instead — which costs nothing,
+    never repeats, and cannot be seen to tile.
+
+    A generated surface has a failure mode an image does not: the numbers can be
+    edited to anything and the result still compiles and still renders. So the
+    bases are held against two measurements taken before the files were deleted.
+
+    Brightness comes from the files themselves, sampled at 128x128:
+
+        Wall   mean sRGB (0.470, 0.423, 0.158)   luma 0.407, grain sd 0.076
+        Floor  mean sRGB (0.432, 0.375, 0.107)   luma 0.361, grain sd 0.069
+        Roof   mean sRGB (0.827, 0.827, 0.827)   luma 0.827, grain sd 0.072
+
+    Hue comes from the lobby background clip, which is what this level is meant
+    to look like: over 60 frames its lit third averages (0.165, 0.132, 0.069), a
+    ratio of (1.00, 0.80, 0.42). The walls were at (1.00, 0.90, 0.34), which is
+    greener and reads wrong beside it.
+
+    Neither number is a matter of taste, and neither is visible in a diff.
+    """
+    section("Surface palette")
+    src = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
+
+    def vec3(name: str):
+        m = re.search(r"const vec3 " + name + r"\s*=\s*vec3\(([\d.]+),\s*([\d.]+),\s*([\d.]+)\)", src)
+        return tuple(float(g) for g in m.groups()) if m else None
+
+    def scalar(name: str):
+        m = re.search(r"const float " + name + r"\s*=\s*([\d.]+)\s*;", src)
+        return float(m.group(1)) if m else None
+
+    # The clip's warmth, and how far each surface may sit from it. The ceiling
+    # is exempt: an acoustic tile is neutral and takes its warmth from the tube
+    # over it, which is uLampTint's job, not the albedo's.
+    CLIP = (1.00, 0.80, 0.42)
+    WANT = {
+        "kWallBase":  (0.407, 0.045, True,  "the wall"),
+        "kFloorBase": (0.361, 0.045, True,  "the floor"),
+        "kCeilBase":  (0.827, 0.050, False, "the ceiling"),
+    }
+    LUMA = (0.299, 0.587, 0.114)
+    for name, (want_luma, tol, warm, label) in WANT.items():
+        v = vec3(name)
+        check(v is not None, f"{name} is not declared — the surfaces are no "
+                             f"longer generated from named constants")
+        if v is None:
+            continue
+        luma = sum(c * w for c, w in zip(v, LUMA))
+        ratio = tuple(c / max(v[0], 1e-6) for c in v)
+        print(f"   {name:11s} ({v[0]:.3f},{v[1]:.3f},{v[2]:.3f})  luma {luma:.3f}  "
+              f"ratio (1.00,{ratio[1]:.2f},{ratio[2]:.2f})")
+        check(abs(luma - want_luma) <= tol,
+              f"{label} generates at luma {luma:.3f} where the file it replaced "
+              f"measured {want_luma:.3f}")
+        if warm:
+            drift = max(abs(ratio[1] - CLIP[1]), abs(ratio[2] - CLIP[2]))
+            check(drift <= 0.07,
+                  f"{label} is (1.00,{ratio[1]:.2f},{ratio[2]:.2f}) against the "
+                  f"lobby clip's (1.00,{CLIP[1]:.2f},{CLIP[2]:.2f}) — it will not "
+                  f"sit beside the footage the game is meant to match")
+        else:
+            check(abs(ratio[1] - 1.0) < 0.08 and abs(ratio[2] - 1.0) < 0.10,
+                  f"{label} has a colour cast of its own; an acoustic tile is "
+                  f"neutral and takes its warmth from the tube over it")
+
+    for name, want, label in (("kWallGrain", 0.186, "wall"),
+                              ("kFloorGrain", 0.190, "floor"),
+                              ("kCeilGrain", 0.086, "ceiling")):
+        g = scalar(name)
+        check(g is not None, f"{name} is not declared")
+        if g is None:
+            continue
+        check(abs(g - want) <= 0.05,
+              f"the {label}'s grain is {g:.3f} against the {want:.3f} its file "
+              f"carried — at zero it is flat paint, and far above it is noise")
+    print(f"   grain  wall {scalar('kWallGrain')}  floor {scalar('kFloorGrain')}  "
+          f"ceiling {scalar('kCeilGrain')}")
+
+    # And the thing this whole section exists to protect: the images stay gone.
+    for gone in ("Level_0/Floor.png", "Level_0/Wall.png", "Level_0/Roof.png"):
+        check(not os.path.exists(os.path.join(ASSETS, gone)),
+              f"{gone} is back — the surfaces are generated now, and an image "
+              f"that is shipped but never sampled is 2 MB of nothing")
+
+
+def check_exit_reach() -> None:
+    """
+    The leash must not eat the run.
+
+    findExit puts the door 110-170 cells from the spawn. EXIT_LEASH_M says how
+    far the player may drift from it before it is re-anchored 46 cells ahead of
+    them. Two numbers, in two languages, in two files, describing one thing --
+    and they contradicted each other: the leash was 320 m while the shortest
+    opening placement is 110 * 3.2 = 352 m. Measured over 40 seeds, the door was
+    born outside the leash on 40 of them, so the first two-second check pulled
+    it in to 46 cells before the player had taken a step. The authored run
+    length was never played on any seed; every run was the fallback.
+
+    Nothing could see it. Both numbers are reasonable on their own, both files
+    compile, and the level probe measures the exit findExit placed rather than
+    the one the player actually walks to.
+    """
+    section("Exit reach")
+    lvl = open(os.path.join(NATIVE, "Map/Level_0.h"), encoding="utf-8").read()
+    src = open(os.path.join(NATIVE, "Map/Level_0.cpp"), encoding="utf-8").read()
+    game = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
+
+    mc = re.search(r"kCell\s*=\s*([\d.]+)f", lvl)
+    # Non-greedy across the line break: the hash call has its own nested
+    # parentheses, so a [^)]* between them stops at the first inner one.
+    md = re.search(r"const int distance = (\d+) \+ static_cast<int>\("
+                   r".*?\*\s*([\d.]+)f\)", src, re.S)
+    ml = re.search(r"EXIT_LEASH_M = ([\d.]+)f", game)
+    check(mc is not None and md is not None and ml is not None,
+          "the exit placement or the leash could not be read — one of them has "
+          "moved and this rule needs rewriting")
+    if not (mc and md and ml):
+        return
+    cell = float(mc.group(1))
+    lo = int(md.group(1)) * cell
+    hi = (int(md.group(1)) + float(md.group(2))) * cell
+    leash = float(ml.group(1))
+    print(f"   exit placed {lo:.0f}-{hi:.0f} m out, leash {leash:.0f} m")
+    check(leash > hi,
+          f"the leash is {leash:.0f} m and the exit is placed up to {hi:.0f} m "
+          f"away, so on some seeds it is re-anchored before the player moves and "
+          f"the authored run length is never played")
+    # And it should not be so slack that it never fires either.
+    check(leash < hi * 3.0,
+          f"a {leash:.0f} m leash around a {hi:.0f} m placement will never fire; "
+          f"a player who walks the wrong way can leave the door behind forever")
+
+
 def check_texture_sizes() -> None:
     """
     Every texture power-of-two and no larger than 1024.
@@ -1387,6 +1526,14 @@ def check_texture_sizes() -> None:
             head = f.read(26)
         if head[:8] != b"\x89PNG\r\n\x1a\n":
             failures.append(f"{os.path.relpath(path, REPO)} is not a PNG")
+            continue
+        # A file can carry the signature and still be short — a truncated
+        # download, a half-written export. Unpacking past the end of it threw a
+        # struct.error and took the whole tool down, which reports nothing at
+        # all rather than reporting the broken file.
+        if len(head) < 24:
+            failures.append(f"{os.path.relpath(path, REPO)} is truncated: "
+                            f"{len(head)} bytes, too short to hold an IHDR")
             continue
         w, h = struct.unpack(">II", head[16:24])
         rel = os.path.relpath(path, ASSETS)
@@ -1717,6 +1864,8 @@ def main() -> int:
     check_entity_silhouettes()
     check_look_sensitivity()
     check_architectural_scale()
+    check_surface_palette()
+    check_exit_reach()
     check_texture_sizes()
     check_shield()
     check_story()

@@ -1402,7 +1402,21 @@ class GameVM @Inject constructor(
         const val SPRINT_FLOOR = 5f
         /** Once the player is further than this from the exit it is re-anchored
          *  ahead of them. An endless world otherwise has no findable door. */
-        const val EXIT_LEASH_M = 320f
+        /**
+         * How far the player may get from the exit before it is re-anchored.
+         *
+         * This was 320 m, and findExit places the door 110-170 cells out, which
+         * is 346-539 m. Measured over 40 seeds, the door was born outside the
+         * leash on 40 of them: the first two-second check saw `tooFar` and
+         * pulled it in to 46 cells before the player had walked anywhere. The
+         * authored run length was never once played -- every run was the 147 m
+         * fallback, on every seed.
+         *
+         * 620 m clears the longest opening placement with room to spare, so the
+         * leash does what it was written for: it catches a player who has
+         * walked a long way in the wrong direction, and otherwise does nothing.
+         */
+        const val EXIT_LEASH_M = 620f
         /** Omnium per minute survived, plus a bonus for actually getting out. */
         const val OMNIUM_PER_MINUTE = 12L
         const val OMNIUM_ESCAPE_BONUS = 150L
@@ -2388,7 +2402,6 @@ private const val kCeilTileM = 0.60f
 private const val OMNI_SCENE_FRAG = """#version 300 es
 precision mediump float;
 in vec3 vNormal; in vec2 vUV; in float vLight; in vec3 vWorldPos;
-uniform sampler2D uTex;
 uniform vec3 uCamPos;
 uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
 /**
@@ -2405,8 +2418,17 @@ uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
  * normal, so a wall the beam grazed lit up as brightly as one it hit square on.
  */
 uniform vec3 uTorchPos; uniform vec3 uTorchDir; uniform float uTorchOn;
-uniform float uBumpStrength; uniform float uBumpTexel;
+uniform float uBumpStrength;
 uniform vec3 uLampTint;
+/**
+ * A flat albedo for faces that are not the building.
+ *
+ * The light fittings are the one surface in the level that must not look like
+ * the ceiling, and with the surfaces generated from world position there is no
+ * texture to swap to say so. Negative means "generate it"; anything else is
+ * used as-is. This used to be a 1x1 white texture bound for that one pass.
+ */
+uniform vec3 uFlatAlbedo;
 
 // ---- Architectural scale, in metres -------------------------------------
 //
@@ -2459,7 +2481,6 @@ uniform float uTime;
  * Set per draw group to (density/width, density/height), so one metre of world
  * covers the same number of texels on every surface and on both axes.
  */
-uniform vec2 uUvScale;
 out vec4 fragColor;
 
 // Value noise and two octaves of it. Cheap, and this only ever runs at a very
@@ -2473,26 +2494,96 @@ float vnoise(vec2 p){
 }
 float fbm2(vec2 p){ return vnoise(p) * 0.62 + vnoise(p * 2.17 + 4.1) * 0.38; }
 
-void main(){
-    vec2 uv = vUV * uUvScale;
-    vec4 tex = texture(uTex, uv);
+// ---- The surfaces, generated ---------------------------------------------
+//
+// There are no wall, floor or ceiling images in this project any more. Three
+// PNGs came to 4.6 MB of a small APK, and what they held was a flat colour with
+// a bit of grain on it — measured off the shipped files before deleting them:
+//
+//   Wall   mean sRGB (0.470, 0.423, 0.158)  luma 0.407, grain sd 0.076
+//   Floor  mean sRGB (0.432, 0.375, 0.107)  luma 0.361, grain sd 0.069
+//   Roof   mean sRGB (0.827, 0.827, 0.827)  luma 0.827, grain sd 0.072
+//
+// Five hundred bytes of arithmetic reproduces that, and unlike a 1024-square
+// image it does not repeat every 3.2 metres, cannot be seen to tile, and costs
+// nothing to sample at any distance.
+//
+// The hue is the one thing that did NOT come from the old files. The lobby
+// background clip is what this level is meant to look like, so 60 frames of it
+// were measured: the lit third of the picture averages sRGB (0.165, 0.132,
+// 0.069), a ratio of (1.00, 0.80, 0.42) — warmer and more amber than the walls
+// were at (1.00, 0.90, 0.34), which read green next to it. The bases below sit
+// on the clip's ratio at the old files' brightness.
+const vec3 kWallBase  = vec3(0.470, 0.390, 0.197);
+const vec3 kFloorBase = vec3(0.432, 0.353, 0.178);
+const vec3 kCeilBase  = vec3(0.827, 0.818, 0.795);
+// Grain amplitude, as a fraction of the base. Matched to the standard
+// deviation the real files carried, or the surfaces read as flat paint.
+const float kWallGrain  = 0.186;
+const float kFloorGrain = 0.190;
+const float kCeilGrain  = 0.086;
 
-    // Derive a surface normal from the texture's own luminance slope, then
-    // rotate it into the face's tangent frame. Cheap bump mapping with no
-    // extra texture: the albedo doubles as a height field.
-    vec3 n = normalize(vNormal);
-    if (uBumpStrength > 0.001) {
-        vec2 texel = vec2(uBumpTexel);
-        float hL = dot(texture(uTex, uv - vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
-        float hR = dot(texture(uTex, uv + vec2(texel.x, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
-        float hD = dot(texture(uTex, uv - vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
-        float hU = dot(texture(uTex, uv + vec2(0.0, texel.y)).rgb, vec3(0.299, 0.587, 0.114));
-        // Tangent frame from the geometric normal: walls are axis-aligned, so
-        // picking the least-aligned world axis gives a stable tangent.
-        vec3 up = abs(n.y) > 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
-        vec3 tangent = normalize(cross(up, n));
-        vec3 bitangent = cross(n, tangent);
-        vec3 bump = tangent * (hL - hR) + bitangent * (hD - hU);
+/** Lining paper: a coarse mottle, a fine tooth, and the long vertical streaks a
+ *  wall gets from years of damp running down it. */
+vec3 surfaceWall(vec3 wp) {
+    vec2 q = vec2(abs(wp.x) > abs(wp.z) ? wp.z : wp.x, wp.y);
+    float mottle = fbm2(q * 3.1) - 0.5;
+    float tooth  = fbm2(q * 27.0) - 0.5;
+    float streak = (fbm2(vec2(q.x * 22.0, q.y * 0.7)) - 0.5) * 0.6;
+    float g = mottle * 0.62 + tooth * 0.30 + streak * 0.28;
+    return kWallBase * (1.0 + g * kWallGrain * 2.0);
+}
+
+/** Cut pile: a fine, almost isotropic tooth with a slow blotch under it, and a
+ *  slight directional bias so the weave has a grain to catch the light. */
+vec3 surfaceFloor(vec3 wp) {
+    float blotch = fbm2(wp.xz * 1.9) - 0.5;
+    float pile   = fbm2(wp.xz * 41.0) - 0.5;
+    float weave  = fbm2(vec2(wp.x * 90.0, wp.z * 12.0)) - 0.5;
+    float g = blotch * 0.55 + pile * 0.34 + weave * 0.22;
+    return kFloorBase * (1.0 + g * kFloorGrain * 2.0);
+}
+
+/** Mineral fibre: the dense random perforation of an acoustic tile, which is
+ *  finer and much flatter than either of the other two. */
+vec3 surfaceCeiling(vec3 wp) {
+    float pin  = fbm2(wp.xz * 64.0) - 0.5;
+    float wash = fbm2(wp.xz * 2.6) - 0.5;
+    float g = pin * 0.72 + wash * 0.34;
+    return kCeilBase * (1.0 + g * kCeilGrain * 2.0);
+}
+
+/** Which of the three, by which way the face points. */
+vec3 surfaceAlbedo(vec3 wp, vec3 nrm) {
+    if (nrm.y < -0.5) return surfaceCeiling(wp);
+    if (nrm.y >  0.5) return surfaceFloor(wp);
+    return surfaceWall(wp);
+}
+
+void main(){
+    vec3 geoN = normalize(vNormal);
+    vec4 tex = vec4(uFlatAlbedo.r >= 0.0 ? uFlatAlbedo
+                                         : surfaceAlbedo(vWorldPos, geoN), 1.0);
+
+    // Surface relief from the albedo's own luminance slope, rotated into the
+    // face's tangent frame. The tangent comes from the least-aligned world axis,
+    // which is stable because every face in this level is axis-aligned.
+    vec3 n = geoN;
+    if (uBumpStrength > 0.001 && uFlatAlbedo.r < 0.0) {
+        // The albedo still doubles as a height field; it is simply evaluated
+        // rather than fetched. Stepping in world metres instead of texels means
+        // the relief no longer changes depth with the UV scale of whatever
+        // surface it lands on.
+        const vec3 kLuma = vec3(0.299, 0.587, 0.114);
+        vec3 up0 = abs(geoN.y) > 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+        vec3 tx = normalize(cross(up0, geoN));
+        vec3 ty = cross(geoN, tx);
+        float e = 0.011;
+        float hL = dot(surfaceAlbedo(vWorldPos - tx * e, geoN), kLuma);
+        float hR = dot(surfaceAlbedo(vWorldPos + tx * e, geoN), kLuma);
+        float hD = dot(surfaceAlbedo(vWorldPos - ty * e, geoN), kLuma);
+        float hU = dot(surfaceAlbedo(vWorldPos + ty * e, geoN), kLuma);
+        vec3 bump = tx * (hL - hR) + ty * (hD - hU);
         n = normalize(n + bump * uBumpStrength);
     }
 
@@ -3249,7 +3340,8 @@ data class RenderSettings(
 )
 
 /** Fittings are a flat colour, so their UVs pass through unscaled. */
-private val LAMP_UV = floatArrayOf(1f, 1f)
+/** The fittings' own albedo. 0xF4F0E2 as the 1x1 texture that used to carry it. */
+private val LAMP_ALBEDO = floatArrayOf(0.957f, 0.941f, 0.886f)
 
 /**
  * Floor division that behaves for negative numerators.
@@ -3345,14 +3437,13 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var fpsAccum = 0f
 
     private var sceneProgram = 0; private var billboardProgram = 0; private var postProgram = 0; private var shadowProgram = 0
-    private var uMVP = 0; private var uTex = 0; private var uCamPos = 0
+    private var uMVP = 0; private var uFlatAlbedo = 0; private var uCamPos = 0
     private var uFogDensity = 0
     private var uFogColor = 0; private var uFlicker = 0
-    private var uBumpStrength = 0; private var uBumpTexel = 0; private var uLampTint = 0
+    private var uBumpStrength = 0; private var uLampTint = 0
     private var uTorchPos = 0; private var uTorchDir = 0; private var uTorchOn = 0
     /** Drives the level's creeping damp, breathing ceiling and airborne dust. */
     private var uSceneTime = 0
-    private var uUvScale = 0
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
     private var bTime = 0; private var bSeed = 0; private var bDissolve = 0
@@ -3386,16 +3477,13 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var xVP = 0; private var xCenter = 0; private var xRight = 0
     private var xWidth = 0; private var xHeight = 0; private var xTime = 0; private var xNear = 0
 
-    private var floorTex = 0; private var wallTex = 0; private var roofTex = 0
-    /** Metres-to-UV scale per texture, derived from its pixel size so every
-     *  surface ends up at the same texel density. See uUvScale in the shader. */
-    private var floorUv = floatArrayOf(0.5f, 0.5f)
-    private var wallUv  = floatArrayOf(0.5f, 0.5f)
-    private var roofUv  = floatArrayOf(0.5f, 0.5f)
+    // Floor, wall and ceiling have no textures. They are generated in the scene
+    // fragment shader from world position — see surfaceWall/Floor/Ceiling — so
+    // there is no sampler to bind, no UV scale to keep in step with a pixel
+    // size, and nothing that repeats every 3.2 metres.
     /** Flat near-white for the light fittings. Drawing them on the ceiling tile
      *  tinted the tubes with the ceiling's own grain, which is the one surface
      *  in the level that must not look like the ceiling. */
-    private var lampTex = 0
     // Streamed chunks, keyed by chunk coordinate. Built when the player comes
     // near and released when they leave, because an unbounded world can never
     // be one buffer.
@@ -3466,19 +3554,17 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
         sceneProgram = linkGlProgram(OMNI_SCENE_VERT, OMNI_SCENE_FRAG)
         uMVP = GLES30.glGetUniformLocation(sceneProgram, "uMVP")
-        uTex = GLES30.glGetUniformLocation(sceneProgram, "uTex")
+        uFlatAlbedo = GLES30.glGetUniformLocation(sceneProgram, "uFlatAlbedo")
         uCamPos = GLES30.glGetUniformLocation(sceneProgram, "uCamPos")
         uFogDensity = GLES30.glGetUniformLocation(sceneProgram, "uFogDensity")
         uFogColor = GLES30.glGetUniformLocation(sceneProgram, "uFogColor")
         uFlicker = GLES30.glGetUniformLocation(sceneProgram, "uFlicker")
         uBumpStrength = GLES30.glGetUniformLocation(sceneProgram, "uBumpStrength")
-        uBumpTexel = GLES30.glGetUniformLocation(sceneProgram, "uBumpTexel")
         uLampTint = GLES30.glGetUniformLocation(sceneProgram, "uLampTint")
         uTorchPos = GLES30.glGetUniformLocation(sceneProgram, "uTorchPos")
         uTorchDir = GLES30.glGetUniformLocation(sceneProgram, "uTorchDir")
         uTorchOn = GLES30.glGetUniformLocation(sceneProgram, "uTorchOn")
         uSceneTime = GLES30.glGetUniformLocation(sceneProgram, "uTime")
-        uUvScale = GLES30.glGetUniformLocation(sceneProgram, "uUvScale")
 
         billboardProgram = linkGlProgram(OMNI_BILLBOARD_VERT, OMNI_BILLBOARD_FRAG)
         bVP = GLES30.glGetUniformLocation(billboardProgram, "uVP")
@@ -3602,10 +3688,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             charTex = loadOmniTexture("Models/Anime_Texture.png", 0xFFE8D5C8.toInt())
         }.onFailure { OmniLog.e("Render", "avatar setup failed; third person unavailable", it) }
 
-        floorTex = loadOmniTexture("Level_0/Floor.png", 0xFF3A3020.toInt(), floorUv)
-        wallTex  = loadOmniTexture("Level_0/Wall.png",  0xFF4A4030.toInt(), wallUv)
-        roofTex  = loadOmniTexture("Level_0/Roof.png",  0xFF23210F.toInt(), roofUv)
-        lampTex  = uploadTexture(solidTile(0xFFF4F0E2.toInt()))
 
         val quadCorners = floatArrayOf(-1f,-1f, 1f,-1f, -1f,1f, 1f,1f)
         billboardVbo = genGlBuffer()
@@ -4008,15 +4090,17 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // Bump detail scales with quality: off on low, subtle on medium, full
         // on high. The texel step controls how coarse the derived relief is.
         GLES30.glUniform1f(uBumpStrength, bumpStrength)
-        GLES30.glUniform1f(uBumpTexel, 1.0f / 512f)
         // Grouped by texture across all resident chunks, so the whole world
         // costs three texture binds rather than three per chunk.
-        for (m in chunkMeshes.values) drawMeshGroup(m.floorVbo, m.floorIbo, m.floorCount, floorTex, floorUv)
-        for (m in chunkMeshes.values) drawMeshGroup(m.roofVbo,  m.roofIbo,  m.roofCount,  roofTex,  roofUv)
-        for (m in chunkMeshes.values) drawMeshGroup(m.wallVbo,  m.wallIbo,  m.wallCount,  wallTex,  wallUv)
+        for (m in chunkMeshes.values) drawMeshGroup(m.floorVbo, m.floorIbo, m.floorCount)
+        for (m in chunkMeshes.values) drawMeshGroup(m.roofVbo,  m.roofIbo,  m.roofCount)
+        for (m in chunkMeshes.values) drawMeshGroup(m.wallVbo,  m.wallIbo,  m.wallCount)
         // Fixtures last: their high baked light makes them read as emitters.
         // Flat colour, so its UVs need no scaling at all.
-        for (m in chunkMeshes.values) drawMeshGroup(m.fixVbo, m.fixIbo, m.fixCount, lampTex, LAMP_UV)
+        // The fittings, flat. Warm white rather than the ceiling's mineral
+        // fibre — a tube that shares the tile's grain reads as a bright patch
+        // of ceiling instead of as a light.
+        for (m in chunkMeshes.values) drawMeshGroup(m.fixVbo, m.fixIbo, m.fixCount, LAMP_ALBEDO)
 
         // Footsteps go down after the floor and before anything translucent, so
         // they blend against the carpet they are lying on rather than against
@@ -4049,12 +4133,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
     }
 
-    private fun drawMeshGroup(vbo: Int, ibo: Int, indexCount: Int, tex: Int, uvScale: FloatArray) {
+    private fun drawMeshGroup(vbo: Int, ibo: Int, indexCount: Int, flat: FloatArray? = null) {
         if (indexCount <= 0) return
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex)
-        GLES30.glUniform1i(uTex, 0)
-        GLES30.glUniform2f(uUvScale, uvScale[0], uvScale[1])
+        if (flat == null) GLES30.glUniform3f(uFlatAlbedo, -1f, -1f, -1f)
+        else GLES30.glUniform3f(uFlatAlbedo, flat[0], flat[1], flat[2])
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
         val stride = 9 * 4
         GLES30.glEnableVertexAttribArray(0); GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, stride, 0)

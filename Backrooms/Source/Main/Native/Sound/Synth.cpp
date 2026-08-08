@@ -86,14 +86,58 @@ float fluorescentHum(float t, float health) noexcept {
     return (hum + buzz) * stutter;
 }
 
-float footstep(float t, float pace, float surface) noexcept {
-    if (t < 0.0f) return 0.0f;
+float footstep(float t, float pace, float surface, float step) noexcept {
+    if (t < 0.0f || t > 0.42f) return 0.0f;
     const uint32_t n = sampleIndex(t);
-    const float decay = std::exp(-t * (34.0f + 22.0f * surface));
-    const float thud = std::sin(kTwoPi * (78.0f - 18.0f * surface) * t) * decay;
-    const float scuff = white(n) * decay * (0.30f + 0.45f * surface);
-    const float click = std::exp(-t * 260.0f) * white(n + 7u) * surface * 0.7f;
-    return (thud * 0.6f + scuff * 0.35f + click) * (0.7f + 0.5f * pace);
+    const float p = std::clamp(pace, 0.0f, 1.0f);
+    const float s = std::clamp(surface, 0.0f, 1.0f);
+
+    // Every footfall used to be byte-identical: the synth restarted this
+    // function at t = 0 with the same three arguments each time, so a walk was
+    // one waveform repeating on a metronome. That is most of why it read as a
+    // tick rather than a step -- a sound that is both perfectly periodic and
+    // perfectly identical is a UI beep, whatever its spectrum.
+    //
+    // `step` is the footfall's index. Three hashes off it move the pitch, the
+    // decay and the level, so no two consecutive steps match while the whole
+    // thing stays a pure function of its arguments.
+    const auto si = static_cast<uint32_t>(step);
+    const float j0 = hash01(si * 2654435761u);
+    const float j1 = hash01(si * 40503u + 17u);
+    const float j2 = hash01(si * 2246822519u + 5u);
+
+    // The body. It was 78 Hz with a decay of 34, which is 90% gone in 57 ms and
+    // barely two cycles -- there was no thump to hear, only its attack.
+    // Measured, the old one put its energy at about 1.1 kHz and was over in
+    // 53 ms; a real footfall on carpet is under 200 Hz and lasts 120-180.
+    const float f0 = (54.0f + 14.0f * s) * (0.90f + 0.20f * j0);
+    const float bodyDecay = (13.0f + 9.0f * s) * (0.88f + 0.24f * j1);
+    const float bodyEnv = std::exp(-t * bodyDecay) * (1.0f - std::exp(-t * 900.0f));
+    const float body = std::sin(kTwoPi * f0 * t * (1.0f - 0.35f * t)) * bodyEnv;
+
+    // Heel then toe. One impact is a knock on a door; two, a few milliseconds
+    // apart and the second softer, is a person putting a foot down.
+    const float tt = t - (0.026f + 0.010f * j2);
+    const float toeEnv = tt > 0.0f
+                       ? std::exp(-tt * (bodyDecay * 1.9f)) * (1.0f - std::exp(-tt * 1400.0f))
+                       : 0.0f;
+    const float toe = std::sin(kTwoPi * f0 * 1.6f * tt) * toeEnv * 0.42f;
+
+    // Cloth and pile, low-passed. Unfiltered white noise is what put the old
+    // step's energy an octave and a half above where a footstep lives; a
+    // running mean over eight samples takes the top off it.
+    float lp = 0.0f;
+    for (uint32_t k = 0; k < 8; ++k) lp += white(n - k + si * 977u);
+    lp /= 8.0f;
+    const float scuff = lp * std::exp(-t * (26.0f + 14.0f * s)) * (0.22f + 0.30f * s);
+
+    // The click belongs to a hard floor and to nothing else. On carpet it is
+    // the single most artificial thing in the sound, so it scales with the
+    // square of the surface and vanishes entirely on the pile.
+    const float click = std::exp(-t * 300.0f) * white(n + 7u + si * 31u) * s * s * 0.55f;
+
+    const float gain = (0.62f + 0.45f * p) * (0.86f + 0.28f * j2);
+    return (body * 0.72f + toe + scuff + click) * gain;
 }
 
 float monsterVoice(float t, float proximity) noexcept {

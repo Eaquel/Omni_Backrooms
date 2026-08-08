@@ -477,20 +477,23 @@ public:
         interval_=static_cast<int>(60.0f/std::max(bpm,1.0f)*kSampleRate);
         surface_=std::clamp(surface,0.0f,1.0f);
         pace_=std::clamp((bpm-90.0f)/90.0f,0.0f,1.0f);
-        counter_=0; active_=true;
+        counter_=0; active_=true; ++step_;
     }
     void stop() noexcept { std::lock_guard lk(mtx_); active_=false; }
     float next() noexcept {
         std::lock_guard lk(mtx_);
         if(!active_) return 0.0f;
-        if(counter_>=interval_) counter_=0;
+        // A new index every time the interval wraps, not only on trigger: a
+        // held direction retriggers this from inside, and without it every step
+        // of a walk would be the same waveform again.
+        if(counter_>=interval_){ counter_=0; ++step_; }
         const float t=static_cast<float>(counter_)/kSampleRate;
         ++counter_;
-        return omni::sound::footstep(t,pace_,surface_);
+        return omni::sound::footstep(t,pace_,surface_,static_cast<float>(step_));
     }
 private:
     mutable std::mutex mtx_;
-    int counter_=0,interval_=22050;
+    int counter_=0,interval_=22050,step_=0;
     float surface_=0.0f,pace_=0.0f; bool active_=false;
 };
 
