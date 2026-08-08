@@ -209,10 +209,29 @@ void frameProfile(int index, int samples, float* out) noexcept {
     }
     if (widest <= 0.0f) widest = 1.0f;
 
-    // Second pass: normalise, and shape the tube.
+    // Second pass: normalise, lift the narrow points off the middle, shape the
+    // tube.
+    //
+    // The lift is a remap of [narrowest, widest] onto [kProfileFloor, 1] rather
+    // than a clamp: a clamp would flatten every sample below the floor into one
+    // straight arc and the silhouette would lose exactly the part that gives it
+    // its shape. The remap keeps the shape and only compresses its range.
+    float narrowest = 1e9f;
+    for (int i = 0; i < samples; ++i) {
+        const float r = out[i * 2] / widest;
+        if (r < narrowest) narrowest = r;
+    }
+    const float span = 1.0f - narrowest;
+
     for (int i = 0; i < samples; ++i) {
         const float u = static_cast<float>(i) / static_cast<float>(samples);
-        out[i * 2] /= widest;
+        float r = out[i * 2] / widest;
+        if (span > 1e-4f) {
+            r = kProfileFloor + (r - narrowest) / span * (1.0f - kProfileFloor);
+        } else {
+            r = 1.0f;
+        }
+        out[i * 2] = r;
 
         float thickness = spec->tubeRatio;
         if (index == 2) {
@@ -224,9 +243,14 @@ void frameProfile(int index, int samples, float* out) noexcept {
             // chin, which is most of what makes the silhouette read as a head.
             thickness *= 1.0f + 0.30f * std::cos(u * kTau);
         }
-        // Never allowed to close in over the portrait.
+        // Never allowed to close in over the portrait. Two caps, and the
+        // tighter wins: a proportional one so a tube stays in proportion to its
+        // own radius, and an absolute one so the inner edge clears the picture
+        // no matter what the silhouette is doing at this sample.
         const float cap = kInnerClearance * out[i * 2];
         if (thickness > cap) thickness = cap;
+        const float room = out[i * 2] - kPortraitClearance;
+        if (thickness > room) thickness = room > 0.0f ? room : 0.0f;
         out[i * 2 + 1] = thickness;
     }
 }

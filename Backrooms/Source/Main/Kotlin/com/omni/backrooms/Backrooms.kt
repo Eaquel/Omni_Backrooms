@@ -5605,12 +5605,18 @@ private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: ()
         // picture, and the fix for covering the picture is to stop covering
         // the picture, not to delete the feature.
         //
-        // The photo occupies the middle 66% of the box, so its radius is 0.33
-        // of the width. The ring's centre line sits at 0.42, and Native/Frame
-        // caps every tube at kInnerClearance of the radius, which puts the
-        // innermost edge no closer than about 0.36 — clear of the portrait at
-        // every point of every silhouette. Tools/cosmetic_probe.cpp asserts
-        // that bound, so a newly authored frame cannot quietly break it.
+        // The photo occupies the middle 62% of the box, so its radius is 0.31
+        // of the width. The ring's centre line sits at 0.42 and Native/Frame
+        // holds every tube's inner edge at or outside kPortraitClearance (0.76)
+        // of that, which is 0.319 — outside the picture at every sample of
+        // every silhouette.
+        //
+        // The arithmetic here used to claim 0.36 and assumed the profile was a
+        // circle. It is not: frameProfile normalises the WIDEST sample to 1.0,
+        // so the narrow points sit lower, and the old proportional cap shrank
+        // along with them. Measured, the worst inner edge was 0.283 against a
+        // portrait of 0.33 — the frame really was drawn across the photo.
+        // Assets_Check.py asserts the bound now instead of a comment claiming it.
         val frameClock = rememberFrameClock()
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             drawFrame3D(frame, this.size.minDimension * 0.42f, frameClock)
@@ -5634,7 +5640,7 @@ private fun FramedAvatar(frame: String, localUri: String?, size: Dp, onClick: ()
                 bitmap = image,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(0.66f).clip(CircleShape)
+                modifier = Modifier.fillMaxSize(0.62f).clip(CircleShape)
             )
         }
     }
@@ -5815,12 +5821,21 @@ private fun DrawScope.drawFrame3D(
     val geometry = style.geometry
     val emission = FrameCatalog.emission(style, t)
 
-    // Orientation. A fixed tilt away from the viewer is what exposes the tube's
-    // roundness at all — face-on, a torus is indistinguishable from a flat
-    // annulus. The slow wobble on top keeps it from looking like a static
-    // render, and the spin carries the pattern round the ring.
-    val tilt = 0.62f + sin(t * 0.37f) * 0.10f
-    val yaw  = sin(t * 0.23f) * 0.22f
+    // Orientation: flat to the viewer, turning in its own plane.
+    //
+    // There used to be a fixed 0.62 rad tilt away from the camera, on the
+    // argument that face-on a torus is indistinguishable from a flat annulus.
+    // That is not true here — the tube's normals sweep through a full half turn
+    // across its cross-section, so the highlight still rolls around it — and
+    // the tilt had a cost that outweighed it: it projected the ring as an
+    // ellipse. A circular frame drawn as an ellipse around a circular portrait
+    // reads as a mistake, not as depth.
+    //
+    // So the tilt and the yaw wobble are gone and only the spin remains. The
+    // silhouettes are not circles, so a spin in the plane is plainly visible;
+    // it turns the shape rather than swinging it through the screen.
+    val tilt = 0f
+    val yaw  = 0f
     val spin = t * 0.30f
 
     val cosT = cos(tilt); val sinT = sin(tilt)

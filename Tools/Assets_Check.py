@@ -323,17 +323,37 @@ int main() {
 
         std::vector<float> prof(S * 2, 0.0f);
         frameProfile(f, S, prof.data());
-        float widest = 0, narrow = 1e9f, minInner = 1e9f;
+        float widest = 0, narrow = 1e9f, minInner = 1e9f, maxOuter = 0;
         for (int i = 0; i < S; ++i) {
             const float r = prof[i*2], th = prof[i*2+1];
             check(std::isfinite(r) && std::isfinite(th), tag + "non-finite profile");
             check(r > 0.0f && th > 0.0f, tag + "non-positive profile");
             widest = std::fmax(widest, r); narrow = std::fmin(narrow, r);
             minInner = std::fmin(minInner, r - th);
+            maxOuter = std::fmax(maxOuter, r + th);
             check(th <= kInnerClearance * r + 1e-4f, tag + "tube thicker than the clearance allows");
         }
         check(std::fabs(widest - 1.0f) < 1e-3f, tag + "profile not normalised");
-        check(minInner > 0.55f, tag + "inner edge closes in over the portrait");
+
+        // The real bound, in the units the caller draws in.
+        //
+        // This used to be `minInner > 0.55f`, a number with no relationship to
+        // the picture. The worst frame measured 0.673 — comfortably past that
+        // check, and still drawn across the portrait, because at the avatar's
+        // ring radius of 0.42 an inner edge of 0.673 lands at 0.283 of the box
+        // and the photo's radius is 0.31.
+        //
+        // So it is stated as the geometry now: the portrait over the ring must
+        // fit inside the clearance, and the outer edge must stay in the box.
+        constexpr float kRingRadius    = 0.42f;   // Backrooms.kt drawFrame3D call
+        constexpr float kPortraitR     = 0.31f;   // fillMaxSize(0.62f) / 2
+        constexpr float kBoxHalf       = 0.50f;
+        check(kPortraitR / kRingRadius <= kPortraitClearance + 1e-4f,
+              tag + "the portrait is too big for the clearance the profile guarantees");
+        check(minInner >= kPortraitClearance - 1e-4f,
+              tag + "inner edge closes in over the portrait");
+        check(maxOuter * kRingRadius <= kBoxHalf + 1e-3f,
+              tag + "outer edge runs past the box it is drawn in");
         check((widest - narrow) / widest > 0.03f, tag + "outline is effectively a circle");
 
         float lo = 1e9f, hi = -1e9f; double moved = 0;

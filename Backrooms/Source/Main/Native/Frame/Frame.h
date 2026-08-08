@@ -38,6 +38,31 @@ namespace cosmetic {
  */
 constexpr float kInnerClearance = 0.34f;
 
+/**
+ * The smallest radius the tube's inner edge may ever reach, in profile units.
+ *
+ * kInnerClearance alone was not enough, and the arithmetic that said otherwise
+ * assumed a circle. frameProfile normalises so the WIDEST sample is 1.0, so
+ * every other sample is smaller — Sound_Of_Rooms dips to 0.758 — and a cap
+ * expressed as a fraction of each sample's own radius shrinks with it. Measured
+ * on the shipped table, the worst inner edge was 0.673, which at the avatar's
+ * ring radius of 0.42 put the tube at 0.283 of the box against a portrait of
+ * 0.31. The frame crossed the picture, which is the fault it was supposed to
+ * make impossible.
+ *
+ * This bound is absolute: whatever the silhouette does, nothing is drawn inside
+ * it. The caller's contract is that the portrait's radius over the ring's
+ * radius must not exceed it.
+ */
+constexpr float kPortraitClearance = 0.76f;
+
+/**
+ * Floor on the normalised radius, so a narrow point of a silhouette still has
+ * room for a tube once kPortraitClearance has taken its share. Shapes keep
+ * their character; they just cannot collapse inward far enough to swallow it.
+ */
+constexpr float kProfileFloor = 0.84f;
+
 /** Frames are addressed by these ids on the wire and in the store. */
 constexpr const char* kFaceOfDarkness   = "Face_Of_Darkness";
 constexpr const char* kEndlessDimension = "Endless_Dimension";
