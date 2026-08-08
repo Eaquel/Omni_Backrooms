@@ -89,6 +89,41 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Seviyenin büyük kısmı zifiri karanlıktı ve bunu bekleyen kontrol bir
+  sabiti sorguluyordu.** Tavan armatürleri global bir kafese yerleştiriliyordu:
+  bir hücre, açık zeminse ve iki koordinatı da dörde bölünüyorsa tüp taşıyordu.
+  Kafes global, kat planı değil — yani bir koridorun aydınlık olup olmaması
+  koordinat paritesine kalmıştı. z = 7 boyunca uzanan bir hücrelik koridor hiç
+  kafes satırına değmez ve boyunca tek bir armatür almaz. Altı tohumda
+  ölçüldü: tüm açık zeminin %54'ü 0.08 aydınlığın altındaydı — sahne shader'ı
+  bunu albedonun %9'u olarak çiziyor — ve tek adımını göremeyeceğin en uzun
+  kesintisiz yürüyüş 60 hücreydi: 192 metre. Armatür artık zeminin altına
+  gelmesini beklemek yerine zemini arıyor: dörde dört blok başına bir tüp, aynı
+  yoğunluk, kafes noktasından sabit bir sırayla dışa doğru halkalanarak en yakın
+  açık hücreye. Böylece dünya hâlâ koordinatlarının saf bir fonksiyonu. Işık
+  düşüş genişliği 0.95'ten 1.70'e çıktı; 0.95'te iki tüpün tam ortası — durmanın
+  en olası yeri — tek bir tüpün onda birini alıyordu. Artık hiçbir yer siyah
+  çıkmıyor ve zeminin %20'si el feneri istiyor, önceki %70'e karşı.
+- **Bir tohum aydınlık bir lobi, diğeri üçte biri zifiri bir yerdi.** Şebeke
+  arızası her 178 metrede bir dalga boyu olan bir gürültüden geliyordu; oyuncu
+  aynı anda ancak iki dalga boyu görüyor ve iki örnek bir dağılım değildir. Altı
+  tohumda zeminin elektriksiz payı %0 ile %35 arasında geziyordu — aynı oyunu
+  oynayan iki kişi aynı tür yerde değildi. Ölçek artık 71 metre ve arıza eşiği
+  dünyanın beşte birinden onda birine indi; on tohumda %7 ile %19 ölçüyor. Yani
+  denk geldiğin ölü bölgeler, sık sık karanlık olan bir dünya değil. Ortam
+  tabanı da 0.055'ten 0.20'ye çıktı: elektriksiz bir koridor artık el fenerine
+  uzandığın bir loşluk, kapalı bir ekran değil.
+- **`fixtureAt` ile `sampleChunk` lambaların nerede asılı olduğu konusunda
+  anlaşamıyordu.** Yerleştirme kuralı iki kez yazılmıştı ve toplu örnekleyici
+  zemine oturmayı öğrendiğinde tek hücrelik sorgu eski kafeste kaldı. Bu tam
+  şeklin üçüncü kez ortaya çıkışı — kapı aralığı kuralı, iki media3 bileşeni,
+  şimdi armatürler — bu yüzden kendi doğrulaması var: Level_0_Check her tohumda
+  yirmi beş chunk'ın her hücresinde iki cevabı karşılaştırıyor. Aydınlatma
+  yeniden yazıldığından beri o dosyada duran zifiri karanlık doğrulaması bir kez
+  bile tetiklenmemişti; aydınlığın 0.02'nin altında olup olmadığını soruyordu,
+  ortam tabanı ise 0.055'ti. Yanına bir oyuncunun gerçekten ne görebildiğini
+  ölçen bir tane eklendi ve sınırı her hatayı kasten geri koyup aştığını
+  görerek belirlendi.
 - **Birinci şahısta el feneri ters tarafa sapıyordu.** Fenerin dünya konumu,
   kameranın kendi kurulduğu ileri vektörün üç bileşeninden ikisi ters
   çevrilmiş bir vektörden hesaplanıyordu; yukarı bakınca ışın aşağı, sola

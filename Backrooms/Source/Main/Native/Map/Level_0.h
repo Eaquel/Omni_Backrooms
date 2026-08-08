@@ -121,6 +121,11 @@ private:
     /** Fixture kind for an already-known open cell and mains health, so the bulk
      *  sampler does not pay for isOpen/powerAt twice. */
     uint8_t fixtureFor(int cx, int cz, float power) const noexcept;
+    /** The cell a lattice point's fitting actually hangs over. A fitting is
+     *  mounted in a ceiling, and there is no ceiling over a wall, so the lattice
+     *  point rings outward to the nearest open cell. False when the whole
+     *  neighbourhood is solid — a block with no floor needs no tube. */
+    bool snapFixture(int latticeCx, int latticeCz, int& outCx, int& outCz) const noexcept;
 
     uint64_t seed_;
 };

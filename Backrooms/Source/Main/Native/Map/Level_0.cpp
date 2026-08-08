@@ -59,18 +59,36 @@ constexpr int kMaxRoomHalf    = 5;   // must stay < kSectorSize / 2
 // looks like.
 constexpr int kFixtureSpacing = 4;
 
+// How far a lattice point will look for floor to hang its fitting over. Two
+// cells reaches every corner of a 4x4 block, so a block with any floor in it
+// gets a tube.
+constexpr int kFixtureSnap = 2;
+
 // How far one tube meaningfully reaches, in cells. Sets the working margin
 // sampleChunk needs around the chunk it is asked for.
 constexpr int   kLightRadius = 4;
-// Gaussian falloff width, in cells. Tight enough that the light belongs to the
-// fitting above it rather than to the room in general.
-constexpr float kLightSigma  = 0.95f;
+// Gaussian falloff width, in cells.
+//
+// This was 0.95, chosen against a lattice that only lit cells whose coordinates
+// were multiples of four. At that width a cell two from a tube — the midpoint
+// between two fittings, the single most common place to be standing — receives
+// exp(-4 / 1.805) = 0.11 of its output. Combined with the lattice that produced
+// a level where most of the floor was unlit; on its own it still leaves the
+// halfway point at a tenth. Wide enough that adjacent pools meet, which is what
+// a run of ceiling troffers actually does, and the contrast between under-a-tube
+// and between-two stays around 4x.
+constexpr float kLightSigma  = 1.70f;
 constexpr float kLitOutput   = 1.05f;
 constexpr float kDeadOutput  = 0.05f;
 /** Floor under everything. Even an unpowered corridor is not pitch black: light
- *  bleeds in from the powered ones and off every surface. Deliberately low —
- *  it is the gloom between the pools, not a second light source. */
-constexpr float kAmbient     = 0.055f;
+ *  bleeds in from the powered ones and off every surface.
+ *
+ *  It was 0.055, which the scene shader turns into 0.09 + 0.45*0.055*1.3 = 0.12
+ *  of albedo on a wall — a wall you cannot see. The point of a failed section is
+ *  that you reach for the torch, not that the screen goes off; at 0.20 the
+ *  geometry is just legible and the torch is still worth having. Contrast
+ *  against a lit pool stays about 7x, so this is a floor, not a second light. */
+constexpr float kAmbient     = 0.20f;
 
 // Salts keep the different attribute layers from correlating with each other.
 constexpr uint64_t kSaltRoom    = 0x1000ULL;
@@ -332,12 +350,25 @@ float Level0Field::powerAt(int cx, int cz) const noexcept {
     // finer hotspots. Returned as a continuous 0..1 rather than bucketed, so a
     // failing region fades in over tens of metres instead of switching on a
     // cell boundary.
-    const float broad = noise(cx * 0.018f, cz * 0.018f, kSaltBroad);
+    // The broad scale was 0.018 per cell — one wavelength every 55 cells, 178
+    // metres. A player sees about two wavelengths at a time, and two samples of
+    // anything is not a distribution: measured over six seeds, one had no failed
+    // mains anywhere near the spawn and another had a third of its floor
+    // unpowered. Two players in the same game were not in the same kind of
+    // place. At 0.045 a failed section is 20-odd cells across, several are
+    // always within reach, and every seed averages out to the same level.
+    const float broad = noise(cx * 0.045f, cz * 0.045f, kSaltBroad);
     const float fine  = noise(cx * 0.060f, cz * 0.060f, kSaltFine);
 
     // Remap so most of the world is healthy and failure is the exception, with
     // a wide transition band on either side of the threshold.
-    float health = (broad + 0.42f) / 0.62f;          // -0.42 -> 0, +0.20 -> 1
+    //
+    // The threshold was -0.42, which left a fifth of the floor with no mains at
+    // all — swept over ten seeds it measured 21.6% on average and 38.8% on the
+    // worst. A fifth is not an exception. At -0.60 it is 10% on average, 7.3%
+    // to 18.7% across seeds: dead sections you come across, rather than a world
+    // that is dark as often as not.
+    float health = (broad + 0.60f) / 0.66f;          // -0.60 -> 0, +0.06 -> 1
     health = health < 0.0f ? 0.0f : (health > 1.0f ? 1.0f : health);
     // Smoothstep, so the ramp has no visible kink where it meets the flats.
     health = health * health * (3.0f - 2.0f * health);
@@ -357,9 +388,28 @@ uint8_t Level0Field::zoneAt(int cx, int cz) const noexcept {
 }
 
 uint8_t Level0Field::fixtureAt(int cx, int cz) const noexcept {
-    if (cx % kFixtureSpacing != 0 || cz % kFixtureSpacing != 0) return kFixtureNone;
+    // The placement rule lives in exactly one place — snapFixture — and both
+    // this and sampleChunk go through it. It was written out twice before, as a
+    // modulo test here and a modulo test there, and when the bulk sampler
+    // learned to snap onto floor this one did not: every caller asking a single
+    // cell would have got the old lattice's answer while the mesh it was drawn
+    // against used the new one.
+    //
+    // A cell carries a fitting when it is the cell its own block's lattice point
+    // snapped to. Only cells within the snap radius of a lattice point can
+    // qualify, so the search is over at most a handful of candidates.
     if (!isOpen(cx, cz)) return kFixtureNone;
-    return fixtureFor(cx, cz, powerAt(cx, cz));
+    for (int dz = -kFixtureSnap; dz <= kFixtureSnap; ++dz) {
+        for (int dx = -kFixtureSnap; dx <= kFixtureSnap; ++dx) {
+            const int lx = cx + dx, lz = cz + dz;
+            if (((lx % kFixtureSpacing) + kFixtureSpacing) % kFixtureSpacing != 0) continue;
+            if (((lz % kFixtureSpacing) + kFixtureSpacing) % kFixtureSpacing != 0) continue;
+            int fx = 0, fz = 0;
+            if (!snapFixture(lx, lz, fx, fz)) continue;
+            if (fx == cx && fz == cz) return fixtureFor(cx, cz, powerAt(cx, cz));
+        }
+    }
+    return kFixtureNone;
 }
 
 uint8_t Level0Field::fixtureFor(int cx, int cz, float power) const noexcept {
@@ -371,6 +421,29 @@ uint8_t Level0Field::fixtureFor(int cx, int cz, float power) const noexcept {
     // one dead tube at a time, the way a real one does.
     const float deadChance = 0.06f + (1.0f - power) * 0.72f;
     return u < deadChance ? kFixtureDead : kFixtureLit;
+}
+
+bool Level0Field::snapFixture(int latticeCx, int latticeCz,
+                              int& outCx, int& outCz) const noexcept {
+    if (isOpen(latticeCx, latticeCz)) {
+        outCx = latticeCx; outCz = latticeCz;
+        return true;
+    }
+    // Rings outward. Within a ring the order is fixed and the first open cell
+    // wins, so the answer depends only on the coordinates — never on which
+    // chunk asked, which is what keeps a tube from moving when you walk far
+    // enough away for the chunk under it to be rebuilt from a different corner.
+    for (int r = 1; r <= kFixtureSnap; ++r) {
+        for (int dz = -r; dz <= r; ++dz) {
+            for (int dx = -r; dx <= r; ++dx) {
+                if (std::max(std::abs(dx), std::abs(dz)) != r) continue;
+                if (!isOpen(latticeCx + dx, latticeCz + dz)) continue;
+                outCx = latticeCx + dx; outCz = latticeCz + dz;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 uint8_t Level0Field::featureAt(int cx, int cz) const noexcept {
@@ -425,17 +498,45 @@ void Level0Field::sampleChunk(int chunkX, int chunkZ, int cells, CellSample* out
         }
     }
 
-    // Pass 2 — fittings. Only lattice cells can carry one, so most of the grid
-    // is a single modulo test.
-    for (int z = 0; z < workSide; ++z) {
-        for (int x = 0; x < workSide; ++x) {
-            const int i = z * workSide + x;
-            const int cx = baseX + x, cz = baseZ + z;
-            fixture[i] = kFixtureNone;
-            if (!open[i]) continue;
-            if (((cx % kFixtureSpacing) + kFixtureSpacing) % kFixtureSpacing != 0) continue;
-            if (((cz % kFixtureSpacing) + kFixtureSpacing) % kFixtureSpacing != 0) continue;
-            fixture[i] = fixtureFor(cx, cz, power[i]);
+    // Pass 2 — fittings, one per lattice block, snapped onto floor.
+    //
+    // This used to be a single modulo test: a cell carried a fitting if it was
+    // open AND both its coordinates were multiples of the spacing. The lattice
+    // is global and the floor plan is not, so whether a corridor was lit came
+    // down to its coordinate parity. A one-cell corridor running along z = 7
+    // never touches a lattice row, so it received no fitting anywhere along its
+    // length — not a dim one, none — and the only light reaching it was the
+    // 0.055 ambient floor. Measured over six seeds, 70% of all open floor sat
+    // under 0.15 illuminance and 54% under 0.08, which the scene shader renders
+    // at 9% of albedo. The longest unbroken walk through cells you cannot see
+    // in was 60 cells: 192 metres of black corridor.
+    //
+    // The block is still the unit — one fitting per 4x4, so the density and the
+    // spacing are unchanged — but the fitting now looks for the floor instead of
+    // waiting for the floor to arrive under it. Rings outward from the lattice
+    // point and takes the first open cell, in a fixed order, so it stays a pure
+    // function of the coordinates: two clients with the same seed still place
+    // every tube identically without exchanging anything.
+    for (int i = 0; i < workSide * workSide; ++i) fixture[i] = kFixtureNone;
+
+    const int latLo = kFixtureSpacing * static_cast<int>(
+        std::floor(static_cast<float>(baseX - kFixtureSnap) / kFixtureSpacing));
+    const int latLoZ = kFixtureSpacing * static_cast<int>(
+        std::floor(static_cast<float>(baseZ - kFixtureSnap) / kFixtureSpacing));
+    const int latHi  = baseX + workSide + kFixtureSnap;
+    const int latHiZ = baseZ + workSide + kFixtureSnap;
+
+    for (int lz = latLoZ; lz <= latHiZ; lz += kFixtureSpacing) {
+        for (int lx = latLo; lx <= latHi; lx += kFixtureSpacing) {
+            int fx = 0, fz = 0;
+            if (!snapFixture(lx, lz, fx, fz)) continue;
+            const int gx = fx - baseX, gz = fz - baseZ;
+            if (gx < 0 || gz < 0 || gx >= workSide || gz >= workSide) continue;
+            const int i = gz * workSide + gx;
+            // Two lattice points can snap to the same cell where the floor is
+            // thin. One tube, not two stacked on each other.
+            if (fixture[i] != kFixtureNone) continue;
+            fixture[i] = fixtureFor(fx, fz, power[i]);
         }
     }
 

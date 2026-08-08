@@ -106,6 +106,44 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **Most of the level was pitch black, and the check that watched for it was
+  asking about a constant.** Ceiling fittings were placed on a global lattice —
+  a cell carried a tube if it was open floor and both its coordinates were
+  multiples of four. The lattice is global and the floor plan is not, so
+  whether a corridor was lit came down to its coordinate parity: a one-cell
+  corridor running along z = 7 never touches a lattice row and received no
+  fitting anywhere along its length. Measured over six seeds, 54% of all open
+  floor sat under 0.08 illuminance, which the scene shader renders at 9% of
+  albedo, and the longest unbroken walk through cells you could not see a step
+  of was 60 cells: 192 metres. The fitting now looks for the floor instead of
+  waiting for the floor to arrive under it — one tube per four-by-four block,
+  same density, rung outward from the lattice point to the nearest open cell in
+  a fixed order so the world stays a pure function of its coordinates. The
+  falloff width went from 0.95 to 1.70, because at 0.95 the midpoint between
+  two tubes — the single most common place to be standing — got a tenth of one
+  tube's output. Nothing renders black now and 20% of the floor wants the
+  torch, against 70% before.
+- **One seed was a lit lobby and the next was a third pitch dark.** Mains
+  failure came from noise one wavelength every 178 metres, so a player only
+  ever saw about two wavelengths of it and two samples are not a distribution:
+  across six seeds the unpowered share of the floor ran from 0% to 35%. Two
+  people playing the same game were not in the same kind of place. The scale is
+  71 metres now and the failure threshold moved from a fifth of the world to a
+  tenth, which measures 7% to 19% across ten seeds — dead sections you come
+  across, rather than a world that is dark as often as not. The ambient floor
+  went from 0.055 to 0.20 as well, so an unpowered corridor is gloom you reach
+  for the torch in rather than an unlit screen.
+- **`fixtureAt` and `sampleChunk` disagreed about where the lights hang.** The
+  placement rule was written out twice, and when the bulk sampler learned to
+  snap onto floor the single-cell query kept the old lattice. Third time this
+  exact shape of bug has surfaced — the doorway rule, the two media3 artifacts,
+  now the fittings — so it has an assertion of its own: Level_0_Check compares
+  the two answers over every cell of twenty-five chunks per seed. The
+  pitch-black assertion that had been in that file since the lighting rewrite
+  never once fired, because it tested whether illuminance was under 0.02 while
+  the ambient floor was 0.055. It is joined by one that measures what a player
+  can actually see, with the bound set by re-injecting each fault and checking
+  it crosses.
 - **The flashlight swung the wrong way in first person.** The torch's world
   position was built from a forward vector with two of its three components
   negated relative to the one the camera itself was built from, so looking up

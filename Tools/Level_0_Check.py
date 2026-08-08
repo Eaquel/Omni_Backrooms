@@ -13,6 +13,11 @@ many seeds, and asserts the properties a run actually depends on:
   * open space is neither so sparse the level is a maze of dead ends nor so
     dense it is one undifferentiated hall;
   * every open cell has some light, so nowhere is pitch black;
+  * and, separately, that MOST of the floor can be read without the torch. The
+    pitch-black test above is satisfied by the ambient floor alone and so has
+    never once fired, while the level it was guarding had 54% of its open floor
+    dark enough to render at 9% of albedo and stretches of 192 metres you could
+    not see a step of. A check that passes on a constant is not a check;
   * the light is not FLAT — there are pools under the fittings and gloom
     between them. A previous tuning measured 1.00x contrast: a uniformly lit
     light box with no pools at all, and nothing in the build could see it;
@@ -108,13 +113,20 @@ void check(bool ok, const char* what, unsigned long long seed) {
     }
 }
 
+// The two illuminance thresholds the shipped scene shader implies, given
+// lit = 0.09 + facing * light * 1.30 with facing 0.45 on a wall and 1.0 on the
+// floor. Below kBlack a surface is indistinguishable from the background;
+// below kVisible you need the torch to read it.
+constexpr float kBlack   = 0.15f;
+constexpr float kVisible = 0.27f;
+
 } // namespace
 
 int main(int argc, char** argv) {
     const int seedCount = argc > 1 ? std::atoi(argv[1]) : 40;
     std::printf("Level 0 probe over %d seeds\n\n", seedCount);
 
-    double openSum = 0, litSum = 0, darkestSum = 0, contrastSum = 0;
+    double openSum = 0, litSum = 0, darkestSum = 0, contrastSum = 0, gloomSum = 0;
     double corridorSum = 0, pillarDarkSum = 0, floorPowerSum = 0;
     int    worstReachDepth = 1 << 30;
 
@@ -157,7 +169,7 @@ int main(int argc, char** argv) {
 
         // Density and light, sampled over a window around the spawn.
         const int half = 60;
-        int open = 0, total = 0, unlit = 0;
+        int open = 0, total = 0, unlit = 0, gloom = 0;
         float darkest = 1e9f, brightest = 0.0f;
         std::vector<omni::map::CellSample> samples(26 * 26);
         for (int cz = -half; cz < half; cz += 24) {
@@ -167,7 +179,8 @@ int main(int argc, char** argv) {
                     total++;
                     if (cell.solid) continue;
                     open++;
-                    if (cell.light < 0.02f) unlit++;
+                    if (cell.light < kBlack)   unlit++;
+                    if (cell.light < kVisible) gloom++;
                     darkest = std::min(darkest, cell.light);
                     brightest = std::max(brightest, cell.light);
                 }
@@ -185,6 +198,31 @@ int main(int argc, char** argv) {
         check(openFrac > 0.25, "floor plan too sparse (a warren of dead ends)", seed);
         check(openFrac < 0.55, "floor plan too open (one undifferentiated hall)", seed);
         check(unlit == 0, "some open cells are pitch black", seed);
+
+        // How much of the floor you cannot see without the torch.
+        //
+        // "unlit" above has been in this file since the lighting rewrite and it
+        // never once fired, because it asks whether illuminance is under 0.02
+        // and the ambient floor has always been above that. It was a check on a
+        // constant. Meanwhile the level it was guarding had 54% of its open
+        // floor under 0.08 and 70% under 0.15, and the longest unbroken walk
+        // through cells you could not see in was 60 cells — 192 metres of black
+        // corridor, shipped, with a green check next to it.
+        //
+        // The threshold that means anything is the one the scene shader
+        // implies. A wall renders at 0.09 + 0.45 * light * 1.30 of its albedo,
+        // so it needs about 0.27 to be legible unaided. Below that is gloom you
+        // reach for the torch in, which is a fine thing for some of a level to
+        // be and not a fine thing for most of it.
+        // The bound is 0.33 against a shipped 0.24. Chosen by re-injecting the
+        // faults it exists to catch and checking each one crosses it: the global
+        // fitting lattice takes it to 0.55, and the old 0.95 falloff width — on
+        // its own, with the placement already fixed — to 0.37. A looser 0.45 let
+        // that second one through.
+        const double gloomFrac = open ? double(gloom) / open : 0.0;
+        gloomSum += gloomFrac;
+        check(gloomFrac < 0.33,
+              "too much of the floor cannot be seen without the torch", seed);
 
         // Light has to come from the fittings, which means bright directly under
         // one and gloomy between them. A previous tuning overlapped the falloff
@@ -341,6 +379,16 @@ int main(int argc, char** argv) {
                                   "sampleChunk and featureAt disagree about a cell's "
                                   "feature — the mesher builds from one and every check "
                                   "here reads the other", seed);
+                            // Fittings are the third copy of this pattern, and
+                            // they had already diverged. When the bulk sampler
+                            // learned to snap a fitting onto floor instead of
+                            // waiting for floor to appear under the lattice,
+                            // fixtureAt kept the modulo test: the ceiling was
+                            // meshed with tubes in one set of cells and every
+                            // single-cell query answered with another.
+                            check(c.fixture == field.fixtureAt(cx, cz),
+                                  "sampleChunk and fixtureAt disagree about where a "
+                                  "light fitting hangs", seed);
                         }
                     }
                 }
@@ -352,6 +400,7 @@ int main(int argc, char** argv) {
     std::printf("lit open cells   avg %.4f\n", litSum / seedCount);
     std::printf("darkest cell     avg %.3f\n", darkestSum / seedCount);
     std::printf("light contrast   avg %.2fx\n", contrastSum / seedCount);
+    std::printf("needs the torch  avg %.1f%% of open floor\n", 100.0 * gloomSum / seedCount);
     std::printf("corridor cells   avg %.1f%%\n", 100.0 * corridorSum / seedCount);
     std::printf("mains at columns avg %.3f  (open floor %.3f)\n",
                 pillarDarkSum / seedCount, floorPowerSum / seedCount);

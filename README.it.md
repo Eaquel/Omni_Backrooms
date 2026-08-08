@@ -89,6 +89,23 @@ Tools/                           gli otto controlli
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
 
+- **Most of the level was pitch black.** Ceiling fittings sat on a global
+  lattice — a tube where both coordinates were multiples of four — so whether a
+  corridor was lit came down to its coordinate parity, and a corridor that
+  missed the lattice got nothing along its whole length. 54% of open floor was
+  under 0.08 illuminance and the longest walk you could not see a step of was
+  192 metres. Fittings now snap onto floor, one per four-by-four block, and the
+  falloff is wide enough that adjacent pools meet. Nothing renders black now.
+- **One seed was a lit lobby and the next a third pitch dark.** Mains failure
+  used noise one wavelength every 178 metres, so the unpowered share of the
+  floor ran from 0% to 35% depending on the seed. At 71 metres and a tenth of
+  the world it measures 7% to 19%, and the ambient floor rose from 0.055 to
+  0.20 so a dead section is gloom rather than an unlit screen.
+- **`fixtureAt` and `sampleChunk` disagreed about where the lights hang** — the
+  placement rule written twice, and only one copy updated. Third time this
+  shape of bug has appeared, so Level_0_Check now compares the two answers
+  cell by cell. The pitch-black assertion it already had tested illuminance
+  against 0.02 while the ambient floor was 0.055, so it had never fired.
 - **The flashlight swung the wrong way in first person.** Its world position
   came from a forward vector with two components negated relative to the
   camera's own, so looking up sent the beam down. Third person read the
