@@ -36,7 +36,7 @@ KOTLIN = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms")
 
 # Modules with no Android dependency, so they can be compiled on the host.
 HOST_MODULES = ["Map/Level_0.cpp", "Frame/Frame.cpp", "Trail/Trail.cpp",
-                "Entity/Entity.cpp", "Sound/Synth.cpp",
+                "Entity/Entity.cpp", "Sound/Synth.cpp", "Ending/Ending.cpp",
                 "Shield/Unity.cpp", "Shield/Shield.cpp"]
 
 JNI_PREFIX = "Java_com_omni_backrooms_NativeBridge_"
@@ -280,11 +280,149 @@ def check_host_build() -> None:
                 print(f"   {rel:24s} ok")
 
 
+ENDING_PROBE = r"""
+// Samples the real transition across its whole length and prints it, so the
+// curves can be asserted instead of judged by dying on a phone.
+#include "Ending/Ending.h"
+#include <cstdio>
+
+int main() {
+    using namespace omni::ending;
+    for (int k = 1; k <= 2; ++k) {
+        const Kind kind = static_cast<Kind>(k);
+        const float dur = duration(kind);
+        std::printf("KIND %d %f\n", k, dur);
+        for (int i = 0; i <= 100; ++i) {
+            const float t = dur * float(i) / 100.0f;
+            const Params p = evaluate(kind, t);
+            std::printf("%d %f %f %f %f %f %f %f %f %f\n", k, t,
+                        p.desaturate, p.vignette, p.aberration, p.tear,
+                        p.pull, p.bloom, p.exposure, p.panel);
+        }
+        // Past the end: a caller that keeps sampling must get the settled
+        // state, not something that has run off.
+        const Params over = evaluate(kind, dur * 4.0f);
+        std::printf("OVER %d %f %f %f\n", k, over.vignette, over.exposure, over.panel);
+    }
+    return 0;
+}
+"""
+
+
+def check_ending() -> None:
+    """
+    The run-over transition, measured.
+
+    The end of a run used to be a Compose card on a black scrim: the level you
+    had just been standing in painted over at 88% black, with a rounded
+    rectangle on top of it. That reads as a dialog, and a dialog is what you
+    dismiss. It is also the one piece of the game that is hardest to look at —
+    you have to die to see it — so it is exactly the piece that needs a check
+    rather than an opinion.
+
+    Ending::evaluate is a pure function of (kind, seconds), which is what makes
+    that possible at all. Everything below is a property the transition has to
+    have for it to read as one event rather than a set of effects switching on.
+    """
+    section("Ending")
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "ending_probe.cpp")
+        exe = os.path.join(tmp, "ending_probe")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(ENDING_PROBE)
+        build = subprocess.run(
+            ["g++", "-std=c++20", "-O2", "-I", NATIVE, src,
+             os.path.join(NATIVE, "Ending/Ending.cpp"), "-o", exe],
+            capture_output=True, text=True)
+        if build.returncode != 0:
+            failures.append("the ending probe did not compile:\n" + build.stderr[:2000])
+            return
+        out = subprocess.run([exe], capture_output=True, text=True).stdout
+
+    NAMES = ["desaturate", "vignette", "aberration", "tear",
+             "pull", "bloom", "exposure", "panel"]
+    curves: dict[int, list[list[float]]] = {1: [], 2: []}
+    durations: dict[int, float] = {}
+    settled: dict[int, tuple[float, float, float]] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if parts[0] == "KIND":
+            durations[int(parts[1])] = float(parts[2])
+        elif parts[0] == "OVER":
+            settled[int(parts[1])] = (float(parts[2]), float(parts[3]), float(parts[4]))
+        else:
+            curves[int(parts[0])].append([float(v) for v in parts[1:]])
+
+    for kind, label in ((1, "death"), (2, "escape")):
+        rows = curves[kind]
+        check(len(rows) == 101, f"the {label} transition did not sample")
+        if len(rows) != 101:
+            continue
+        dur = durations[kind]
+        # Long enough to register, short enough not to be a wait.
+        check(1.2 <= dur <= 3.5,
+              f"the {label} transition runs {dur:.2f}s — under 1.2 it is a cut "
+              f"and over 3.5 it is a delay between the player and their score")
+
+        first = rows[0][1:]
+        # The first frame of an ending must be the frame before it. Anything
+        # non-zero here is a state the eye reads as a cut.
+        for i, name in enumerate(NAMES):
+            want = 1.0 if name == "exposure" else 0.0
+            check(abs(first[i] - want) < 1e-6,
+                  f"the {label} transition starts with {name} at {first[i]:.3f} "
+                  f"rather than {want:.0f} — its first frame is a jump")
+
+        panel = [r[8] for r in rows]
+        check(all(b >= a - 1e-6 for a, b in zip(panel, panel[1:])),
+              f"the {label} panel does not rise monotonically — it appears, "
+              f"retreats and comes back")
+        check(panel[-1] > 0.999, f"the {label} panel never fully arrives")
+        # The picture has to fail before the stats cover it. If the panel is up
+        # while the frame is still intact, the transition is happening behind a
+        # card and nobody sees it.
+        half = next(i for i, v in enumerate(panel) if v > 0.5)
+        check(half >= 55,
+              f"the {label} panel is half up {half}% into the transition, before "
+              f"the frame behind it has finished changing")
+
+        for i, name in enumerate(NAMES):
+            col = [r[i + 1] for r in rows]
+            check(all(v == v and abs(v) < 100.0 for v in col),
+                  f"{label}.{name} runs away or goes non-finite")
+        print(f"   {label:7s} {dur:.2f}s  panel half-up at {half}%  "
+              f"peak vignette {max(r[2] for r in rows):.2f}  "
+              f"peak bloom {max(r[6] for r in rows):.2f}  "
+              f"exposure {min(r[7] for r in rows):.2f}..{max(r[7] for r in rows):.2f}")
+
+        v, e, pn = settled[kind]
+        check(abs(pn - panel[-1]) < 1e-6 and abs(v - rows[-1][2]) < 1e-6,
+              f"sampling past the end of the {label} transition does not hold "
+              f"the settled state")
+
+    # The two endings must not be the same effect with a different tint. This is
+    # the failure mode a card on a scrim has by construction, and the one thing
+    # a reader of the code would not notice.
+    d, s = curves[1], curves[2]
+    if len(d) == 101 and len(s) == 101:
+        diff = max(abs(a[i + 1] - b[i + 1]) for a, b in zip(d, s) for i in range(8))
+        peak_d = max(r[7] for r in d)      # death exposure never lifts
+        peak_s = max(r[7] for r in s)      # escape exposure does
+        print(f"   death vs escape: largest divergence {diff:.2f}, "
+              f"peak exposure {peak_d:.2f} vs {peak_s:.2f}")
+        check(diff > 0.4, "the two endings are the same curve — one of them is "
+                          "the other with a different colour")
+        check(peak_d <= 1.0 < peak_s,
+              "a death should never brighten and an escape should — these two "
+              "move the exposure the same way")
+
+
 def main() -> int:
     check_jni_contract()
     check_jni_signatures()
     check_cmake_sources()
     check_host_build()
+    check_ending()
 
     print()
     for f in failures:

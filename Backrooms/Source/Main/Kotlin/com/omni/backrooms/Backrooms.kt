@@ -1521,7 +1521,21 @@ class GameVM @Inject constructor(
                 // the results on screen, and the Omnium award was computed off
                 // a number that no longer matched what they had survived.
                 val runOver = _state.value.let { it.isGameOver || it.isEscaped || it.isMadnessOver }
-                if (!runOver) elapsedMs += (dt * 1000).toLong()
+                if (!runOver) {
+                    elapsedMs += (dt * 1000).toLong()
+                } else {
+                    // The ending's own clock. Native/Ending is a pure function
+                    // of it, so this is the only piece of the transition that
+                    // is stateful at all — and the panel's rise comes back out
+                    // of the same call the renderer makes, rather than being a
+                    // second animation in Compose that could drift from it.
+                    val s = _state.value
+                    val kind = if (s.isEscaped) 2 else 1
+                    val el = s.endingElapsed + dt
+                    val panel = runCatching { bridge.endingParams(kind, el) }
+                        .getOrNull()?.getOrNull(7) ?: 1f
+                    _state.update { it.copy(endingElapsed = el, endingPanel = panel) }
+                }
 
                 // Marks on the floor age on their own clock in Native/Trail,
                 // whether or not the player is still walking.
@@ -3108,6 +3122,19 @@ uniform float uTime; uniform float uFlicker; uniform float uVhsStrength; uniform
 uniform float uColorBlindMix; uniform vec3 uColorBlindAxis;
 uniform float uFlashOn; uniform float uMadness; uniform float uBloomStrength;
 uniform float uExposure;
+/**
+ * How the run ended, as eight numbers from Native/Ending.
+ *
+ * uEnd0 = (desaturate, vignette, aberration, tear)
+ * uEnd1 = (pull, bloom, exposure, panel)
+ *
+ * Every one of them is zero — or one, for exposure — while a run is live, so
+ * this whole block costs nothing until something happens. The shape of the
+ * transition is not decided here: this only spends what Ending::evaluate gives
+ * it, which is why the curves can be measured on a host instead of judged by
+ * dying on a phone.
+ */
+uniform vec4 uEnd0; uniform vec4 uEnd1;
 out vec4 fragColor;
 float rand(vec2 co){ return fract(sin(dot(co, vec2(12.9898,78.233))) * 43758.5453); }
 // Filmic tonemap (ACES approximation). Without it every bloomed highlight
@@ -3123,7 +3150,22 @@ void main(){
     vec2 barrel = centered * (1.0 + 0.035 * r2 * uVhsStrength);
     vec2 uv = clamp(barrel * 0.5 + 0.5, 0.0, 1.0);
 
+    // The tape losing lock. Rows slide sideways in bursts, so the picture comes
+    // apart in clusters of frames rather than wobbling evenly.
+    if (uEnd0.w > 0.0) {
+        float row = floor(uv.y * 84.0);
+        uv.x += uEnd0.w * (rand(vec2(row, floor(uTime * 24.0))) - 0.5) * 2.0;
+        uv = clamp(uv, 0.0, 1.0);
+    }
+    // Pulled toward the middle: the frame is being drawn down a hole.
+    if (uEnd1.x > 0.0) {
+        uv = clamp(mix(uv, vec2(0.5), uEnd1.x * 0.22 * r2), 0.0, 1.0);
+    }
+
     float shift = (rand(vec2(uTime*0.6, uv.y*40.0)) - 0.5) * 0.004 * uVhsStrength;
+    // The ending's own split is a fixed lateral pull, not the VHS jitter: a
+    // signal coming apart separates, it does not shimmer.
+    shift += uEnd0.z;
     float r = texture(uScene, uv + vec2(shift, 0.0)).r;
     float g = texture(uScene, uv).g;
     float b = texture(uScene, uv - vec2(shift, 0.0)).b;
@@ -3131,8 +3173,15 @@ void main(){
 
     // Bloom, added before tonemapping so the shoulder rolls the glow off the way
     // a camera would rather than letting it clip to a flat white blob.
-    col += texture(uBloom, uv).rgb * uBloomStrength;
-    col = tonemap(col * uExposure);
+    col += texture(uBloom, uv).rgb * (uBloomStrength + uEnd1.y);
+    col = tonemap(col * uExposure * uEnd1.z);
+
+    // Colour drains before the light does. Death takes the picture to grey
+    // while you can still see it; an escape never touches this.
+    if (uEnd0.x > 0.0) {
+        float luma = dot(col, vec3(0.299, 0.587, 0.114));
+        col = mix(col, vec3(luma) * vec3(1.02, 1.00, 0.96), uEnd0.x);
+    }
 
     float scan = sin(uv.y*uResolution.y*1.4 + uTime*6.0) * 0.04 * uVhsStrength;
     col -= scan;
@@ -3141,6 +3190,9 @@ void main(){
 
     vec2 vig = uv - 0.5;
     float vigAmt = 1.0 - dot(vig,vig)*1.1;
+    // The ending's vignette shuts last and shuts hard, from the corners in,
+    // over the top of the ordinary one.
+    vigAmt *= 1.0 - uEnd0.y * smoothstep(0.02, 0.34, dot(vig, vig));
     col *= clamp(vigAmt, 0.0, 1.0);
     col *= (0.55 + 0.45*uFlicker);
 
@@ -3297,6 +3349,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
     private var pCbMix = 0; private var pCbAxis = 0; private var pFlashOn = 0; private var pMadness = 0
     private var pBloomTex = 0; private var pBloomStrength = 0; private var pExposure = 0
+    private var pEnd0 = 0; private var pEnd1 = 0
+    /** The eight numbers Native/Ending hands back, refreshed once a frame. The
+     *  identity is (0,0,0,0, 0,0,1,0): a live run costs nothing. */
+    private val endingParams = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f)
     private var brightProgram = 0; private var blurProgram = 0
     private var brScene = 0; private var brThreshold = 0; private var brKnee = 0
     private var blSource = 0; private var blDir = 0
@@ -3430,6 +3486,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         pBloomTex = GLES30.glGetUniformLocation(postProgram, "uBloom")
         pBloomStrength = GLES30.glGetUniformLocation(postProgram, "uBloomStrength")
         pExposure = GLES30.glGetUniformLocation(postProgram, "uExposure")
+        pEnd0 = GLES30.glGetUniformLocation(postProgram, "uEnd0")
+        pEnd1 = GLES30.glGetUniformLocation(postProgram, "uEnd1")
 
         brightProgram = linkGlProgram(OMNI_POST_VERT, OMNI_BRIGHT_FRAG)
         brScene = GLES30.glGetUniformLocation(brightProgram, "uScene")
@@ -3839,10 +3897,28 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glViewport(0, 0, surfaceW, surfaceH)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        // How the run ended, sampled from Native/Ending once per frame. The
+        // shader keeps no clock of its own, so what Native_Check measures off
+        // these curves is exactly what the screen shows.
+        val endKind = when {
+            state.isEscaped                       -> 2
+            state.isGameOver || state.isMadnessOver -> 1
+            else                                  -> 0
+        }
+        if (endKind == 0) {
+            endingParams[0] = 0f; endingParams[1] = 0f; endingParams[2] = 0f
+            endingParams[3] = 0f; endingParams[4] = 0f; endingParams[5] = 0f
+            endingParams[6] = 1f; endingParams[7] = 0f
+        } else {
+            runCatching { bridge.endingParams(endKind, state.endingElapsed) }
+                .getOrNull()?.let { it.copyInto(endingParams, 0, 0, minOf(8, it.size)) }
+        }
+
         drawPost(
             timeSec, state.flickerIntensity, (if (rs.vhsEnabled) 1f else 0f) * postStrength,
             cbMix, cbAxis, state.flashlightOn, state.madness,
-            bloomStrength = if (bloomPasses > 0) 0.85f else 0f
+            bloomStrength = if (bloomPasses > 0) 0.85f else 0f,
+            ending = endingParams
         )
     }
 
@@ -4039,7 +4115,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private fun drawPost(
         timeSec: Float, flicker: Float, vhsStrength: Float,
         cbMix: Float, cbAxis: Triple<Float, Float, Float>,
-        flashOn: Boolean, madness: Float, bloomStrength: Float
+        flashOn: Boolean, madness: Float, bloomStrength: Float,
+        ending: FloatArray
     ) {
         GLES30.glUseProgram(postProgram)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -4060,6 +4137,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glUniform3f(pCbAxis, cbAxis.first, cbAxis.second, cbAxis.third)
         GLES30.glUniform1f(pFlashOn, if (flashOn) 1f else 0f)
         GLES30.glUniform1f(pMadness, madness.coerceIn(0f, 1f))
+        GLES30.glUniform4f(pEnd0, ending[0], ending[1], ending[2], ending[3])
+        GLES30.glUniform4f(pEnd1, ending[4], ending[5], ending[6], ending[7])
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, postVbo)
         GLES30.glEnableVertexAttribArray(0)
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
@@ -7258,11 +7337,18 @@ private fun InGameToggle(label: String, checked: Boolean, onChange: (Boolean) ->
 fun GameOverOverlay(gameState: GameState, onExit: () -> Unit) {
     val inf   = rememberInfiniteTransition(label = "go")
     val pulse by inf.animateFloat(0.6f, 1f, infiniteRepeatable(tween(900, easing = EaseInOut), RepeatMode.Reverse), "p")
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.88f)), Alignment.Center) {
+    // No scrim. The frame behind this is being taken apart by Native/Ending —
+    // desaturated, pulled toward the middle, torn, and finally shut down by the
+    // vignette — and painting 88% black over it threw all of that away and left
+    // a dialog on a black rectangle. The panel rises on the last of Ending's
+    // own eight parameters, so it cannot appear before the picture has finished
+    // failing, and it cannot drift from it either: both come from one call.
+    val rise = gameState.endingPanel.coerceIn(0f, 1f)
+    Box(Modifier.fillMaxSize().alpha(rise), Alignment.Center) {
         Column(
             Modifier.width(280.dp).clip(RoundedCornerShape(4.dp))
-                .background(MetalBg)
-                .border(1.dp, DangerRed.copy(0.5f), RoundedCornerShape(4.dp))
+                .background(MetalBg.copy(alpha = 0.90f))
+                .border(1.dp, DangerRed.copy(0.5f * rise), RoundedCornerShape(4.dp))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -7295,11 +7381,14 @@ fun EscapedOverlay(gameState: GameState, onExit: () -> Unit) {
     val inf  = rememberInfiniteTransition(label = "esc")
     val glow by inf.animateFloat(0.5f, 1f, infiniteRepeatable(tween(1200, easing = EaseInOut), RepeatMode.Reverse), "g")
     val scan by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart), "escScan")
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.88f)), Alignment.Center) {
+    // Same as the death panel: the bloom blowing the corridor out to white is
+    // the moment, and a black scrim over it is the moment thrown away.
+    val rise = gameState.endingPanel.coerceIn(0f, 1f)
+    Box(Modifier.fillMaxSize().alpha(rise), Alignment.Center) {
         Column(
             Modifier.width(300.dp).clip(RoundedCornerShape(4.dp))
-                .background(MetalBg)
-                .border(1.dp, SuccessGreen.copy(0.5f), RoundedCornerShape(4.dp))
+                .background(MetalBg.copy(alpha = 0.90f))
+                .border(1.dp, SuccessGreen.copy(0.5f * rise), RoundedCornerShape(4.dp))
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
             horizontalAlignment = Alignment.CenterHorizontally

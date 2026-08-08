@@ -26,6 +26,7 @@ add_library(
     Trail/Trail.cpp
     Entity/Entity.cpp
     Sound/Synth.cpp
+    Ending/Ending.cpp
     Shield/Shield.cpp
     Shield/Unity.cpp
 )
@@ -51,6 +52,11 @@ add_library(
 # on a host, so Native_Check.py compiles them with warnings as errors like every
 # other module. The one piece that could not move is the signature check, which
 # calls PackageManager over JNI and so stays in Engine.cpp.
+#
+# Ending/ holds the run-over transition. It is a pure function of (kind, time)
+# with no GL and no Android in it, so the curves that decide how a death looks
+# can be sampled and asserted on the host instead of being judged by replaying
+# a death on a phone.
 #
 # Frame/ and Trail/ hold the cosmetics. A frame's silhouette and a trail's
 # ageing rules are content, and content that was previously a switch on a

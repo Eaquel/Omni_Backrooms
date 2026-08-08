@@ -94,6 +94,7 @@ Backrooms/Source/Main/
     Map/        Level 0 as a pure function of coordinates
     Entity/     creature AI — perception, retreat, return
     Sound/      every generator; there are no audio files
+    Ending/     how a run ends, as a pure function of time
     Frame/      profile frame cosmetics
     Trail/      footstep trail cosmetics
     Shield/     the detectors, and what the binary claims to be
@@ -106,6 +107,33 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The end of a run was a dialog on a black rectangle.** Both the death and
+  the escape screens painted the level you had just been standing in over at 88%
+  black and put a rounded card on top of it. That reads as something to dismiss,
+  and it threw away the only frame that mattered. There is no scrim now. A new
+  `Native/Ending/` turns (which ending, seconds since it started) into the eight
+  post-process parameters the transition is made of, and the frame you are
+  looking at comes apart in front of you: a death drains the colour first, then
+  splits the channels, tears rows out of the picture in bursts the way a tape
+  losing lock does, pulls the whole thing toward the middle, and only then shuts
+  the vignette and takes the exposure down to a quarter. An escape is the
+  opposite curve in every single term — it keeps its colour, never tears, and the
+  bloom blows the corridor out and comes back rather than leaving you on a white
+  screen. The stats panel rises on the last of those same eight numbers, so it
+  cannot appear before the picture has finished failing and cannot drift from it
+  either: the renderer and the panel come from one call. The localised text
+  stayed in Compose, because translation belongs where the ten string files are.
+- **A transition is the hardest thing in a game to look at, so it got a check
+  instead of an opinion.** You have to die to see this one. Because
+  `Ending::evaluate` is a pure function with no clock of its own, Native_Check
+  samples both endings across their whole length on the host and asserts the
+  properties that make it read as one event: that the first frame of an ending
+  is exactly the frame before it, so it does not open on a cut; that the panel
+  rises monotonically and is not half up before 55% of the way through, so the
+  transition is not happening behind a card; that neither runs under 1.2 seconds
+  or over 3.5; and that the two endings are not one curve with a different
+  colour — a death must never brighten and an escape must. All four verified by
+  putting each fault in and watching the check catch it.
 - **Three of the four sounds in the game had never been played.** `Sound/Synth.h`
   opens by saying that code you cannot hear is code nobody checks, and that what
   gets checked is what ships. Neither was true. `fluorescentHum`, `footstep` and

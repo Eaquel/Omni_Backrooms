@@ -26,6 +26,7 @@
 #include "Trail/Trail.h"
 #include "Entity/Entity.h"
 #include "Sound/Synth.h"
+#include "Ending/Ending.h"
 #include "Shield/Shield.h"
 
 // Cells per chunk edge. 24 keeps a chunk mesh small enough to build in a frame
@@ -1163,6 +1164,32 @@ JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setAmbienceLevel(JNI
 /** Stops the footfalls. They ran on a fixed interval forever once triggered,
  *  so letting go of the stick left her walking on the spot. */
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopFootstep(JNIEnv*, jobject)                 { gSound.foot.stop(); }
+/**
+ * The run-over transition, sampled.
+ *
+ * Returns the eight parameters the post shader needs for this instant, so the
+ * shader does no timing of its own and what Native_Check measures is what the
+ * screen shows. Kotlin owns the clock because Kotlin owns the frame loop; the
+ * shape of the thing lives in Ending/.
+ */
+JNIEXPORT jfloatArray JNICALL
+Java_com_omni_backrooms_NativeBridge_endingParams(JNIEnv* env, jobject, jint kind, jfloat t) {
+    using namespace omni::ending;
+    const Params p = evaluate(static_cast<Kind>(kind), t);
+    const float flat[8] = { p.desaturate, p.vignette, p.aberration, p.tear,
+                            p.pull, p.bloom, p.exposure, p.panel };
+    auto arr = env->NewFloatArray(8);
+    if (!arr) return nullptr;
+    env->SetFloatArrayRegion(arr, 0, 8, flat);
+    return arr;
+}
+
+/** How long an ending runs, so Kotlin does not carry its own copy of it. */
+JNIEXPORT jfloat JNICALL
+Java_com_omni_backrooms_NativeBridge_endingDuration(JNIEnv*, jobject, jint kind) {
+    return omni::ending::duration(static_cast<omni::ending::Kind>(kind));
+}
+
 /** The torch switch. 60 ms, which is the whole sound. */
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_playTorchClick(JNIEnv*, jobject) {
     std::lock_guard lk(gSound.mtx); gSound.click.start(0.06f, omni::sound::Shot::TorchClick);

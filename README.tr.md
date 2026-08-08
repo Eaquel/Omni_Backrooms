@@ -77,6 +77,7 @@ Backrooms/Source/Main/
     Map/        koordinatların saf fonksiyonu olarak Seviye 0
     Entity/     canavar yapay zekâsı — algı, kaçış, dönüş
     Sound/      bütün üreticiler; ses dosyası yok
+    Ending/     bir turun nasıl bittiği, zamanın saf fonksiyonu
     Frame/      profil çerçevesi kozmetikleri
     Trail/      ayak izi kozmetikleri
     Shield/     dedektörler, ve ikilinin kendini ne olarak gösterdiği
@@ -89,6 +90,31 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Bir turun sonu, siyah bir dikdörtgen üzerinde bir diyalogdu.** Hem ölüm hem
+  kaçış ekranı, az önce içinde durduğun seviyeyi %88 siyahla boyayıp üzerine
+  yuvarlak köşeli bir kart koyuyordu. Bu, kapatılacak bir şey gibi okunur ve
+  önemli olan tek kareyi çöpe atar. Artık perde yok. Yeni `Native/Ending/`,
+  (hangi son, başlamasından bu yana geçen saniye) ikilisini geçişin yapıldığı
+  sekiz son-işlem parametresine çeviriyor ve baktığın kare gözünün önünde
+  dağılıyor: ölüm önce rengi boşaltıyor, sonra kanalları ayırıyor, bandın kilidi
+  kaybetmesi gibi öbekler hâlinde satırları koparıyor, her şeyi ortaya doğru
+  çekiyor ve ancak ondan sonra vinyeti kapatıp pozlamayı dörtte bire indiriyor.
+  Kaçış ise her terimde tam ters eğri: rengini koruyor, hiç yırtılmıyor ve bloom
+  koridoru patlatıp geri dönüyor — seni beyaz bir ekranda bırakmıyor. İstatistik
+  paneli aynı sekiz sayının sonuncusuyla yükseliyor; yani görüntü çökmeden önce
+  belirmesi mümkün değil ve ondan sapması da mümkün değil, çünkü ikisi de tek
+  bir çağrıdan geliyor. Yerelleştirilmiş metin Compose'da kaldı: çeviri, on dil
+  dosyasının bulunduğu yere aittir.
+- **Bir geçiş, bir oyunda bakılması en zor şeydir; bu yüzden görüşe değil
+  doğrulamaya bağlandı.** Bunu görmek için ölmen gerekiyor. `Ending::evaluate`
+  kendi saati olmayan saf bir fonksiyon olduğu için Native_Check her iki sonu da
+  ana makinede baştan sona örnekliyor ve tek bir olay gibi okunmasını sağlayan
+  özellikleri doğruluyor: bir sonun ilk karesi tam olarak ondan önceki kare
+  olmalı ki kesme gibi açılmasın; panel tekdüze yükselmeli ve yolun %55'inden
+  önce yarılanmamalı ki geçiş bir kartın arkasında yaşanmasın; ikisi de 1.2
+  saniyenin altına inmemeli, 3.5'in üstüne çıkmamalı; ve iki son, farklı renkte
+  tek bir eğri olmamalı — ölüm asla aydınlanmamalı, kaçış aydınlanmalı. Dördü de
+  hatayı kasten geri koyup kontrolün yakaladığı görülerek doğrulandı.
 - **Oyundaki dört sesin üçü hiç çalınmamıştı.** `Sound/Synth.h`, duyamadığın
   kodun kimsenin denetlemediği kod olduğunu ve denetlenenin yayınlanan olduğunu
   söyleyerek başlıyor. İkisi de doğru değildi. `fluorescentHum`, `footstep` ve

@@ -129,6 +129,9 @@ class NativeBridge @Inject constructor() {
     external fun triggerFootstep(bpm: Float, surface: Float)
     external fun stopFootstep()
     external fun playTorchClick()
+    /** The run-over transition at `t` seconds in: eight floats, see Ending.h. */
+    external fun endingParams(kind: Int, t: Float): FloatArray?
+    external fun endingDuration(kind: Int): Float
     external fun triggerMonster(intensity: Float)
     /** The title sting, synthesised on the device — there is no audio file. */
     external fun playIntroSting(seconds: Float)
@@ -260,7 +263,15 @@ data class GameState(
     /** Camera roll in degrees, used by the collapse. */
     val cameraTilt        : Float   = 0f,
     /** Omnium awarded for the run, by how long the player stayed alive. */
-    val omniumEarned      : Long    = 0L
+    val omniumEarned      : Long    = 0L,
+    /** Seconds since the run ended. Drives Native/Ending, which turns it into
+     *  the eight post-process parameters the transition is made of — and, via
+     *  the last of them, decides when the stats are allowed to appear. */
+    val endingElapsed     : Float   = 0f,
+    /** The last of Ending's parameters: how far up the stats panel should be.
+     *  Kept on the state rather than read from the renderer because Compose
+     *  draws the panel and the renderer does not. */
+    val endingPanel       : Float   = 0f
 )
 
 data class LeaderboardEntry(

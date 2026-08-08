@@ -77,6 +77,7 @@ Backrooms/Source/Main/
     Map/        il Livello 0 come funzione pura delle coordinate
     Entity/     IA della creatura — percezione, ritirata, ritorno
     Sound/      tutti i generatori; non ci sono file audio
+    Ending/     come finisce una run, funzione pura del tempo
     Frame/      cosmetici delle cornici del profilo
     Trail/      cosmetici delle scie di passi
     Shield/     i rilevatori, e ciò che il binario dichiara di essere
@@ -89,6 +90,19 @@ Tools/                           gli otto controlli
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
 
+- **The end of a run was a dialog on a black rectangle.** Both screens painted
+  the level over at 88% black and put a card on top, which threw away the only
+  frame that mattered. A new `Native/Ending/` turns (which ending, seconds in)
+  into the eight post-process parameters the transition is made of: a death
+  drains the colour, splits the channels, tears rows out in bursts, pulls the
+  frame toward the middle and only then shuts down; an escape is the opposite
+  curve in every term. The stats panel rises on the last of those same numbers,
+  so it cannot appear before the picture has finished failing.
+- **The transition got a check rather than an opinion**, since you have to die
+  to see it. Native_Check samples both endings on the host and asserts that the
+  first frame of an ending is the frame before it, that the panel is not half up
+  before 55% through, that neither runs under 1.2s or over 3.5s, and that a
+  death never brightens while an escape does. All four verified by injection.
 - **Three of the four sounds in the game had never been played.**
   `fluorescentHum`, `footstep` and `monsterVoice` — the three the sound tool
   renders and compares against a Python reference sample for sample — had no
