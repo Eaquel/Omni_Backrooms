@@ -92,6 +92,15 @@ Tools/                           las ocho comprobaciones
 
 Lo más nuevo primero. Esta lista se actualiza con cada corrección.
 
+- **The body came through the dress, and the legs had no calves.** Neither is
+  a structural fault — the file parses, the shells are closed, the rig survives
+  its poses — so nothing could see them. Skin was outside the fabric in 10 of 34
+  sampled directions round the trunk, worst by 16 mm, and the body carried its
+  own moulded skirt hanging below the real hem. The torso is tucked to a 6 mm
+  clearance inside the garment now. One leg measured 68 mm at calf height
+  against 63 at the ankle, a ratio of 1.08 where a real leg is nearer 1.6; the
+  calf is 87 mm now, with the swell swept against the rig's worst skinning seam
+  so the improvement costs nothing.
 - **The room was the right size and everything in it was twice as big.** The
   ceiling grid was on a 1.6 m module where a metric suspended ceiling is
   600 mm, the carpet tiles 800 mm against a real 500, the wall joints 1.6 m

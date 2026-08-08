@@ -770,6 +770,128 @@ def _components(nodes, tris):
     return sorted(groups.values(), key=len, reverse=True)
 
 
+def _check_dress_fit(nodes, comps) -> None:
+    """
+    Is the body actually inside the dress?
+
+    "The character does not sit in the dress properly" is not a structural
+    fault. The file parses, the shells are closed, the rig survives its poses —
+    and the body still comes through the fabric, because nothing anywhere
+    compares the two surfaces to each other. The shipped mesh had skin outside
+    the garment in 13 of 39 sampled directions round the trunk, the worst by
+    16 mm on a figure one unit tall, and carried its own moulded skirt flaring
+    to 109 mm below a hem that is 107 — a second skirt hanging out from under
+    the first.
+
+    Both surfaces are star-shaped about the vertical axis over the dress's
+    height, so the honest test is a direct one: at the same height and the same
+    angle, is the skin further from the axis than the cloth? The arms are
+    excluded by their distance from the shipped arm bone chain, since a hand
+    outside a sleeve is a hand, and the garment's own sleeves are excluded from
+    the field they define, since a sleeve sitting far out at the same angle
+    would license a bulge in the chest.
+    """
+    if len(comps) < 2:
+        return
+    ranked = sorted(comps, key=len, reverse=True)
+    body, dress = set(ranked[0]), set(ranked[1])
+
+    # Shoulder -> elbow -> hand, the chain the game rigs the arm with.
+    chain = (((0.075, 0.780, 0.0), (0.115, 0.615, 0.0)),
+             ((0.115, 0.615, 0.0), (0.168, 0.452, 0.0)))
+
+    def arm_dist(p) -> float:
+        best = 1e9
+        for s in (1.0, -1.0):
+            q = (p[0] * s, p[1], p[2])
+            for a, b in chain:
+                ab = tuple(b[i] - a[i] for i in range(3))
+                den = sum(c * c for c in ab) or 1e-9
+                t = max(0.0, min(1.0, sum((q[i] - a[i]) * ab[i] for i in range(3)) / den))
+                best = min(best, math.dist(q, tuple(a[i] + t * ab[i] for i in range(3))))
+        return best
+
+    gown = [nodes[i] for i in dress if arm_dist(nodes[i]) >= 0.075]
+    torso = [nodes[i] for i in body if arm_dist(nodes[i]) >= 0.058]
+    if len(gown) < 40 or len(torso) < 40:
+        return
+
+    hem = min(p[1] for p in gown)
+    top = max(p[1] for p in gown)
+    NY, NT = 30, 28
+
+    def binned(pts):
+        g: dict[tuple[int, int], float] = {}
+        for p in pts:
+            if not (hem <= p[1] <= top):
+                continue
+            r = math.hypot(p[0], p[2])
+            iy = min(NY - 1, max(0, int((p[1] - hem) / max(top - hem, 1e-9) * NY)))
+            it = min(NT - 1, max(0, int((math.atan2(p[2], p[0]) + math.pi)
+                                        / (2 * math.pi) * NT)))
+            k = (iy, it)
+            if r > g.get(k, -1.0):
+                g[k] = r
+        return g
+
+    gd, gb = binned(gown), binned(torso)
+    outside, sampled, worst = 0, 0, -1e9
+    for k, rb in gb.items():
+        rd = gd.get(k)
+        if rd is None:
+            continue
+        sampled += 1
+        if rb - rd > 0.002:
+            outside += 1
+        worst = max(worst, rb - rd)
+
+    print(f"   dress fit: {outside}/{sampled} directions with skin outside the "
+          f"fabric, worst {worst * 1000:+.1f} mm")
+    check(sampled >= 20, "too little of the trunk lies under the dress to judge "
+                         "the fit — the garment or the body has moved")
+    check(outside == 0,
+          f"the body comes through the dress in {outside} of {sampled} sampled "
+          f"directions, the worst by {worst * 1000:.0f} mm")
+
+    # A skirt hem is the widest the silhouette gets. Anything under it that is
+    # wider is the body's own moulded skirt showing below the real one.
+    hem_r = max(r for (iy, _), r in gd.items() if iy == 0) if gd else 0.0
+    under = [p for p in torso if hem - 0.09 <= p[1] < hem]
+    if under and hem_r > 0:
+        widest = max(math.hypot(p[0], p[2]) for p in under)
+        print(f"   under the hem: {widest * 1000:.1f} mm against a "
+              f"{hem_r * 1000:.1f} mm hem")
+        check(widest <= hem_r - 0.004,
+              f"the body is {widest * 1000:.0f} mm wide under a {hem_r * 1000:.0f} mm "
+              f"hem — it hangs out below the skirt")
+
+    # --- the lower leg has to have a calf ---------------------------------
+    #
+    # The shipped legs were a straight taper from knee to ankle. One leg's
+    # widest cross-section measured 68 mm at calf height against 63 at the
+    # ankle: a ratio of 1.08, where a real lower leg is nearer 1.6 because the
+    # calf belly is the widest part of it. That, far more than triangle count,
+    # is what made the legs read as sticks.
+    #
+    # Measured on one leg only, off the midline, below the hem — there is
+    # nothing down there but leg, so no mask can be wrong about it.
+    def span(y0: float, y1: float) -> float:
+        pts = [p for p in nodes if y0 <= p[1] < y1 and p[0] > 0.008]
+        if len(pts) < 4:
+            return 0.0
+        return max(max(p[0] for p in pts) - min(p[0] for p in pts),
+                   max(p[2] for p in pts) - min(p[2] for p in pts))
+
+    ankle, calf = span(0.06, 0.11), span(0.16, 0.23)
+    if ankle > 0 and calf > 0:
+        print(f"   lower leg: calf {calf * 1700:.0f} mm over an ankle of "
+              f"{ankle * 1700:.0f} mm, ratio {calf / ankle:.2f}")
+        check(calf / ankle >= 1.25,
+              f"the lower leg is a straight taper — the calf is only "
+              f"{calf / ankle:.2f}x the ankle, and a leg with no calf reads as "
+              f"a stick however many triangles it has")
+
+
 def check_character() -> None:
     """
     The rig, proved by animating it and looking for the seams.
@@ -833,6 +955,8 @@ def check_character() -> None:
           f"shell a millimetre away — they z-fight and cost vertices twice")
     print(f"   {len(pos)} verts, {len(tris)} tris, {len(nodes)} welded, "
           f"{len(comps)} shells, {dup} duplicated")
+
+    _check_dress_fit(nodes, comps)
 
     # --- geodesic bind, as the game does it -------------------------------
     adj: list[list[tuple[int, float]]] = [[] for _ in nodes]

@@ -106,6 +106,29 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The body came through the dress, and the legs had no calves.** Two faults
+  that no structural check can see: the file parses, the shells are closed, the
+  rig survives its poses, and the character still does not sit in her clothes.
+  Measured on the shipped mesh, skin was outside the fabric in 10 of 34 sampled
+  directions round the trunk — the worst by 16 mm on a figure one unit tall,
+  some 3 cm at human scale — and the body carried its own moulded skirt flaring
+  to 109 mm below a hem that is 107, a second skirt hanging out from under the
+  first. Both surfaces are star-shaped about the vertical axis over the dress's
+  height, so the test is a direct one: at the same height and the same angle, is
+  the skin further from the axis than the cloth? The torso is now tucked to a
+  6 mm clearance inside the garment, with the arms, legs, head and dress
+  untouched and the normals rebuilt on every triangle that moved.
+  Separately, one leg's widest cross-section measured 68 mm at calf height
+  against 63 at the ankle — a ratio of 1.08, where a real lower leg is nearer
+  1.6, because the calf belly is the widest part of it. The legs were a straight
+  taper from knee to ankle, and that, far more than triangle count, is what made
+  them read as sticks. The calf is 87 mm now. The swell was swept against the
+  rig's own worst skinning seam, since a wider surface moves further under the
+  same bone rotation: everything up to 1.35x shares one pre-existing seam in the
+  thigh, and 1.42x introduces a new one in the shin, so 1.35 is the whole of the
+  improvement that costs nothing. A thigh swell was tried and dropped — every
+  version of it pushed the worst seam from 2.97 cm to 3.2 cm, and the
+  measurement it was correcting rested on four vertices.
 - **The room was the right size and everything in it was twice as big.** The
   ceiling did not feel like the Backrooms because its T-bar grid was on a 1.6 m
   module, and a metric suspended ceiling is 600 mm. The carpet tiles were

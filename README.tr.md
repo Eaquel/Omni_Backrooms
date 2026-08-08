@@ -89,6 +89,29 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Beden elbisenin içinden çıkıyordu ve bacakların baldırı yoktu.** Hiçbir
+  yapısal kontrolün göremeyeceği iki kusur: dosya ayrıştırılıyor, kabuklar
+  kapalı, rig pozlarını atlatıyor — ve karakter yine de kıyafetine oturmuyor.
+  Yayınlanan mesh'te gövde çevresinde örneklenen 34 yönden 10'unda ten kumaşın
+  dışındaydı; en kötüsü bir birim boyundaki bir figürde 16 mm, insan ölçeğinde
+  yaklaşık 3 cm. Ayrıca beden kendi kalıplanmış eteğini taşıyordu: 107 mm'lik
+  bir etek ucunun altında 109 mm'ye açılan, birincinin altından sarkan ikinci
+  bir etek. İki yüzey de elbisenin yüksekliği boyunca dikey eksen etrafında
+  yıldız biçimli, yani test doğrudan: aynı yükseklikte ve aynı açıda ten
+  eksenden kumaştan daha uzakta mı? Gövde artık giysinin 6 mm içine
+  yerleştirildi; kollar, bacaklar, baş ve elbise değişmedi, hareket eden her
+  üçgenin normali yeniden hesaplandı.
+  Ayrıca bir bacağın en geniş kesiti baldır hizasında 68 mm, bilekte 63 mm
+  ölçüyordu — oran 1.08, oysa gerçek bir alt bacakta bu 1.6'ya yakındır, çünkü
+  baldır karnı bacağın en geniş yeridir. Bacaklar dizden bileğe düz bir
+  daralmaydı ve onları çubuk gibi gösteren şey, üçgen sayısından çok buydu.
+  Baldır artık 87 mm. Şişkinlik, rig'in kendi en kötü deri dikişine karşı
+  tarandı — çünkü daha geniş bir yüzey aynı kemik dönüşünde daha fazla yol alır:
+  1.35 katına kadar hepsi uylukta zaten var olan tek bir dikişi paylaşıyor,
+  1.42 kat ise incikte yenisini doğuruyor. Yani 1.35, bedava olan iyileşmenin
+  tamamı. Uyluk için de bir şişkinlik denendi ve bırakıldı: her sürümü en kötü
+  dikişi 2.97 cm'den 3.2 cm'ye çıkarıyordu ve düzeltmeye çalıştığı ölçüm dört
+  vertekse dayanıyordu.
 - **Oda doğru boyuttaydı, içindeki her şey iki katıydı.** Tavan Backrooms
   hissi vermiyordu çünkü T profil kafesi 1.6 m modüldeydi; metrik asma tavan
   600 mm'dir. Halı kareleri gerçek 500'e karşı 800 mm'ydi. Duvar dikey
