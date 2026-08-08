@@ -90,6 +90,61 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Tavan alçak değildi; mercek çok genişti.** `Matrix.perspectiveM`'e 70
+  derece veriliyordu ve o fonksiyonun ilk açısı DİKEY görüş alanıdır — 2:1 bir
+  telefonda bu 109 derece yatay demek; normal bir birinci şahıs oyunu 75-90
+  arasındadır. 109'da zemin ve tavan kareyi dolduruyor, kameraya yakın her şey
+  yayılıyor, ve doğru boyutta bir oda sürünme boşluğu gibi okunuyor. Artık 52,
+  yani 89 yatay. Tavan da 2.6 m'den 3.0 m'ye çıktı: göz 1.70'teyken 2.6 gerçek
+  bir ofistir ama 3.0 aynı binanın yüksek ucu ve lobi görüntüsünün gösterdiği
+  şey.
+- **Işık hiçbir yerden gelmiyordu.** Ortam 0.20'ydi, tam tepedeki bir tüp ise
+  yaklaşık 1.05 veriyor; yani içinde armatür olmayan bir oda aydınlık bir odanın
+  beşte biri kadar aydınlanıyordu ve ışık havuzları anlamını yitiriyordu — "ışık
+  olmayan yerlerde aydınlık" ve "ortamı daha karart" aynı bulgunun iki kez
+  söylenmiş hâli. Ortam 0.085 oldu, shader'ın kendi taban terimi 0.09'dan
+  0.035'e indi ve eğim dikleşti, armatürler 1.55 veriyor: en karanlık hücre
+  eskisinden daha karanlık, aydınlık bir koridor ise şimdiye kadarki en
+  parlağı. Havuz ile aradaki loşluk arasındaki ölçülen kontrast: 11.6x → 38.2x.
+  Level_0_Check'in sınırı 3'tü — bozuk ayarın oradan geçmesine yetecek kadar
+  gevşek; artık 18.
+- **Kontrol, artık var olmayan bir formüle karşı ölçüm yapıyordu.** İki aydınlık
+  eşiği shader'ın eski `lit = 0.09 + facing * light * 1.30`'una karşı elle
+  hesaplanıp sabit olarak yazılmıştı; shader'ı değiştirince, az önce iyileşmiş
+  bir seviyede 40 tohumun 40'ı düştü. Tek bir kuralın iki yerde yaşamasının
+  altıncı örneği. Prob artık shader'ın kendi katsayılarını okuyup eşikleri
+  onlardan türetiyor, ve o satır taşınırsa tahmin etmek yerine çalışmayı
+  reddediyor.
+- **Sis ve VHS filtresi varsayılan olarak kapalı, filtre de yarı güçte.** Her
+  karenin üstüne bant efekti koymak, oyuncu adına verilmiş güçlü bir üslup
+  kararıdır. Bu arada: `observeVhs()` varsayılanı `true` iken `observe()`
+  `false`'tu — efektin açık olup olmaması, çağıranın hangisini kullandığına
+  bağlıydı. Artık tek sabit. Sisin kendisi 0.008'de karesel'di ve 25 m'de
+  doyuyordu: koridor, çizim mesafesinin çok içinde düz bir renk levhasıyla
+  bitiyordu — "haritanın yüklenmediği karanlık bölge" tam olarak böyle görünür.
+  Artık neredeyse doğrusal.
+- **Çizim mesafesi ufuk çizgisiydi.** Uzak düzlem 55 m, chunk halkası 384 m'ydi;
+  yani oyuncunun gördüğü şey kırpma düzlemiydi. Artık 110 m ve 7x7 halka.
+- **Koridorlar kapı çerçeveleriyle doluydu.** Her kapı hücresinde bir kiriş ve
+  iki söve inşa ediliyordu, ve kapı özelliği koridor hücrelerinin %28'ine
+  düşüyor — yani koridor, birkaç metrede bir portaldan oluşuyordu. Level 0,
+  bölmelerinde açıklıklar olan bir ofis katıdır, sütun dizisi değil. Üstelik her
+  kapı hücresinden 6 dörtgen eksildi.
+- **Zemindeki bazı kareler ışıksızdı** ve öyle olmaları amaçlanmıştı:
+  kFeatureHole kendi hücresini %34'e karartıyordu — dokunduğu her şeyden üçte
+  iki daha karanlık, sert kenarlı bir dikdörtgen. Gerçek bir odada hiçbir şey
+  bunu yapmaz; ışığı yanmamış bir karo gibi okunuyordu. Kaldırıldı.
+- **Duvarda her 800 mm'de bir %74 parlaklıkta çizgiler vardı**, halıda da %80'de
+  bir ızgara. Kağıt eki ve halı karosu derzi, ancak aradığında fark ettiğin
+  gölgelerdir. Artık %94 ve %93.
+- **Yürürken menüyü açmak onu olduğu yerde yürüttürüyordu.** Ayak sesleri ses
+  geri çağrısının içinde kendi aralıklarıyla çalışıyor ve onları yalnızca hareket
+  dalı durduruyordu — duraklatılmışken çalışmayan bir dal. Artık hem duraklatma
+  hem ekrandan çıkma durduruyor.
+- **Ayak izleri, ayaklarının değil kameranın baktığı yeri gösteriyordu.** Kamera
+  anlık görüntüsünün ham yaw'ıyla damgalanıyorlardı; avatar ise onu takip eden
+  yumuşatılmış bir yaw ile çiziliyor. Dururken ikisi aynı, dönerken değil.
+  Renderer artık onu hangi açıyla çizdiğini yayımlıyor ve damga onu okuyor.
 - **Duvarlar, zemin ve tavan artık kodla üretiliyor; üç görsel silindi.**
   Floor.png, Wall.png ve Roof.png küçük bir APK'nın 4.6 MB'ını yiyordu ve
   silmeden önce 128x128'de ölçüldüğünde tuttukları şey üzerine gren serpilmiş

@@ -57,10 +57,18 @@ struct CellSample {
  */
 class Level0Field {
 public:
-    // 3.2 m cells. A 2.6 m ceiling is deliberately low: it is most of what
-    // makes the space feel oppressive rather than merely large.
+    // 3.2 m cells and a 3.0 m ceiling.
+    //
+    // 2.6 was defended as "deliberately low", and with the eye at 1.70 m that
+    // is 0.75 m of headroom, which is a real office. It still read as a
+    // crawlspace, and the reason turned out to be the camera rather than the
+    // room: the vertical field of view was 70 degrees, which is 109 horizontal
+    // on a 2:1 phone, so floor and ceiling filled the frame. That is fixed
+    // where it belongs, in the projection. 3.0 m on top of it is the taller
+    // end of the same building — what the lobby footage shows, and enough that
+    // a suspended grid reads as a ceiling rather than as a lid.
     static constexpr float kCell   = 3.2f;
-    static constexpr float kHeight = 2.6f;
+    static constexpr float kHeight = 3.0f;
 
     explicit Level0Field(uint64_t seed = 0) noexcept : seed_(seed) {}
 

@@ -1590,7 +1590,12 @@ class GameVM @Inject constructor(
                         // side of the line of travel instead of in one furrow.
                         footSide = -footSide
                         snapshot.camera?.let { c ->
-                            runCatching { bridge.trailStep(c.posX, c.posZ, c.yaw, footSide) }
+                            // Her feet, not the camera: in third person the
+                            // model lags the look by the chase constant, and a
+                            // print that points somewhere she is not facing is
+                            // the thing the report picked up.
+                            val printYaw = avatarYawSource?.invoke() ?: c.yaw
+                            runCatching { bridge.trailStep(c.posX, c.posZ, printYaw, footSide) }
                         }
                     }
                 } else {
@@ -1694,6 +1699,11 @@ class GameVM @Inject constructor(
     @Volatile var endingSnapshot: FloatArray = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f)
         private set
 
+    /** Where the avatar is currently drawn facing, supplied by the renderer.
+     *  Null until the game screen has wired it, which is why the stamp falls
+     *  back to the camera. */
+    @Volatile var avatarYawSource: (() -> Float)? = null
+
     @Volatile private var moveX = 0f
     @Volatile private var moveZ = 0f
     @Volatile private var sprinting = false
@@ -1754,8 +1764,15 @@ class GameVM @Inject constructor(
         _state.update { it.copy(isPaused = nowPaused) }
         // Pausing has to silence the engine too; previously only leaving the
         // screen did, so the ambience kept playing behind the pause menu.
-        if (nowPaused) runCatching { bridge.setAmbienceLevel(0f); bridge.setHumVolume(0f) }
-        else applyAudioLevels()
+        //
+        // The footsteps were missed. They run on their own interval inside the
+        // audio callback and only the movement branch ever stopped them, and
+        // that branch does not run while paused — so opening the menu mid-walk
+        // left her walking on the spot behind it, forever, which is what the
+        // report describes.
+        if (nowPaused) runCatching {
+            bridge.setAmbienceLevel(0f); bridge.setHumVolume(0f); bridge.stopFootstep()
+        } else applyAudioLevels()
     }
 
     /** True once the player is close enough to the exit for [onInteract] to work; the HUD
@@ -1766,7 +1783,7 @@ class GameVM @Inject constructor(
      *  Without this the ambience/hum kept playing after leaving the screen. */
     fun onScreenPaused() {
         _state.update { it.copy(isPaused = true) }
-        runCatching { bridge.setAmbienceLevel(0f); bridge.setHumVolume(0f) }
+        runCatching { bridge.setAmbienceLevel(0f); bridge.setHumVolume(0f); bridge.stopFootstep() }
         saveNow()
     }
 
@@ -2641,18 +2658,23 @@ void main(){
         vec2 t = vWorldPos.xz / kCarpetTile;
         vec2 g = fract(t);
         vec2 d = min(g, 1.0 - g) * kCarpetTile;
+        // Same for the carpet: the seam between two tiles is a line of shadow
+        // a millimetre wide, not a drawn grid.
         float seam = 1.0 - smoothstep(kSeamWidth * 0.25, kSeamWidth, min(d.x, d.y));
         float weave = mod(floor(t.x) + floor(t.y), 2.0);
         albedo *= mix(1.0, mix(0.985, 1.015, weave), detailFade);
-        albedo = mix(albedo, albedo * 0.80, seam * detailFade);
+        albedo = mix(albedo, albedo * 0.93, seam * detailFade);
     } else {
         // Walls: vertical paper joints on an 800 mm drop, a skirting board at
         // the base, plus a damp stain creeping up out of it. All static —
         // nothing here depends on where the camera is.
         float u = abs(n.x) > 0.5 ? vWorldPos.z : vWorldPos.x;
         float g = fract(u / kWallModule);
-        float joint = 1.0 - smoothstep(0.0005, 0.003, min(g, 1.0 - g) * kWallModule);
-        albedo = mix(albedo, albedo * 0.74, joint * detailFade);
+        // Barely there. At 0.74 these were black lines ruled across the wall
+        // every 800 mm, and a paper seam is a shadow you notice only when you
+        // are looking for it. The report was "there are lines"; there were.
+        float joint = 1.0 - smoothstep(0.0005, 0.0022, min(g, 1.0 - g) * kWallModule);
+        albedo = mix(albedo, albedo * 0.94, joint * detailFade);
 
         // Skirting. Every wall in the level ran straight into the carpet with
         // nothing at the join, which no built room does, and it is a large part
@@ -2686,7 +2708,13 @@ void main(){
     // catches the most from a luminous ceiling, the ceiling panel IS the
     // emitter, walls take it at a graze.
     float facing = abs(n.y) * 0.55 + 0.45;
-    float lit = 0.09 + facing * vLight * uFlicker * 1.30;
+    // The constant was 0.09, which is a tenth of albedo given away to every
+    // surface in the level whether anything was lighting it or not. Between it
+    // and a 0.20 ambient bake, an unlit room came out at a third of a lit one
+    // and the pools stopped reading as pools. 0.035 and a steeper slope: the
+    // dark is darker, and a surface under a working tube is brighter than it
+    // has ever been.
+    float lit = 0.035 + facing * vLight * uFlicker * 1.85;
 
     // Cheap baked AO: darken wall surfaces near the floor seam so geometry reads
     // as grounded instead of floating tiles. Skipped on floor/ceiling (upward or
@@ -2737,7 +2765,13 @@ void main(){
                * smoothstep(1.0, 9.0, dist) * 0.06;
     col += uLampTint * dust * uFlicker;
 
-    float fog = 1.0 - exp(-uFogDensity * dist * dist * 0.008);
+    // Fog was quadratic in distance at 0.008, which saturates by about 25 m --
+    // a corridor ended in a flat plate of colour well inside the draw
+    // distance, and that plate was what read as "the map has not loaded". Real
+    // haze in a building is thin and close to linear over the distances you can
+    // see indoors, so this is mostly linear with a slight quadratic tail, and
+    // it does not reach full strength until past the far plane.
+    float fog = 1.0 - exp(-uFogDensity * (dist * 0.016 + dist * dist * 0.0009));
     col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
     fragColor = vec4(col, 1.0);
 }
@@ -3462,6 +3496,17 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
      * the picture cannot be sampled at two different instants.
      */
     @Volatile var endingProvider: (() -> FloatArray)? = null
+
+    /**
+     * The yaw the avatar is actually drawn at, in degrees.
+     *
+     * The footprints were stamped with the camera snapshot's raw yaw while the
+     * character is drawn at smoothYaw, which chases it. Standing still the two
+     * agree; turning, they do not, and the prints came out pointing where the
+     * camera was rather than where her feet are. Published here so the stamp
+     * and the model read one number instead of two.
+     */
+    @Volatile var avatarYawDegrees = 0f
     /** The eight numbers Native/Ending hands back, refreshed once a frame. The
      *  identity is (0,0,0,0, 0,0,1,0): a live run costs nothing. */
     private val endingParams = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f)
@@ -3489,7 +3534,16 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     // be one buffer.
     private val chunkMeshes = HashMap<Long, ChunkMesh>()
     /** Chunks this far (in chunks) from the player are kept resident. */
-    private val chunkRadius = 2
+    /**
+     * Chunks kept resident either side of the player.
+     *
+     * 2 gave a 5x5 ring of 24-cell chunks, 384 m across, which sounds like
+     * plenty until the far plane moves: what the player actually saw was the
+     * 55 m clip plane, and beyond it nothing. 3 costs 49 chunks against 25 and
+     * keeps the ring comfortably past the new 110 m far plane in every
+     * direction, including diagonally.
+     */
+    private val chunkRadius = 3
     @Volatile var chunkProvider: ((Int, Int) -> WorldChunk?)? = null
 
     private var billboardVbo = 0
@@ -3702,7 +3756,19 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         surfaceW = max(width, 1); surfaceH = max(height, 1)
-        Matrix.perspectiveM(projM, 0, 70f, surfaceW.toFloat()/surfaceH.toFloat(), 0.05f, 55f)
+        // 52 degrees VERTICAL, which is what perspectiveM's first angle means.
+        //
+        // It was 70, and on a 2:1 phone that is 109 degrees horizontal — near
+        // fisheye, where a normal first-person game sits at 75-90. That is the
+        // whole of "the ceiling is too low, are we two metres tall": at 109
+        // degrees the floor and ceiling fill the frame and everything near the
+        // camera splays, so a room of the right size reads as a crawlspace. 52
+        // gives 89 degrees on the same phone.
+        //
+        // The far plane goes with it. At 55 m a corridor ended in a wall of fog
+        // that was really the clip plane, and past it the world simply was not
+        // drawn — the "dark region where the map has not loaded".
+        Matrix.perspectiveM(projM, 0, 52f, surfaceW.toFloat()/surfaceH.toFloat(), 0.05f, 110f)
         lastResScale = -1f // force an FBO (re)build on the next frame at the right scale
     }
 
@@ -3724,7 +3790,12 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         val fogMult      = when (rs.quality) { "low" -> 1.35f; "high" -> 0.85f; else -> 1.0f }
         val entityRange  = when (rs.quality) { "low" -> 25f; "high" -> 45f; else -> 35f }
         val shadowsOn    = rs.shadowsEnabled && rs.quality != "low"
-        val postStrength = when (rs.quality) { "low" -> 0.6f; "high" -> 1.0f; else -> 0.85f }
+        // Halved. Reported as tiring to look at, and it was: at full strength
+        // the barrel distortion, the chroma split, the scanlines and the grain
+        // all ran at once over every frame. It is off by default now, so what
+        // is left is what someone who deliberately turned it on should get —
+        // present, not punishing.
+        val postStrength = when (rs.quality) { "low" -> 0.30f; "high" -> 0.50f; else -> 0.42f }
         val resScale     = rs.resolutionScale.coerceIn(0.5f, 1f)
         val cbAxis = colorBlindAxis(rs.colorBlindMode)
         val cbMix  = if (rs.colorBlindMode == "none") 0f else 0.55f
@@ -3955,6 +4026,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     if (state.spawnPhase == SpawnPhase.LANDED) collapseTarget
                     else avatarCollapse + (collapseTarget - avatarCollapse) * (1f - kotlin.math.exp(-dt * 3.2f))
 
+                avatarYawDegrees = smoothYaw
                 drawAvatar(
                     vpM, smoothX, feetY, smoothZ, smoothYaw,
                     timeSec, walkBlend,
@@ -4795,7 +4867,15 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 // strolled across a gap they could see the void through. It is
                 // now a damaged patch — same floor, sunk into shadow — which is
                 // the reading the feature was always after.
-                val floorDim = if (feature == 4) 0.34f else 1f
+                // No per-cell dimming.
+                //
+                // kFeatureHole used to darken its cell's floor to 34%, which is
+                // a hard-edged rectangle two thirds darker than everything
+                // touching it. Nothing in a real room does that, and it read as
+                // a tile that had failed to light rather than as damage. The
+                // shader's damp and staining already mark a floor without
+                // cutting a black square out of it.
+                val floorDim = 1f
                 floorB = quad(
                     floorV, floorI, floorB,
                     floatArrayOf(x0, 0f, z0), floatArrayOf(x1, 0f, z0),
@@ -4861,71 +4941,15 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                     wallFace(x1, z1, x0, z1, floatArrayOf(0f, 0f, -1f), c11, c01, u1, u0)
                 }
 
-                // Door frame.
+                // No door frame.
                 //
-                // This used to be a single horizontal quad at 0.82 of the wall
-                // height, spanning most of the cell, with both of its long
-                // edges ending in open air — a slab hanging in the middle of
-                // the corridor with nothing holding it up. It is the "texture
-                // suspended in mid-air" the level kept showing. The comment
-                // above it promised "a lintel and two jambs"; neither was ever
-                // written.
-                //
-                // A doorway is only ever tagged where the field found solid on
-                // two OPPOSITE sides (see Level0Field::featureAt), so the frame
-                // can be built in the plane across the passage and every piece
-                // of it lands on something: the header's top edge meets the
-                // ceiling and its ends meet both walls, and each jamb runs from
-                // the floor to the header against one wall.
-                if (feature == 1) {
-                    val jamb = cs * 0.13f
-                    val head = hgt * 0.78f
-                    // Solid to the north or south means the passage runs along
-                    // X, so the frame stands across X.
-                    val acrossX = chunk.solidAt(lx, lz - 1) || chunk.solidAt(lx, lz + 1)
-                    val frameLit = (c00 + c10 + c01 + c11) * 0.25f * 0.62f
-                    val midX = (x0 + x1) * 0.5f
-                    val midZ = (z0 + z1) * 0.5f
-
-                    if (acrossX) {
-                        val n = floatArrayOf(1f, 0f, 0f)
-                        // Header: head height to the ceiling, wall to wall.
-                        wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(midX, head, z0), floatArrayOf(midX, head, z1),
-                            floatArrayOf(midX, hgt, z1), floatArrayOf(midX, hgt, z0),
-                            n, frameLit, frameLit, frameLit, frameLit,
-                            v0, head, v1, hgt)
-                        // Jambs: floor to header, one against each wall.
-                        wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(midX, 0f, z0), floatArrayOf(midX, 0f, z0 + jamb),
-                            floatArrayOf(midX, head, z0 + jamb), floatArrayOf(midX, head, z0),
-                            n, frameLit, frameLit, frameLit, frameLit,
-                            v0, 0f, v0 + jamb, head)
-                        wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(midX, 0f, z1 - jamb), floatArrayOf(midX, 0f, z1),
-                            floatArrayOf(midX, head, z1), floatArrayOf(midX, head, z1 - jamb),
-                            n, frameLit, frameLit, frameLit, frameLit,
-                            v1 - jamb, 0f, v1, head)
-                    } else {
-                        val n = floatArrayOf(0f, 0f, 1f)
-                        wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(x0, head, midZ), floatArrayOf(x1, head, midZ),
-                            floatArrayOf(x1, hgt, midZ), floatArrayOf(x0, hgt, midZ),
-                            n, frameLit, frameLit, frameLit, frameLit,
-                            u0, head, u1, hgt)
-                        wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(x0, 0f, midZ), floatArrayOf(x0 + jamb, 0f, midZ),
-                            floatArrayOf(x0 + jamb, head, midZ), floatArrayOf(x0, head, midZ),
-                            n, frameLit, frameLit, frameLit, frameLit,
-                            u0, 0f, u0 + jamb, head)
-                        wallB = quad(wallV, wallI, wallB,
-                            floatArrayOf(x1 - jamb, 0f, midZ), floatArrayOf(x1, 0f, midZ),
-                            floatArrayOf(x1, head, midZ), floatArrayOf(x1 - jamb, head, midZ),
-                            n, frameLit, frameLit, frameLit, frameLit,
-                            u1 - jamb, 0f, u1, head)
-                    }
-                }
-
+                // A header and two jambs were built across every doorway cell,
+                // and a doorway is tagged on 28% of corridor cells — so a
+                // corridor was a run of portals every few metres. Level 0 is an
+                // office floor whose partitions have openings in them, not a
+                // colonnade: the opening is the gap in the wall, and there is
+                // nothing standing in it. Removing them is also 6 quads off
+                // every doorway cell.
                 // Recessed fluorescent troffer: a bright diffuser panel set
                 // under the ceiling plane. The most recognisable object here.
                 val fixture = chunk.fixtureAt(lx, lz)
@@ -5499,6 +5523,7 @@ fun GameScreen(onExit: () -> Unit, resume: Boolean = false, vm: GameVM = hiltVie
     LaunchedEffect(renderer) {
         renderer.chunkProvider = vm::fetchChunk
         renderer.endingProvider = { vm.endingSnapshot }
+        vm.avatarYawSource = { renderer.avatarYawDegrees }
     }
     // Footsteps. The stamps live in Native/Trail and the renderer reads them
     // straight off the GL thread — the buffer is a plain fixed ring with no

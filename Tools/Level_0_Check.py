@@ -32,12 +32,32 @@ files it is meant to have.
     python3 Tools/Level_0_Check.py [seed-count]
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
+
+def _probe_with_shader_constants() -> str:
+    """
+    The probe, with the scene shader's own lighting coefficients pasted in.
+
+    Reading them rather than restating them is the point: a check that keeps its
+    own copy of the formula it checks against passes or fails on how recently
+    someone remembered to update it.
+    """
+    game = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms/Backrooms.kt")
+    src = open(game, encoding="utf-8").read()
+    m = re.search(r"float lit = ([\d.]+) \+ facing \* vLight \* uFlicker \* ([\d.]+);", src)
+    if not m:
+        raise SystemExit("Level_0_Check: the scene shader's `lit = A + facing * "
+                         "vLight * uFlicker * B` line has moved; this probe "
+                         "derives its thresholds from it and cannot guess.")
+    return (PROBE.replace("%LIT_BASE%", m.group(1))
+                 .replace("%LIT_SLOPE%", m.group(2)))
+
 
 PROBE = r"""
 #include "Map/Level_0.h"
@@ -113,12 +133,25 @@ void check(bool ok, const char* what, unsigned long long seed) {
     }
 }
 
-// The two illuminance thresholds the shipped scene shader implies, given
-// lit = 0.09 + facing * light * 1.30 with facing 0.45 on a wall and 1.0 on the
-// floor. Below kBlack a surface is indistinguishable from the background;
-// below kVisible you need the torch to read it.
-constexpr float kBlack   = 0.15f;
-constexpr float kVisible = 0.27f;
+// The two illuminance thresholds, DERIVED from the shipped scene shader rather
+// than copied out of it.
+//
+// The shader turns baked light into albedo as `lit = A + facing * light * B`,
+// with facing 0.45 on a wall. These used to be hardcoded here as 0.15 and 0.27,
+// computed by hand against A = 0.09, B = 1.30 -- and the moment the shader moved
+// to A = 0.035, B = 1.85 to make the level darker, this file was measuring
+// against a formula that no longer existed and failed 40 of 40 seeds on a level
+// that had just got better. The sixth instance of one rule living in two places.
+// Python pastes the real A and B in before compiling.
+//
+// kBlack is the light at which a wall renders at 9% of its albedo, which is
+// indistinguishable from the background. kVisible is 25%, where the surface can
+// be read without the torch.
+constexpr float kLitBase    = %LIT_BASE%f;
+constexpr float kLitSlope   = %LIT_SLOPE%f;
+constexpr float kWallFacing = 0.45f;
+constexpr float kBlack   = (0.09f - kLitBase) / (kWallFacing * kLitSlope);
+constexpr float kVisible = (0.25f - kLitBase) / (kWallFacing * kLitSlope);
 
 } // namespace
 
@@ -237,7 +270,17 @@ int main(int argc, char** argv) {
         // all. Nothing in the build could see that; this can.
         const float contrast = darkest > 0.0001f ? brightest / darkest : 0.0f;
         contrastSum += contrast;
-        check(contrast > 3.0f, "lighting is too flat — no pools under the fittings", seed);
+        // 18x, against a shipped 38x. It was 3, which is so slack that the
+        // tuning the report described as "bright where there is no light"
+        // sailed through it at 11.6x: an ambient floor a fifth as bright as a
+        // tube directly overhead lit every room whether it had a fitting or
+        // not, and the pools stopped meaning anything. The number that matters
+        // is the ratio between a lit pool and the dark between them, and it has
+        // to be big enough that the light is coming FROM somewhere.
+        check(contrast > 18.0f,
+              "lighting is too flat — the ambient floor is doing the work the "
+              "fittings should be doing, so a room with no light in it is lit",
+              seed);
 
         // Corridor share and column placement, over a window around the spawn.
         //
@@ -457,7 +500,7 @@ def main() -> int:
         src = os.path.join(tmp, "probe.cpp")
         exe = os.path.join(tmp, "probe")
         with open(src, "w", encoding="utf-8") as fh:
-            fh.write(PROBE)
+            fh.write(_probe_with_shader_constants())
         build = subprocess.run(
             ["g++", "-std=c++20", "-O2", "-I", NATIVE, src,
              os.path.join(NATIVE, "Map/Level_0.cpp"), "-o", exe],

@@ -78,17 +78,25 @@ constexpr int   kLightRadius = 4;
 // a run of ceiling troffers actually does, and the contrast between under-a-tube
 // and between-two stays around 4x.
 constexpr float kLightSigma  = 1.70f;
-constexpr float kLitOutput   = 1.05f;
+constexpr float kLitOutput   = 1.55f;
 constexpr float kDeadOutput  = 0.05f;
 /** Floor under everything. Even an unpowered corridor is not pitch black: light
  *  bleeds in from the powered ones and off every surface.
  *
- *  It was 0.055, which the scene shader turns into 0.09 + 0.45*0.055*1.3 = 0.12
- *  of albedo on a wall — a wall you cannot see. The point of a failed section is
- *  that you reach for the torch, not that the screen goes off; at 0.20 the
- *  geometry is just legible and the torch is still worth having. Contrast
- *  against a lit pool stays about 7x, so this is a floor, not a second light. */
-constexpr float kAmbient     = 0.20f;
+ *  This has now been wrong in both directions. At 0.055 most of the level was
+ *  black and 192-metre stretches had nothing you could see a step of. Raising
+ *  it to 0.20 fixed that and broke something else: 0.20 is a fifth of what a
+ *  tube directly overhead throws, so a room with no fitting in it was lit
+ *  anyway, and the pools of light stopped meaning anything. The report --
+ *  "strengthen the lighting shader, it is bright where there is no light" and
+ *  "darken the environment" -- is that, twice.
+ *
+ *  0.085 is the compromise, and it is only half of it: the shader's floor term
+ *  came down with it and the fittings' output went up, so the same darkest
+ *  cell is dimmer while a lit corridor is brighter than it has ever been.
+ *  Light comes FROM the lights now, which is what both reports were asking
+ *  for. */
+constexpr float kAmbient     = 0.085f;
 
 // Salts keep the different attribute layers from correlating with each other.
 constexpr uint64_t kSaltRoom    = 0x1000ULL;

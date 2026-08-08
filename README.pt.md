@@ -91,6 +91,34 @@ Tools/                           as oito verificações
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
 
+- **The ceiling was not too low; the lens was too wide.** 70 degrees went in as
+  the VERTICAL field of view, which is 109 horizontal on a 2:1 phone where a
+  normal game sits at 75-90. 52 now, and the ceiling 2.6 m to 3.0 m.
+- **The light was coming from nowhere.** Ambient at 0.20 against a tube's 1.05
+  lit every room whether it had a fitting or not. Ambient 0.085, a steeper
+  shader response and brighter fittings: pool-to-gloom contrast 11.6x to 38.2x.
+  The check's bound was 3, slack enough to pass the broken tuning; it is 18.
+- **The check was measuring against a formula that no longer existed** — its
+  thresholds were hand-computed from the shader's old lighting equation and
+  written in as constants. It reads the real coefficients now.
+- **Fog and the VHS filter default off, and the filter is at half strength.**
+  `observeVhs()` also defaulted to true while `observe()` defaulted to false.
+- **The draw distance was the horizon**: a 55 m far plane. 110 m now.
+- **Door frames were built in 28% of corridor cells** — a header and two jambs
+  each, so a corridor was a run of portals every few metres. Level 0 is an
+  office floor with openings in its partitions, not a colonnade.
+- **Some floor squares were unlit**, and were meant to be: a feature dimmed its
+  cell to 34%, a hard-edged rectangle two thirds darker than everything touching
+  it. It read as a tile that had failed to light.
+- **The wall had lines ruled across it** every 800 mm at 74% brightness, and the
+  carpet a grid at 80%. A paper seam is a shadow you notice when you look for
+  it: 94% and 93% now.
+- **Opening the menu mid-walk left her walking on the spot.** Footsteps run on
+  their own interval in the audio callback and only the movement branch stopped
+  them — a branch that does not run while paused.
+- **The footprints pointed where the camera was, not where her feet are**: they
+  were stamped with the raw camera yaw while the avatar is drawn at a smoothed
+  yaw that chases it.
 - **The walls, floor and ceiling are generated now, and the three images are
   gone** — 4.6 MB for a flat colour with grain on it. The shader reproduces the
   measured mean and grain of each file, at the hue of the lobby background clip

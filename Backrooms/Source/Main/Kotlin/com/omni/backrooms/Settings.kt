@@ -94,13 +94,20 @@ class SettingsRepository @Inject constructor(
         val KEY_COLOR_BLIND  = stringPreferencesKey("color_blind_mode")
 
         val KEY_CAMERA_VIEW  = stringPreferencesKey("camera_view")
+
+        /** Off until asked for. A tape filter over every frame of a
+         *  first-person game is a strong stylistic claim to make on a player's
+         *  behalf, and it was reported as tiring to look at. */
+        const val VHS_DEFAULT = false
+        /** Off for the same reason: haze over everything, all the time. */
+        const val FOG_DEFAULT = false
     }
 
     fun observe(): Flow<GameSettings> = store.data.map { p ->
         GameSettings(
             playerName        = p[KEY_NAME]         ?: "Wanderer",
             graphicsQuality   = p[KEY_QUALITY]      ?: "medium",
-            vhsEnabled        = p[KEY_VHS]          ?: true,
+            vhsEnabled        = p[KEY_VHS]          ?: VHS_DEFAULT,
             resolutionScale   = p[KEY_RESOLUTION]   ?: 1f,
             musicVolume       = p[KEY_MUSIC]        ?: 0.7f,
             footstepVolume    = p[KEY_FOOTSTEP]     ?: 0.8f,
@@ -110,7 +117,7 @@ class SettingsRepository @Inject constructor(
             fpsLimit          = p[KEY_FPS_LIMIT]    ?: 60,
             shadowsEnabled    = p[KEY_SHADOWS]      ?: true,
             antialiasingOn    = p[KEY_ANTIALIASING] ?: true,
-            fogEnabled        = p[KEY_FOG]          ?: true,
+            fogEnabled        = p[KEY_FOG]          ?: FOG_DEFAULT,
             vibrationOn       = p[KEY_VIBRATION]    ?: true,
             showFps           = p[KEY_SHOW_FPS]     ?: false,
             colorBlindMode    = p[KEY_COLOR_BLIND]  ?: "none",
@@ -119,7 +126,11 @@ class SettingsRepository @Inject constructor(
         )
     }
 
-    fun observeVhs()    : Flow<Boolean> = store.data.map { it[KEY_VHS]     ?: true     }
+    // The default lives once. This said `?: true` while observe() above said
+    // `?: false`, so whether the effect was on depended on which of the two a
+    // caller happened to use -- the fifth time in this repository one rule has
+    // been written in two places.
+    fun observeVhs()    : Flow<Boolean> = store.data.map { it[KEY_VHS]     ?: VHS_DEFAULT }
     fun observeMusic()  : Flow<Float>   = store.data.map { it[KEY_MUSIC]   ?: 0.7f     }
     fun observeVoice()  : Flow<Float>   = store.data.map { it[KEY_VOICE]   ?: 0.8f     }
     fun observeQuality(): Flow<String>  = store.data.map { it[KEY_QUALITY] ?: "medium" }
@@ -196,7 +207,10 @@ class SettingsRepository @Inject constructor(
 data class SettingsUiState(
     val playerName        : String          = "Wanderer",
     val graphicsQuality   : String          = "medium",
-    val vhsEnabled        : Boolean         = true,
+    /** Off until asked for. A tape filter over every frame of a first-person
+     *  game is a strong stylistic claim to make on a player's behalf, and it
+     *  was reported as tiring to look at. */
+    val vhsEnabled        : Boolean         = false,
     val resolutionScale   : Float           = 1f,
     val musicVolume       : Float           = 0.7f,
     val footstepVolume    : Float           = 0.8f,
@@ -206,7 +220,8 @@ data class SettingsUiState(
     val fpsLimit          : Int             = 60,
     val shadowsEnabled    : Boolean         = true,
     val antialiasingOn    : Boolean         = true,
-    val fogEnabled        : Boolean         = true,
+    /** Off until asked for, for the same reason. */
+    val fogEnabled        : Boolean         = false,
     val vibrationOn       : Boolean         = true,
     val showFps           : Boolean         = false,
     val colorBlindMode    : String          = "none",

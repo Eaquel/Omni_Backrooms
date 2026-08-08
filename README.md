@@ -107,6 +107,63 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The ceiling was not too low; the lens was too wide.** 70 degrees went into
+  `Matrix.perspectiveM`, whose first angle is the VERTICAL field of view — on a
+  2:1 phone that is 109 degrees horizontal, where a normal first-person game
+  sits at 75-90. At 109 the floor and ceiling fill the frame and everything near
+  the camera splays, so a room of the right size reads as a crawlspace. It is 52
+  now, which is 89 horizontal. The ceiling went from 2.6 m to 3.0 m as well —
+  2.6 with the eye at 1.70 is a real office, but 3.0 is the taller end of the
+  same building and what the lobby footage shows.
+- **The light was coming from nowhere.** Ambient was 0.20 and a tube directly
+  overhead throws about 1.05, so a room with no fitting in it was lit to a fifth
+  of a lit one and the pools stopped meaning anything — reported as "it is
+  bright where there is no light" and "darken the environment", which are the
+  same finding twice. Ambient is 0.085, the shader's own floor term went from
+  0.09 to 0.035 with a steeper slope, and the fittings throw 1.55: the darkest
+  cell is dimmer than before while a lit corridor is brighter than it has ever
+  been. Measured contrast between a pool and the gloom between them: 11.6x to
+  38.2x. Level_0_Check's bound was 3, slack enough that the broken tuning passed
+  it; it is 18 now.
+- **The check was measuring against a formula that no longer existed.** Its two
+  illuminance thresholds were hand-computed against the shader's old
+  `lit = 0.09 + facing * light * 1.30` and written in as constants, so changing
+  the shader failed 40 of 40 seeds on a level that had just got better. Sixth
+  instance of one rule living in two places. The probe now reads the shader's
+  own coefficients and derives the thresholds from them, and refuses to run if
+  that line moves rather than guessing.
+- **Fog and the VHS filter are off by default, and the filter is at half
+  strength.** A tape effect over every frame is a strong stylistic claim to make
+  on a player's behalf. While there: `observeVhs()` defaulted to `true` while
+  `observe()` defaulted to `false`, so whether the effect was on depended on
+  which of the two a caller happened to use. One constant now. The fog itself
+  was quadratic at 0.008, saturating by 25 m — a corridor ended in a flat plate
+  of colour well inside the draw distance, which is exactly what "a dark region
+  where the map has not loaded" looks like. It is nearly linear now.
+- **The draw distance was the horizon.** The far plane was 55 m and the chunk
+  ring 384 m, so what a player actually saw was the clip plane. 110 m and a
+  ring of 7x7 chunks.
+- **The corridors were full of door frames.** A header and two jambs were built
+  in every doorway cell, and a doorway is tagged on 28% of corridor cells — so a
+  corridor was a run of portals every few metres. Level 0 is an office floor
+  whose partitions have openings in them, not a colonnade. Six quads off every
+  doorway cell, too.
+- **Some floor squares were unlit**, and they were meant to be: kFeatureHole
+  dimmed its cell to 34%, which is a hard-edged rectangle two thirds darker than
+  everything touching it. Nothing in a real room does that; it read as a tile
+  that had failed to light. Gone.
+- **The wall had lines ruled across it** every 800 mm at 74% brightness, and the
+  carpet a grid at 80%. A paper seam and a carpet-tile joint are shadows you
+  notice when you look for them. 94% and 93% now.
+- **Opening the menu mid-walk left her walking on the spot.** Footsteps run on
+  their own interval inside the audio callback, and only the movement branch
+  ever stopped them — a branch that does not run while paused. Pausing and
+  leaving the screen both stop them now.
+- **The footprints pointed where the camera was, not where her feet are.** They
+  were stamped with the camera snapshot's raw yaw while the avatar is drawn at a
+  smoothed yaw that chases it; standing still the two agree, turning they do
+  not. The renderer publishes the yaw it actually draws her at and the stamp
+  reads that.
 - **The walls, floor and ceiling are generated now, and the three images are
   gone.** 4.6 MB of a small APK went on Floor.png, Wall.png and Roof.png, and
   measured at 128x128 before deleting them, what they held was a flat colour
