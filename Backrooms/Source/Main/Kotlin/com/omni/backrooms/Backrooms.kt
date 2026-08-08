@@ -899,6 +899,7 @@ class GuardManager @Inject constructor(
 
     private fun startContinuousMonitor() {
         monitorJob = guardScope.launch { while (isActive) { delay(30_000); runFullScan() } }
+    }
 .getOrElse { false }
 
     /** The offending frame, or null. Returned rather than a boolean so the log
@@ -962,6 +963,8 @@ class GuardVM @Inject constructor(private val guardManager: GuardManager) : View
             }
         }
     }
+}
+
 private const val ANON_NAME_FRAME_MS = 120L
 /** Cosmetic-only storefront. There is deliberately no tab that sells power:
  *  nothing purchasable may change HP, speed, stamina, sanity drain or spawn

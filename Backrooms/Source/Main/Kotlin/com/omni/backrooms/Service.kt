@@ -687,6 +687,9 @@ class SessionService : Service() {
                     spawnOneRandomEntity(bridge, world, cam?.posX ?: world.spawnX, cam?.posZ ?: world.spawnZ, cfg)
                 }
             }
+        }
+    }
+
     private fun onGameOver() {
         bridge.triggerMonster(1.0f)
         physicsJob?.cancel(); entityJob?.cancel(); scoreJob?.cancel()

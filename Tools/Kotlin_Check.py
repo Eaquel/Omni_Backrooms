@@ -238,6 +238,53 @@ def check_dependency_imports() -> list[str]:
     return problems
 
 
+def check_top_level_nesting() -> list[str]:
+    """
+    Every top-level class must actually be top-level.
+
+    A deletion that takes a closing brace with it does not produce a syntax
+    error: Kotlin simply reads everything after it as nested inside whatever
+    was left open. The file parses, the compile pass here reports nothing new,
+    and the damage only surfaces in KSP on a real build as
+    "com.omni.backrooms.GuardManager.GuardVM.LobbyVM could not be resolved" --
+    three top-level classes reported as one path.
+
+    That is exactly what happened removing dead code: a helper walked backwards
+    over blank lines before a declaration and ate the previous function's
+    closing braces, twice, in two files. Both passed every check here.
+
+    So this counts braces. A declaration written at column zero has to sit at
+    depth zero; anything else means a brace went missing above it.
+    """
+    problems: list[str] = []
+    decl = re.compile(r'^(?:@\w+\s*)?(?:internal |private |public )?'
+                      r'(?:data |enum |sealed )?(?:class|object|interface)\s+(\w+)')
+    for path in sorted(glob.glob(KT_GLOB, recursive=True)):
+        src = open(path, encoding="utf-8").read()
+        # Braces inside strings and comments are not structure.
+        for pat, rep in ((r'"""(?:.|\n)*?"""', '""'),
+                         (r'"(?:\\.|[^"\\\n])*"', '""'),
+                         (r"'(?:\\.|[^'\\\n])'", "''"),
+                         (r'//[^\n]*', ''),
+                         (r'/\*(?:.|\n)*?\*/', '')):
+            src = re.sub(pat, rep, src)
+        depth = 0
+        name = os.path.basename(path)
+        for n, line in enumerate(src.split('\n'), 1):
+            m = decl.match(line)
+            if m and depth != 0:
+                problems.append(
+                    f"{name}:{n} declares {m.group(1)} at column zero but "
+                    f"{depth} brace(s) are still open above it — a closing brace "
+                    f"is missing, and Kotlin will read this as a nested class")
+                break
+            depth += line.count('{') - line.count('}')
+        if depth != 0 and not problems:
+            problems.append(f"{name} ends with {depth} unbalanced brace(s)")
+        print(f"   {name:16s} {'ok' if not problems or name not in problems[-1] else 'UNBALANCED'}")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", default="origin/main",
@@ -245,8 +292,13 @@ def main() -> int:
     parser.add_argument("--kotlinc", default=None)
     args = parser.parse_args()
 
+    print("\n── Top-level nesting")
+    nest_problems = check_top_level_nesting()
+    for p in nest_problems:
+        print("FAIL", p)
+
     print("\n── Gradle dependencies vs imports")
-    dep_problems = check_dependency_imports()
+    dep_problems = nest_problems + check_dependency_imports()
     for p in dep_problems:
         print("FAIL", p)
 
