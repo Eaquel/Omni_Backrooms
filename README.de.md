@@ -91,6 +91,14 @@ Tools/                           die acht Prüfungen
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
 
+- **A texture hung in mid-air, and it was the doorway.** A single horizontal
+  quad at 0.82 of the wall height, both long edges ending in open space.
+- **Frames were drawn across the photo**, and tilted 0.62 rad so a circular
+  frame projected as an ellipse around a circular picture.
+- **All eight creatures were the Smiler**, separated only by a tint the shader
+  multiplies by 0.055.
+- **The third-person arrival had no camera** — the body collapsed and stood up
+  in a corner of the frame at a flat 2.6 m.
 - **Firebase hat nie funktioniert und nahm vieles mit.** Es gibt hier keine
   google-services.json, CI spielt einen Platzhalter ein: jedes Crashlytics-Log,
   jeder Firestore-Schreibvorgang und jeder Remote-Config-Abruf scheiterte zur

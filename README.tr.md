@@ -89,6 +89,25 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Havada asılı duran texture kapıydı.** Mesher, duvar yüksekliğinin 0.82'sinde
+  tek bir yatay dörtgen çiziyordu ve uzun kenarlarının ikisi de boşlukta
+  bitiyordu. Üstündeki yorum "bir lento ve iki söve" diyordu; ikisi de hiç
+  yazılmamıştı. Artık gerçek bir kasa var, ve Level_0_Check dayandığı varsayımı
+  açıkça yazıyor — bu da kapı kuralının iki yerde birden durduğunu yakaladı:
+  `featureAt` ve `sampleChunk`. Mesher birini okuyor, tüm kontroller diğerini.
+- **Çerçeveler fotoğrafın üstüne çiziliyordu.** Boşluk payı her örneğin kendi
+  yarıçapının bir oranıydı, ve `frameProfile` yalnız en geniş örneği 1.0'a
+  normalize ediyor; yani dar noktalarda pay da onlarla küçülüyordu: kutunun
+  0.283'ü, 0.33'lük bir portreye karşı. Artık sınır mutlak. Ayrıca halka artık
+  kameradan 0.62 rad eğik değil — dairesel bir çerçeveyi dairesel bir resmin
+  etrafında elips olarak çizen şey oydu.
+- **Sekiz yaratığın hepsi Smiler'dı.** Tek fark, shader'ın 0.055 ile çarptığı bir
+  renk tonuydu. Artık her birinin kendi silueti var: Howler'ın alçak başı ve
+  geniş omuzları, Party Goer'ın uzuvları, Deathmoth'un kanatları, Wretched'ın
+  altı gözü, Faceling'in ifadesiz kımıltısızlığı.
+- **Üçüncü şahıs girişinde kamera diye bir şey yoktu.** Beden, sabit 2.6 m'de,
+  karenin köşesinde yıkılıp kalkıyordu. Artık bom düşüş için geri çekiliyor,
+  çarpmada diz hizasına iniyor ve onunla birlikte yükseliyor.
 - **Firebase hiç çalışmadı ve yanında çok şey götürdü.** Burada
   google-services.json yok, CI bir yer tutucu enjekte ediyor; yani her
   Crashlytics kaydı, Firestore yazımı ve Remote Config isteği çalışma anında

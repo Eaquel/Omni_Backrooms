@@ -106,6 +106,26 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **A texture hung in mid-air, and it was the doorway.** The mesher drew a
+  single horizontal quad at 0.82 of the wall height with both long edges ending
+  in open space. The comment above it described "a lintel and two jambs";
+  neither had ever been written. It is a real frame now, and Level_0_Check
+  states the assumption it stands on — which then caught the doorway rule
+  existing twice, once in `featureAt` and once inside `sampleChunk`, with the
+  mesher reading one and every check reading the other.
+- **Frames were drawn across the photo.** The clearance was a fraction of each
+  sample's own radius, and `frameProfile` normalises only the widest sample to
+  1.0, so at the narrow points the cap shrank with them: 0.283 of the box
+  against a portrait of 0.33. The bound is absolute now. The ring also stopped
+  being tilted 0.62 rad away from the camera, which was projecting a circular
+  frame as an ellipse around a circular picture.
+- **All eight creatures were the Smiler.** The only difference was a tint the
+  shader multiplies by 0.055. Each has its own silhouette now — the Howler's
+  low head and heavy shoulders, the Party Goer's limbs, the Deathmoth's wings,
+  the Wretched's six eyes, the Faceling's blank stillness.
+- **The third-person arrival had no camera.** The body collapsed and stood up
+  in a corner of the frame at a flat 2.6 m. The boom now pulls back for the
+  fall, cuts to knee height on impact, and rises with her.
 - **Firebase never worked, and took a lot with it.** There is no
   google-services.json here and CI injects a placeholder, so every Crashlytics
   log, Firestore write and Remote Config fetch failed at runtime inside a

@@ -89,6 +89,14 @@ Tools/                           восемь проверок
 
 Самое новое сверху. Список пополняется при каждом исправлении.
 
+- **A texture hung in mid-air, and it was the doorway.** A single horizontal
+  quad at 0.82 of the wall height, both long edges ending in open space.
+- **Frames were drawn across the photo**, and tilted 0.62 rad so a circular
+  frame projected as an ellipse around a circular picture.
+- **All eight creatures were the Smiler**, separated only by a tint the shader
+  multiplies by 0.055.
+- **The third-person arrival had no camera** — the body collapsed and stood up
+  in a corner of the frame at a flat 2.6 m.
 - **Firebase никогда не работал и утянул за собой многое.** Здесь нет
   google-services.json, а CI подставляет заглушку: каждая запись Crashlytics,
   каждая запись в Firestore и каждый запрос Remote Config падали в рантайме

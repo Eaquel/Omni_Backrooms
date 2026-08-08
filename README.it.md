@@ -89,6 +89,14 @@ Tools/                           gli otto controlli
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
 
+- **A texture hung in mid-air, and it was the doorway.** A single horizontal
+  quad at 0.82 of the wall height, both long edges ending in open space.
+- **Frames were drawn across the photo**, and tilted 0.62 rad so a circular
+  frame projected as an ellipse around a circular picture.
+- **All eight creatures were the Smiler**, separated only by a tint the shader
+  multiplies by 0.055.
+- **The third-person arrival had no camera** — the body collapsed and stood up
+  in a corner of the frame at a flat 2.6 m.
 - **Firebase non ha mai funzionato, e si è portato via molto.** Qui non c'è
   google-services.json e la CI inietta un segnaposto: ogni log Crashlytics, ogni
   scrittura Firestore e ogni lettura Remote Config falliva a runtime dentro un

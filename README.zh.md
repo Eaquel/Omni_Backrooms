@@ -86,6 +86,14 @@ Tools/                           八项检查
 
 最新的在最上面。每次修复都会更新这份列表。
 
+- **A texture hung in mid-air, and it was the doorway.** A single horizontal
+  quad at 0.82 of the wall height, both long edges ending in open space.
+- **Frames were drawn across the photo**, and tilted 0.62 rad so a circular
+  frame projected as an ellipse around a circular picture.
+- **All eight creatures were the Smiler**, separated only by a tint the shader
+  multiplies by 0.055.
+- **The third-person arrival had no camera** — the body collapsed and stood up
+  in a corner of the frame at a flat 2.6 m.
 - **Firebase 从来没有工作过，还带走了不少东西。** 这里没有 google-services.json，
   CI 注入的是占位文件：每一条 Crashlytics 日志、每一次 Firestore 写入、每一次
   Remote Config 拉取都在运行时失败，然后被 `runCatching` 吞掉。REST API 也是同样的

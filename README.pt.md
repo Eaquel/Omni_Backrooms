@@ -90,6 +90,14 @@ Tools/                           as oito verificações
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
 
+- **A texture hung in mid-air, and it was the doorway.** A single horizontal
+  quad at 0.82 of the wall height, both long edges ending in open space.
+- **Frames were drawn across the photo**, and tilted 0.62 rad so a circular
+  frame projected as an ellipse around a circular picture.
+- **All eight creatures were the Smiler**, separated only by a tint the shader
+  multiplies by 0.055.
+- **The third-person arrival had no camera** — the body collapsed and stood up
+  in a corner of the frame at a flat 2.6 m.
 - **O Firebase nunca funcionou, e levou muita coisa junto.** Não há
   google-services.json aqui e a CI injeta um espaço reservado: todo log do
   Crashlytics, toda escrita no Firestore e toda leitura do Remote Config
