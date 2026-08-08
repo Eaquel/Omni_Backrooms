@@ -172,17 +172,7 @@ void BehaviorTree::tick(const map::Level0Field& field, Entity& e,
         e.dissolve = std::max(0.0f, e.dissolve - kReformRate * dt);
     }
 
-    AIState next = e.state;
-    switch (e.type) {
-        case EntityType::Smiler:       next = tickSmiler(e, dt, rng);      break;
-        case EntityType::HoundDog:     next = tickHound(e, dt, rng);       break;
-        case EntityType::PartyGoer:    next = tickPartyGoer(e, dt, rng);   break;
-        case EntityType::Skin_Stealer: next = tickSkinStealer(e, dt, rng); break;
-        case EntityType::WanderingOne: next = tickWanderer(e, dt, rng);    break;
-        case EntityType::Deathwatch:   next = tickDeathwatch(e, dt, rng);  break;
-        case EntityType::Crawler:      next = tickCrawler(e, dt, rng);     break;
-        case EntityType::FacelingDark: next = tickFaceling(e, dt, rng);    break;
-    }
+    AIState next = tickSmiler(e, dt, rng);
 
     // Losing sight of the player no longer wipes the slate. If it saw them
     // recently and its own tree has already given up, it goes and looks where
@@ -213,47 +203,12 @@ AIState BehaviorTree::tickSmiler(Entity& e, float dt, std::mt19937&) noexcept {
     return e.bb.alertLevel > 0.3f ? AIState::Alert : AIState::Idle;
 }
 
-AIState BehaviorTree::tickHound(Entity& e, float, std::mt19937&) noexcept {
-    if (e.bb.alertLevel > 0.5f) return AIState::Chase;
-    if (e.bb.heardNoise)        return AIState::Alert;
-    return AIState::Wander;
-}
 
-AIState BehaviorTree::tickPartyGoer(Entity& e, float, std::mt19937& rng) noexcept {
-    std::uniform_real_distribution<float> nd(0, 1);
-    if (e.bb.playerInSight && nd(rng) < 0.01f) return AIState::Attack;
-    if (e.bb.playerInSight) return AIState::Chase;
-    return AIState::Wander;
-}
 
-AIState BehaviorTree::tickSkinStealer(Entity& e, float, std::mt19937&) noexcept {
-    if (e.bb.alertLevel > 0.7f) return AIState::Chase;
-    if (e.bb.playerInSight)     return AIState::Stalk;
-    return e.stalkTimer > 0.0f ? AIState::Stalk : AIState::Wander;
-}
 
-AIState BehaviorTree::tickWanderer(Entity& e, float, std::mt19937& rng) noexcept {
-    std::uniform_real_distribution<float> nd(0, 1);
-    if (e.bb.playerInSight && nd(rng) < 0.003f) return AIState::Attack;
-    return AIState::Wander;
-}
 
-AIState BehaviorTree::tickDeathwatch(Entity& e, float dt, std::mt19937&) noexcept {
-    e.ambushTimer -= dt;
-    if (e.ambushTimer <= 0 && e.bb.playerInSight) return AIState::Attack;
-    return e.bb.playerInSight ? AIState::Ambush : AIState::Stalk;
-}
 
-AIState BehaviorTree::tickCrawler(Entity& e, float, std::mt19937&) noexcept {
-    if (e.bb.alertLevel > 0.6f) return AIState::Chase;
-    if (e.bb.heardNoise)        return AIState::Alert;
-    return AIState::Wander;
-}
 
-AIState BehaviorTree::tickFaceling(Entity& e, float, std::mt19937&) noexcept {
-    if (e.bb.playerInSight) return e.bb.alertLevel > 0.8f ? AIState::Chase : AIState::Stalk;
-    return e.bb.alertLevel > 0.4f ? AIState::Alert : AIState::Idle;
-}
 
 // --- Movement ---------------------------------------------------------------
 

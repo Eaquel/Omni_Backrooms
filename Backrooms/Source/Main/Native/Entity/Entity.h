@@ -37,11 +37,16 @@ namespace entity {
 
 struct Vec3f { float x = 0, y = 0, z = 0; };
 
-enum class EntityType : uint8_t {
-    Smiler = 0, HoundDog = 1, PartyGoer = 2, Skin_Stealer = 3,
-    WanderingOne = 4, Deathwatch = 5, Crawler = 6, FacelingDark = 7
-};
-constexpr int kEntityTypeCount = 8;
+/**
+ * Level 0 holds one thing.
+ *
+ * There were eight, and seven of them could never be dispatched once the
+ * spawner stopped choosing between them — seven behaviour trees reachable only
+ * by a cast. Kept as an enum with one entry because the wire format and the
+ * JNI surface both carry a type byte, and a bare 0 there says nothing.
+ */
+enum class EntityType : uint8_t { Smiler = 0 };
+constexpr int kEntityTypeCount = 1;
 
 // Retreat and Investigate are new. Everything below them keeps its old number
 // because Kotlin reads state 4 to decide whether the player is being hit, and
@@ -162,13 +167,6 @@ private:
     static bool runRetreat(Entity& e, float dt) noexcept;
 
     static AIState tickSmiler(Entity& e, float dt, std::mt19937&) noexcept;
-    static AIState tickHound(Entity& e, float dt, std::mt19937&) noexcept;
-    static AIState tickPartyGoer(Entity& e, float dt, std::mt19937& rng) noexcept;
-    static AIState tickSkinStealer(Entity& e, float dt, std::mt19937&) noexcept;
-    static AIState tickWanderer(Entity& e, float dt, std::mt19937& rng) noexcept;
-    static AIState tickDeathwatch(Entity& e, float dt, std::mt19937&) noexcept;
-    static AIState tickCrawler(Entity& e, float dt, std::mt19937&) noexcept;
-    static AIState tickFaceling(Entity& e, float dt, std::mt19937&) noexcept;
 
     static void executeState(Entity& e, const WorldSense& sense,
                              float dt, std::mt19937& rng) noexcept;

@@ -157,7 +157,7 @@ static Entity makeEntity(float x, float z, float sight = 20.0f, float hear = 18.
     e.hearRadius = hear;
     e.aggroRadius = 12.0f;
     e.attackRadius = 1.4f;
-    e.type = EntityType::HoundDog;      // sound-and-sight driven; the plainest
+    e.type = EntityType::Smiler;        // the only one there is
     e.state = AIState::Wander;
     e.hp = e.maxHp = 100.0f;
     e.wanderTimer = 1.0f;
@@ -429,8 +429,18 @@ static void testRetreatAndReturn(const map::Level0Field& f) {
     std::printf("   came back after %.1fs of a loud player nearby\n", ticks * 0.016f);
 
     // And it can be driven off again — the cycle must not latch.
+    //
+    // Put it back on the corridor this test started from rather than beaming at
+    // wherever the retreat left it. It ran 26m; a synthetic player placed 5m
+    // behind that spot is as likely to be inside a wall as not, and
+    // inTorchBeam raycasts, so the beam would never land. That used to pass
+    // only because the creature it was written against chased the player and
+    // closed the gap itself — the Smiler stalks and holds position, and the
+    // test was measuring locomotion rather than the thing it claims to.
+    e.pos = aheadAt;
+    e.retreatFrom = {};
     WorldSense beam{};
-    beam.playerPos = {e.pos.x, 0, e.pos.z - 5.0f};
+    beam.playerPos = playerAt;
     beam.noise = 0.5f; beam.torchX = 0; beam.torchZ = 1.0f; beam.torchOn = true;
     int again = 0;
     while (again < 60 * 20 && e.state != AIState::Retreat) {
@@ -438,11 +448,16 @@ static void testRetreatAndReturn(const map::Level0Field& f) {
         ++again;
     }
     expect(e.state == AIState::Retreat, "the retreat/return cycle must repeat, not latch");
+    std::printf("   driven off a second time after %.1fs\n", again * 0.016f);
 }
 
 // --- 6. Nothing runs away to infinity or produces a NaN ---------------------
 static void testStability(const map::Level0Field& f) {
     std::mt19937 rng(7);
+    // One type, so this is one run — but it stays a loop over
+    // kEntityTypeCount rather than a bare call, because that constant is what
+    // would change if a creature were ever added back, and a loop that already
+    // covers the roster is one less thing to remember.
     for (int type = 0; type < kEntityTypeCount; ++type) {
         Entity e = makeEntity(0, 6.0f);
         e.type = static_cast<EntityType>(type);
