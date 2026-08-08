@@ -662,13 +662,23 @@ private fun OmniBackroomsAppContent() {
     }
 }
 
+/**
+ * The one thing in Level 0.
+ *
+ * There were eight, cycled through by the spawner. Eight lore creatures is a
+ * bestiary, and a bestiary is a different game: you learn to read which one you
+ * are looking at, and the reading is the fun. This place is supposed to have
+ * ONE thing in it that you never get a good look at, so it is the Smiler and
+ * nothing else. The other seven are gone rather than disabled — a roster with
+ * dead entries is a roster somebody re-enables by accident.
+ *
+ * Kept as an enum with one entry rather than flattened into constants, because
+ * the spawn path already reads speed, hearing, sight and aggro off it and that
+ * is the shape those numbers want to live in.
+ */
 enum class EntityType(
     val typeId    : Int,
-    /** Native AI id (Engine.cpp EntityType/BehaviorTree dispatch). Not the same as
-     *  [typeId]: the native behavior-tree roster (Smiler=0,HoundDog=1,PartyGoer=2,
-     *  Skin_Stealer=3,WanderingOne=4,Deathwatch=5,Crawler=6,FacelingDark=7) is fixed
-     *  gameplay logic, so this maps each lore creature to the behavior that actually
-     *  matches it instead of assuming the two rosters line up 1:1. */
+    /** Native AI id — Engine.cpp dispatches its behaviour tree on this. */
     val nativeAiId: Int,
     val baseSpeed : Float,
     val hearRange : Float,
@@ -676,14 +686,7 @@ enum class EntityType(
     val aggroRange: Float,
     val displayName: String
 ) {
-    SMILER      (0, 0, 2.8f, 12f, 18f,  9f, "Smiler"),
-    HOWLER      (1, 1, 3.5f, 20f, 22f, 12f, "Howler"),
-    PARTYGOER   (2, 2, 4.2f, 16f, 20f, 10f, "Party Goer"),
-    SKIN_STEALER(3, 3, 3.0f, 14f, 16f,  8f, "Skin Stealer"),
-    DULLLER     (4, 4, 1.4f,  8f, 14f,  6f, "Duller"),
-    WRETCHED    (5, 5, 5.5f, 10f, 12f,  7f, "Wretched"),
-    DEATHMOTHS  (6, 6, 6.0f,  6f,  8f,  5f, "Deathmoth"),
-    FACELING    (7, 7, 2.2f, 18f, 24f, 14f, "Faceling")
+    SMILER(0, 0, 2.8f, 12f, 18f, 9f, "Smiler")
 }
 
 data class SpawnConfig(val count: Int, val speedMult: Float, val sightMult: Float, val spawnIntervalMs: Long)
@@ -2581,18 +2584,6 @@ precision mediump float;
 in vec2 vUV;
 uniform vec3 uColor; uniform float uAlert; uniform float uAlpha; uniform float uColorBlind;
 uniform float uTime; uniform float uSeed; uniform float uDissolve;
-/**
- * Which of the eight it is (EntityType.typeId).
- *
- * All eight used to draw the Smiler and differ only by entityTint, so the
- * roster read as one creature in eight colours — and the tint is nearly black
- * on the body, so in practice they were indistinguishable. A creature glimpsed
- * down a corridor has to be recognisable by shape, because that is all you get.
- *
- * Uniform, so the branching below is coherent across the whole draw: every
- * fragment of one billboard takes the same path.
- */
-uniform float uType;
 out vec4 fragColor;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
@@ -2602,165 +2593,134 @@ float noise(vec2 p){
     return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
                mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
+/** Four octaves, each drifting on its own vector — smoke does not move as one
+ *  sheet, and layers that share a direction read as a scrolling texture. */
+float fbm(vec2 p, float t){
+    float v = 0.0, a = 0.52;
+    vec2 drift = vec2(0.0, -t * 0.16);
+    for (int i = 0; i < 4; ++i) {
+        v += a * noise(p + drift);
+        p = p * 2.03 + vec2(11.7, 3.1);
+        drift *= vec2(-1.7, 0.62);
+        a *= 0.5;
+    }
+    return v;
+}
 
 void main(){
     float t = uTime + uSeed * 37.0;
 
-    int ty = int(uType + 0.5);
-
-    // --- Body -------------------------------------------------------------
-    // An upright ovoid whose edge is displaced by drifting noise, so the
-    // silhouette never holds still. A shape that boils reads as alive; a
-    // smooth ellipse reads as a decal.
+    // --- The column of smoke ------------------------------------------------
     //
-    // The ovoid is squeezed by a per-type width profile, taken at the
-    // fragment's own height, which is what turns one blob into eight
-    // creatures: heavy at the shoulders and low-headed for the Howler, a thin
-    // vertical stroke for the Party Goer, squat and drooping for the Duller,
-    // hunched for the Wretched.
-    float yy = vUV.y;
-    float w = 1.0;
-    if      (ty == 1) w = mix(1.18, 0.60, smoothstep(0.34, 0.96, yy));
-    else if (ty == 2) w = 0.50 + 0.08 * sin(yy * 9.0 + t * 0.8);
-    else if (ty == 3) w = 0.80 + 0.28 * smoothstep(0.56, 0.88, yy)
-                          - 0.16 * smoothstep(0.24, 0.52, yy);
-    else if (ty == 4) w = mix(1.28, 0.82, smoothstep(0.18, 0.92, yy));
-    else if (ty == 5) w = mix(1.34, 0.52, smoothstep(0.12, 0.80, yy));
-    else if (ty == 6) w = 0.54;
-    else if (ty == 7) w = 0.70;
+    // The body used to be an ovoid with a noise-displaced edge: one contour,
+    // sharp, the same thickness everywhere. That is a cut-out, and it is why
+    // the thing looked flat however much it wriggled.
+    //
+    // This is a density field instead. Smoke is thick in the middle and thin
+    // at the edges, so the silhouette is soft and never in the same place
+    // twice, and the shape falls out of the field rather than being drawn
+    // around it. Rising, because a column that rises is being fed from below
+    // and reads as something standing there generating it.
+    vec2 p = vUV - vec2(0.5, 0.5);
 
-    vec2 d = (vUV - vec2(0.5, 0.46)) * vec2(1.25 / max(w, 0.05), 1.0);
-    float r = length(d);
-    float ang = atan(d.y, d.x);
-    // The Faceling is the still one — its edge barely moves, which is most of
-    // why a blank humanoid standing there is worse than something thrashing.
-    float boilAmt = (ty == 7) ? 0.015 : 0.055;
-    float boil = noise(vec2(ang * 1.6, t * 0.9 + uSeed * 5.0)) - 0.5;
-    float edge = 0.40 + boil * boilAmt;
-    float body = smoothstep(edge, edge - 0.13, r);
+    // Curl: sample the field twice, a step apart, and push along the
+    // difference. It costs one extra sample and turns straight drift into the
+    // slow rolling smoke does when it climbs.
+    float e = 0.045;
+    float n1 = fbm(vec2(vUV.x * 3.1, vUV.y * 2.2), t);
+    float nx = fbm(vec2((vUV.x + e) * 3.1, vUV.y * 2.2), t) - n1;
+    float ny = fbm(vec2(vUV.x * 3.1, (vUV.y + e) * 2.2), t) - n1;
+    vec2 curl = vec2(ny, -nx) * 0.55;
 
-    // Deathmoth: two wings, beating. Added as a lobe rather than folded into
-    // the width profile, because a wing is not a wider body.
-    if (ty == 6) {
-        float flap = 0.62 + 0.38 * sin(t * 7.0 + uSeed * 3.0);
-        vec2 wv = vUV - vec2(0.5, 0.58);
-        float wr = length(vec2((abs(wv.x) - 0.17) * 1.7, wv.y * (1.5 / flap)));
-        body = max(body, smoothstep(0.20, 0.05, wr));
-        // Antennae.
-        float ant = smoothstep(0.020, 0.0, abs(abs(vUV.x - 0.5) - (0.05 + (vUV.y - 0.74) * 0.55)))
-                  * step(0.74, vUV.y) * step(vUV.y, 0.90);
-        body = max(body, ant);
-    }
-    // Party Goer: long thin limbs either side, swaying out of time.
-    if (ty == 2) {
-        float armX = 0.15 + sin(t * 1.6 + vUV.y * 4.0 + uSeed * 6.0) * 0.035;
-        float limb = smoothstep(0.028, 0.0, abs(abs(vUV.x - 0.5) - armX))
-                   * step(0.16, vUV.y) * step(vUV.y, 0.66);
-        body = max(body, limb);
-    }
+    // Wider at the hem, narrowing toward the head, and it wanders as it rises.
+    float rise   = clamp(vUV.y, 0.0, 1.0);
+    float sway   = sin(t * 0.55 + uSeed * 6.2 + rise * 2.4) * 0.055 * rise;
+    float waist  = mix(0.30, 0.135, smoothstep(0.05, 0.78, rise));
+    float axis   = p.x - sway - curl.x * 0.35;
+    float column = 1.0 - smoothstep(0.0, waist, abs(axis));
+    // Fades out at the very top so it dissipates rather than being cut off,
+    // and thins toward the floor so it is not a block standing on the carpet.
+    column *= smoothstep(1.02, 0.72, vUV.y) * smoothstep(-0.02, 0.16, vUV.y);
 
-    // Wisps trailing off the bottom, densest at the hem. The two that stand on
-    // legs rather than pouring onto the floor do not get them.
-    if (ty != 2 && ty != 7) {
-        float hem = smoothstep(0.30, 0.85, vUV.y);
-        float wisp = noise(vec2(vUV.x * 9.0, vUV.y * 4.0 - t * 1.4));
-        body = max(body, smoothstep(0.62, 0.95, wisp) * (1.0 - hem) * 0.55);
-    }
+    float turb = fbm(vec2(vUV.x * 4.6 + curl.x * 2.0,
+                          vUV.y * 3.0 + curl.y * 2.0 - t * 0.30), t);
+    // Density, not coverage: this is what gets thicker toward the middle.
+    float density = column * (0.55 + 0.95 * turb) - 0.16;
+    density = clamp(density, 0.0, 1.0);
+
+    // Tendrils breaking off the outside, carried up and away.
+    float tendril = fbm(vec2(vUV.x * 9.0 - curl.y * 3.0, vUV.y * 5.0 - t * 0.85), t);
+    density = max(density, smoothstep(0.72, 0.98, tendril) * column * 0.75);
 
     // --- Driven off ---------------------------------------------------------
     // The flashlight does not kill it, it makes it leave — so it has to come
-    // apart rather than fade out. A uniform alpha ramp reads as a UI element
-    // being hidden; eating the silhouette away along a noise field, edges
-    // first, reads as something losing its hold on being there.
+    // apart rather than fade out. Eating the field away along its own noise,
+    // edges first, leaves the face until last.
     if (uDissolve > 0.001) {
         float grain = noise(vUV * 7.0 + vec2(t * 0.6, -t * 0.35));
-        // Bias the threshold by how far out the fragment is, so it comes apart
-        // from the outside in and the face is the last thing left.
-        float threshold = uDissolve * 1.35 - (0.45 - r) * 0.55;
-        body -= smoothstep(threshold - 0.22, threshold + 0.10, grain + (1.0 - r));
+        float threshold = uDissolve * 1.35 - (0.45 - length(p)) * 0.55;
+        density -= smoothstep(threshold - 0.22, threshold + 0.10, grain + column);
+        density = max(density, 0.0);
     }
 
-    if (body < 0.02) discard;
+    if (density < 0.015) discard;
 
-    // Near-black, with a faint tint so different creatures stay tellable apart.
-    vec3 col = uColor * 0.055;
+    // Smoke lit from within: near-black where it is thick, picking up the
+    // creature's tint where it thins out, so the volume reads as volume.
+    vec3 col = mix(uColor * 0.42, uColor * 0.045, smoothstep(0.10, 0.75, density));
 
-    // --- Eyes -------------------------------------------------------------
-    // Mirrored by folding x about the centre, so one expression drives both.
-    // Size, spacing and height are per type; the Faceling has none at all,
-    // which is the entire point of it.
-    vec2 e = vec2(abs(vUV.x - 0.5), vUV.y);
-    vec2 eyeC = vec2(0.115, 0.60);
-    vec2 eyeR = vec2(0.085, 0.062);
-    float eyeOn = 1.0;
-    if      (ty == 1) { eyeC = vec2(0.085, 0.66); eyeR = vec2(0.045, 0.026); }
-    else if (ty == 2) { eyeC = vec2(0.055, 0.72); eyeR = vec2(0.022, 0.022); }
-    else if (ty == 3) { eyeC = vec2(0.095, 0.64); eyeR = vec2(0.055, 0.040); }
-    else if (ty == 4) { eyeC = vec2(0.105, 0.60); eyeR = vec2(0.070, 0.020); }
-    else if (ty == 6) { eyeC = vec2(0.070, 0.74); eyeR = vec2(0.038, 0.038); }
-    else if (ty == 7) { eyeOn = 0.0; }
+    // --- The face -----------------------------------------------------------
+    // It surfaces out of the smoke rather than sitting on top of it: the
+    // features are multiplied by the density around them, so they appear when
+    // the smoke is thick enough to carry them and swim when it is not. That is
+    // the whole trick — a face painted on at full strength is a decal, a face
+    // that comes and goes with the medium is in it.
+    float faceLift = smoothstep(0.16, 0.52, density);
+    // Drifts with the column so it never sits dead centre.
+    vec2 fc = vec2(0.5 + sway * 0.6 + curl.x * 0.10, 0.615 + curl.y * 0.05);
+    vec2 e2 = vec2(abs(vUV.x - fc.x), vUV.y);
 
-    // Blink: a rare, quick squash. Irregular, because a metronome blink is
-    // worse than none at all.
+    // Blink: rare, quick, irregular — a metronome blink is worse than none.
     float blinkPhase = fract(t * 0.21 + uSeed);
     float blink = 1.0 - smoothstep(0.0, 0.045, abs(blinkPhase - 0.5)) * 0.94;
-    vec2 eyeD = (e - eyeC) / vec2(eyeR.x, eyeR.y * max(blink, 0.06));
-    float eye = smoothstep(1.0, 0.72, length(eyeD)) * eyeOn;
+    vec2 eyeC = vec2(0.105, fc.y);
+    vec2 eyeD = (e2 - eyeC) / vec2(0.080, 0.058 * max(blink, 0.06));
+    float eye = smoothstep(1.0, 0.66, length(eyeD)) * faceLift;
 
-    // The Wretched is the exception: not a pair, a cluster. Six small ones
-    // scattered over the hunch, each blinking on its own beat.
-    if (ty == 5) {
-        eye = 0.0;
-        for (int k = 0; k < 6; ++k) {
-            float fk = float(k);
-            vec2 c = vec2(0.5, 0.52) + vec2(sin(fk * 2.1 + uSeed * 9.0) * 0.11,
-                                            cos(fk * 1.7 + uSeed * 5.0) * 0.09);
-            float b = 1.0 - smoothstep(0.0, 0.06, abs(fract(t * 0.17 + fk * 0.31) - 0.5)) * 0.92;
-            eye = max(eye, smoothstep(1.0, 0.55,
-                       length((vUV - c) / vec2(0.030, 0.026 * max(b, 0.08)))));
-        }
-    }
-
-    // --- Mouth -------------------------------------------------------------
-    // The Smiler's grin is the shape this place is known for, so it stays the
-    // default. The Howler opens instead of widening — a tall shaft rather than
-    // a crescent — and the three that have no mouth do not get one.
-    float grin = 0.0;
-    if (ty == 1) {
-        float open = 0.30 + uAlert * 0.55;
-        vec2 m = (vUV - vec2(0.5, 0.44)) / vec2(0.075, 0.085 * (0.5 + open));
-        grin = smoothstep(1.0, 0.55, length(m));
-    } else if (ty == 2 || ty == 6 || ty == 7) {
-        grin = 0.0;
-    } else {
-        vec2 m = (vUV - vec2(0.5, 0.365)) / vec2(0.20 + uAlert * 0.045, 0.115);
-        // Upper edge is a parabola, lower edge a wider one: the gap between is
-        // the mouth.
+    // Grin: a crescent that widens and lifts as it takes an interest, teeth
+    // cut across it, riding the same drift as the eyes.
+    float grin;
+    {
+        vec2 m = (vUV - vec2(fc.x, fc.y - 0.235)) / vec2(0.195 + uAlert * 0.05, 0.11);
         float curve = m.x * m.x;
         float lip = 1.0 - smoothstep(0.0, 0.30, abs(m.y + curve * 0.85 - 0.30));
         grin = lip * smoothstep(1.25, 1.0, abs(m.x));
-        // Teeth: vertical cuts across the opening.
         float teeth = smoothstep(0.42, 0.62, abs(fract(m.x * 5.5) - 0.5) * 2.0);
         grin *= mix(1.0, teeth, 0.55);
+        grin *= faceLift;
     }
 
     vec3 normalRamp = mix(vec3(0.92, 0.86, 0.35), vec3(1.0, 0.06, 0.04), uAlert);
     vec3 safeRamp   = mix(vec3(0.30, 0.62, 1.0),  vec3(1.0, 0.62, 0.05), uAlert);
     vec3 lit = mix(normalRamp, safeRamp, uColorBlind);
 
-    // Pupils sit inside the eye and track very slightly, which is the detail
-    // that makes it feel watched rather than merely looked at.
+    // Pupils track very slightly, which is what makes it feel watched rather
+    // than merely looked at.
     vec2 pupilOff = vec2(sin(t * 0.7) * 0.012, sin(t * 0.53) * 0.008);
-    float pupil = smoothstep(1.0, 0.55, length((e - eyeC - pupilOff) / vec2(0.034, 0.034)));
+    float pupil = smoothstep(1.0, 0.55, length((e2 - eyeC - pupilOff) / vec2(0.032, 0.032))) * faceLift;
 
     col = mix(col, lit, eye);
     col = mix(col, vec3(0.02, 0.01, 0.01), pupil * 0.85);
     col = mix(col, lit * 0.92, grin);
+    // The features bleed into the smoke around them, so the light has somewhere
+    // to go and the head reads as glowing through it.
+    col += lit * (eye + grin) * 0.34 * faceLift;
 
-    // Glow bleeding out of the features into the body around them.
-    col += lit * (eye + grin) * 0.30;
-
-    fragColor = vec4(col, body * uAlpha);
+    // Alpha carries the density, so thin smoke is genuinely see-through and the
+    // corridor behind shows through the edges of it.
+    float alpha = clamp(density * 1.35, 0.0, 1.0) * uAlpha;
+    alpha = max(alpha, (eye + grin) * 0.85 * uAlpha);
+    fragColor = vec4(col, alpha);
 }
 """
 
@@ -3262,7 +3222,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var bVP = 0; private var bCenter = 0; private var bRight = 0; private var bUp = 0
     private var bSize = 0; private var bColor = 0; private var bAlert = 0; private var bAlpha = 0; private var bColorBlind = 0
     private var bTime = 0; private var bSeed = 0; private var bDissolve = 0
-    private var bType = 0
     private var pScene = 0; private var pTime = 0; private var pFlicker = 0; private var pVhs = 0; private var pRes = 0
     private var pCbMix = 0; private var pCbAxis = 0; private var pFlashOn = 0; private var pMadness = 0
     private var pBloomTex = 0; private var pBloomStrength = 0; private var pExposure = 0
@@ -3385,7 +3344,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         bTime = GLES30.glGetUniformLocation(billboardProgram, "uTime")
         bSeed = GLES30.glGetUniformLocation(billboardProgram, "uSeed")
         bDissolve = GLES30.glGetUniformLocation(billboardProgram, "uDissolve")
-        bType = GLES30.glGetUniformLocation(billboardProgram, "uType")
 
         postProgram = linkGlProgram(OMNI_POST_VERT, OMNI_POST_FRAG)
         pScene = GLES30.glGetUniformLocation(postProgram, "uScene")
@@ -3957,7 +3915,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             val pulse = 1.0f + sin(timeSec * 3.1f + phase) * 0.05f
             GLES30.glUniform3f(bCenter, sp[0], sp[1] + 1.0f + bob, sp[2])
             GLES30.glUniform1f(bSize, 1.8f * pulse)
-            val tint = entityTint(e.typeId)
+            val tint = smilerTint
             GLES30.glUniform3f(bColor, tint.first, tint.second, tint.third)
             GLES30.glUniform1f(bAlert, (e.alertLevel + (if (e.aiState >= 3) 0.5f else 0f)).coerceIn(0f, 1f))
             GLES30.glUniform1f(bAlpha, if (e.playerInSight) 1f else 0.82f)
@@ -3965,7 +3923,6 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             // unison — nothing gives away a shared shader faster than that.
             GLES30.glUniform1f(bSeed, (e.id * 0.618f) % 1f)
             GLES30.glUniform1f(bDissolve, e.dissolve)
-            GLES30.glUniform1f(bType, e.typeId.toFloat())
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
         GLES30.glDisableVertexAttribArray(0)
@@ -4042,16 +3999,14 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         else -> Triple(0f, 0f, 0f)
     }
 
-    private fun entityTint(typeId: Int): Triple<Float, Float, Float> = when (typeId) {
-        0 -> Triple(0.90f, 0.90f, 0.85f)  // Smiler
-        1 -> Triple(0.55f, 0.40f, 0.30f)  // Hound
-        2 -> Triple(0.80f, 0.70f, 0.30f)  // PartyGoer
-        3 -> Triple(0.60f, 0.50f, 0.55f)  // Skin-Stealer
-        4 -> Triple(0.50f, 0.50f, 0.45f)  // Wandering One
-        5 -> Triple(0.35f, 0.30f, 0.35f)  // Deathwatch
-        6 -> Triple(0.45f, 0.40f, 0.20f)  // Crawler
-        else -> Triple(0.30f, 0.30f, 0.35f) // Faceling Dark
-    }
+    /**
+     * The Smiler's tint. One entry, because there is one creature.
+     *
+     * It is near-white rather than coloured: the smoke shader mixes toward this
+     * where the volume thins, so a saturated tint would make the whole column
+     * that colour instead of reading as pale smoke lit from inside.
+     */
+    private val smilerTint = Triple(0.90f, 0.90f, 0.85f)
 
     /** Builds the level mesh from the occupancy grid. Two things this fixes over
      *  the old segment mesh: walls are emitted only on open/solid boundaries, so

@@ -1027,44 +1027,49 @@ def _rig_poses(head, radius, bones):
 
 def check_entity_silhouettes() -> None:
     """
-    Every creature in the roster must be told apart by the shader that draws it.
+    One creature, and the code that drew eight is actually gone.
 
-    All eight used to render the Smiler and differ only by entityTint, which is
-    multiplied by 0.055 on the body — so in a corridor they were one creature in
-    eight barely-different blacks. The fix is per-type geometry in
-    OMNI_BILLBOARD_FRAG, and the thing that rots is a ninth creature added to
-    the enum and never given a branch: it would inherit the default silently,
-    which is exactly the state this started in.
+    The roster was eight lore creatures cycled by the spawner, all drawing the
+    same face and separated only by a tint the shader multiplies by 0.055. They
+    were given eight silhouettes; then the call was made that Level 0 should
+    hold one thing you never get a good look at, so seven were deleted outright.
+
+    Deleted, not disabled — a roster with dead entries is a roster somebody
+    re-enables by accident, and the per-type plumbing left behind (uType, an
+    eight-arm tint table, a spawner indexing EntityType.entries) is exactly the
+    kind of thing that quietly comes back. So this asserts the absence.
     """
-    section("Entity silhouettes")
+    section("Entity")
     src = open(SRC_KT, encoding="utf-8").read()
+    svc = open(os.path.join(KOTLIN, "Service.kt"), encoding="utf-8").read()
 
     roster = re.search(r"enum class EntityType\((.*?)\n\}", src, re.S)
     check(roster is not None, "EntityType roster not found")
     if not roster:
         return
-    ids = [int(m.group(1)) for m in
-           re.finditer(r"^\s+[A-Z_]+\s*\(\s*(\d+)\s*,", roster.group(1), re.M)]
-    check(len(ids) >= 2, f"only {len(ids)} creature(s) parsed from the roster")
+    names = re.findall(r"^\s+([A-Z_]+)\s*\(", roster.group(1), re.M)
+    check(names == ["SMILER"],
+          f"the roster is {names}, not the single Smiler Level 0 is supposed to hold")
 
     frag = re.search(r"OMNI_BILLBOARD_FRAG = \"\"\"(.*?)\"\"\"", src, re.S)
     check(frag is not None, "the billboard fragment shader was not found")
     if not frag:
         return
     body = frag.group(1)
-    check("uniform float uType" in body,
-          "the billboard shader takes no type, so every creature draws the same")
-    check("glUniform1f(bType" in src,
-          "uType is declared in the shader but never set, so it is always zero")
 
-    branched = {int(m.group(1)) for m in re.finditer(r"ty\s*==\s*(\d+)", body)}
-    # Type 0 is the default arm — the Smiler is what the untouched path draws.
-    missing = [i for i in ids if i != 0 and i not in branched]
-    check(not missing,
-          f"creature type(s) {missing} have no branch in the billboard shader — "
-          f"they draw the default silhouette, which is the Smiler")
-    print(f"   {len(ids)} creatures, {len(branched)} with their own silhouette "
-          f"(type 0 is the default)")
+    check("uniform float uType" not in body and "uType" not in src,
+          "uType is still plumbed through, so the shader can still branch per "
+          "creature — there is only one")
+    check(not re.search(r"EntityType\.entries", svc + src),
+          "something still indexes EntityType.entries as if the roster were a list")
+
+    # The smoke is the creature now, so the field that makes it has to be there.
+    for token, why in (("fbm(", "no fractal noise, so the smoke is a single octave"),
+                       ("curl", "no curl, so the smoke drifts in a straight line"),
+                       ("density", "the body is coverage rather than density, which "
+                                   "is what made the old one read as a cut-out")):
+        check(token in body, f"the Smiler shader has {why}")
+    print(f"   roster {names}, smoke field present, no per-type branching left")
 
 
 def check_texture_sizes() -> None:

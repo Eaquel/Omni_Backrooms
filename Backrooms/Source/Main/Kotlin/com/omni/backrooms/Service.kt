@@ -385,14 +385,8 @@ private fun pickRingPoint(world: WorldInfo, aroundX: Float, aroundZ: Float, minD
  *  through every lore creature with its correct native AI id. */
 fun spawnInitialEntities(bridge: NativeBridge, world: WorldInfo, cfg: SpawnConfig) {
     if (!world.isValid) return
-    // Which creature Level 0 gets is chosen from the world itself rather than
-    // from the loop index, so its one resident is not the same one every single
-    // run — and, because it comes from the seed, two players in the same room
-    // are stalked by the same thing without exchanging a byte about it.
-    val residentOffset = (world.spawnX.toInt() * 31 + world.spawnZ.toInt())
-        .mod(EntityType.entries.size)
-    repeat(cfg.count) { i ->
-        val entity = EntityType.entries[(residentOffset + i) % EntityType.entries.size]
+    val entity = EntityType.SMILER
+    repeat(cfg.count) {
         val (sx, sz) = pickRingPoint(world, world.spawnX, world.spawnZ, minDist = 24f)
         bridge.spawnEntity(
             x = sx, y = 0f, z = sz,
@@ -408,7 +402,7 @@ fun spawnInitialEntities(bridge: NativeBridge, world: WorldInfo, cfg: SpawnConfi
 fun spawnOneRandomEntity(bridge: NativeBridge, world: WorldInfo, aroundX: Float, aroundZ: Float, cfg: SpawnConfig) {
     if (!world.isValid) return
     val (sx, sz) = pickRingPoint(world, aroundX, aroundZ, minDist = 16f)
-    val entity = EntityType.entries[(Math.random() * EntityType.entries.size).toInt().coerceIn(0, EntityType.entries.lastIndex)]
+    val entity = EntityType.SMILER
     bridge.spawnEntity(
         x = sx, y = 0f, z = sz,
         speed = entity.baseSpeed * cfg.speedMult,
