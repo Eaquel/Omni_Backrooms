@@ -90,6 +90,20 @@ Tools/                           8つのチェック
 
 新しい順。この一覧は修正のたびに更新されます。
 
+- **A constant documenting a safety invariant that nothing enforced.**
+  `kMaxRoomHalf` carried the rule the O(1) level query rests on, and every build
+  printed `warning: unused variable 'kMaxRoomHalf'`. Sweeping it to find the
+  source of long sightlines gave byte-identical results three times — I was
+  turning a knob connected to nothing. The room catalogue is at namespace scope
+  now with a `static_assert` on it.
+- **Corridors were an L, and they chained** — one leg the whole way at a single
+  z, so the longest straight line of open floor was 253 m at the median over 60
+  seeds. They dogleg now, via a row belonging to neither end: 227 m. The effect
+  is 10% on the median and nothing on the tail, because the plan is axis-aligned
+  and much of a sightline is inherent to the grid.
+- **I tuned that check's bound on too small a sample, again** — 20 seeds passed,
+  40 failed 2. It asserts on the median now, which is stable at both sizes. The
+  p90 is printed but not asserted: it does not discriminate.
 - **The ceiling was not too low; the lens was too wide.** 70 degrees went in as
   the VERTICAL field of view, which is 109 horizontal on a 2:1 phone where a
   normal game sits at 75-90. 52 now, and the ceiling 2.6 m to 3.0 m.

@@ -90,6 +90,37 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Bir güvenlik değişmezini belgeleyen ama kimsenin uygulamadığı bir sabit — ve
+  derleyici bunu her derlemede söylüyormuş.** `kMaxRoomHalf = 5`, "kSectorSize /
+  2'nin altında kalmalı" yorumunu taşıyordu; bu, seviyenin bütün O(1)
+  sorgusunun dayandığı kural, çünkü komşu sektörü aşan bir oda, yalnızca sekiz
+  komşusunu tarayan bir hücreye görünmez olurdu. Onu hiçbir şey okumuyordu.
+  Odalar, déjà vu eklendiğinden beri sekiz arketipli bir katalogdan geliyor ve
+  her derleme `warning: unused variable 'kMaxRoomHalf'` yazdırıyordu — ki bunu
+  aynı oturumda bir CI günlüğünde okumuş ama bağlamamıştım. Yanlış bir ölçüme de
+  mal oldu: uzun görüş hatlarının kaynağını ararken o sabiti 5 → 4 → 3
+  süpürdüm ve üç kez bayt bayt aynı sonucu aldım; bunu önce probumun bozukluğu
+  sandım. Prob doğruydu; hiçbir yere bağlı olmayan bir düğmeyi çeviriyordum.
+  Katalog artık ad alanı düzeyinde ve değişmez onun üzerinde bir
+  `static_assert` — yani şikâyet eden derleyici artık uygulayan taraf.
+- **Koridorlar L şeklindeydi ve zincirleniyorlardı.** Bir bacak, odadan odaya
+  tek bir z'de baştan sona uzanıyordu; bir sonraki sektörün koridoru aynı satıra
+  denk geldiğinde ikisi birleşiyordu: 60 tohumda ölçülen en uzun kesintisiz düz
+  açık zemin hattı medyanda 253 m'ydi. Artık dirsekli — bir satır boyunca çık,
+  iki uca da ait olmayan bir satıra geç, onun boyunca git, sonra içeri gir — ve
+  medyan 227 m'ye iniyor. İki şeyi açıkça söylemeliyim. İlk denemem yalnızca iki
+  odanın kendi satırları arasında geçiş yapıyordu; ikisi aynı satırdayken bu
+  hiçbir şey yapmaz ve medyanı hiç kıpırdatmadı — asıl önemli olan sapma. İkincisi
+  etkinin büyüklüğü: medyanda %10, kuyrukta hiç. Çünkü plan eksen hizalı ve uzun
+  bir görüş hattının büyük kısmı koridor şeklinden değil ızgaranın kendisinden
+  geliyor.
+- **Ve o kontrolün sınırını yine çok küçük bir örneklemde ayarladım.** 20 tohumda
+  belirlenen tohum-başına bir sınır geçti, sonra 40'ta 2 tohum düştü — bu turda
+  loşluk sınırında yaptığım hatanın aynısı, aynı oturumda. Artık medyana
+  bağlanıyor: 227'ye karşı L'nin 253'ü, hem 40 hem 60 tohumda birebir aynı.
+  p90'a bağlanmıyor: örnekleme göre her iki şekilde de 298-320 çıkıyor, yani
+  ona konacak bir sınır kontrol kılığına girmiş bir yazı-tura olurdu. Yine de
+  yazdırılıyor.
 - **Tavan alçak değildi; mercek çok genişti.** `Matrix.perspectiveM`'e 70
   derece veriliyordu ve o fonksiyonun ilk açısı DİKEY görüş alanıdır — 2:1 bir
   telefonda bu 109 derece yatay demek; normal bir birinci şahıs oyunu 75-90

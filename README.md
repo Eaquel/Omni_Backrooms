@@ -107,6 +107,38 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **A constant documenting a safety invariant that nothing enforced, and the
+  compiler had been saying so on every build.** `kMaxRoomHalf = 5` carried the
+  comment "must stay < kSectorSize / 2" — the rule the whole O(1) level query
+  rests on, since a room reaching past an adjacent sector would be invisible to
+  a cell that scans only its eight neighbours. Nothing read it. Rooms have come
+  from an eight-archetype catalogue since déjà vu was added, and every single
+  build printed `warning: unused variable 'kMaxRoomHalf'` — which I had read in
+  a CI log this same session without connecting it. It cost a wrong measurement
+  too: sweeping that constant 5 → 4 → 3 to find the source of long sightlines
+  produced byte-identical results three times, which I first read as my probe
+  being broken. The probe was fine; I was turning a knob that was not connected
+  to anything. The catalogue is at namespace scope now and the invariant is a
+  `static_assert` on it, so the compiler that was complaining is the thing that
+  enforces it.
+- **Corridors were an L, and they chained.** One leg ran the whole way from
+  room to room at a single z, so wherever the next sector's run sat on the same
+  row the two joined: measured over 60 seeds the longest unbroken straight line
+  of open floor was 253 m at the median. They dogleg now — out along one row,
+  across to a row that is neither end's, along that, then in — which takes the
+  median to 227 m. Two things worth being straight about. The first attempt
+  stepped across only between the two rooms' own rows, which does nothing when
+  they share one, and moved the median not at all; the offset is what matters.
+  The second is the size of the effect: 10% on the median and nothing on the
+  tail, because the plan is axis-aligned and much of a long sightline is
+  inherent to the grid rather than to corridor shape.
+- **And I tuned that check's bound on too small a sample, again.** A per-seed
+  bound set from 20 seeds passed, then failed 2 of 40 — the same mistake as the
+  gloom bound earlier in this round, made in the same session. It asserts on the
+  median now, which measures 227 against the L's 253 identically at both 40 and
+  60 seeds. The p90 is *not* asserted on: it comes out 298-320 for both shapes
+  depending on the sample, so a bound on it would be a coin toss dressed up as a
+  check. It is still printed.
 - **The ceiling was not too low; the lens was too wide.** 70 degrees went into
   `Matrix.perspectiveM`, whose first angle is the VERTICAL field of view — on a
   2:1 phone that is 109 degrees horizontal, where a normal first-person game

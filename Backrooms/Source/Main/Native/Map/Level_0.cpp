@@ -38,12 +38,37 @@ namespace {
 // guaranteed to find every room that could overlap a given cell.
 constexpr int kSectorSize     = 24;
 constexpr int kRoomsPerSector = 4;
-// Rooms used to run to half-extent 9 — nineteen cells across, most of a sector.
-// Four of those per sector overlapped into one continuous plate, and the level
-// measured two-thirds open floor: a hall you walk across, not a place you get
-// lost in. Capped at 5 they stay distinct, which is what puts walls between
-// them and turns the plan back into rooms joined by corridors.
-constexpr int kMaxRoomHalf    = 5;   // must stay < kSectorSize / 2
+/**
+ * The room shapes, and the invariant that makes the one-ring scan correct.
+ *
+ * There was a kMaxRoomHalf = 5 here carrying the comment "must stay <
+ * kSectorSize / 2" — the rule the whole O(1) query rests on, since a room that
+ * reached past an adjacent sector would be invisible to a cell scanning only
+ * its eight neighbours. Nothing read it. Rooms have come from this catalogue
+ * since déjà vu was added, and the compiler has said so on every single build:
+ *
+ *     Level_0.cpp:46:15: warning: unused variable 'kMaxRoomHalf'
+ *
+ * A constant that documents a safety invariant and is enforced by nobody is
+ * worse than no constant, because it reads like a guarantee. The table is here
+ * now and the invariant is a static_assert on the table, so it is checked by
+ * the compiler that was previously only complaining.
+ *
+ * Eight archetypes rather than continuous randomness, because that is the déjà
+ * vu: you walk into the *same room* again half a mile away, same proportions,
+ * and cannot tell whether you have looped back. Actual Level 0 is identical
+ * rooms, forever.
+ */
+constexpr int kArchetype[8][2] = {
+    {3, 2},   // long hall
+    {2, 3},   // long hall, turned
+    {2, 2},   // square bay
+    {1, 2},   // small office
+    {3, 1},   // narrow run
+    {1, 3},   // narrow run, turned
+    {2, 1},   // stub
+    {1, 1}    // closet
+};
 
 // Troffers every four cells — 12.8 m.
 //
@@ -57,6 +82,17 @@ constexpr int kMaxRoomHalf    = 5;   // must stay < kSectorSize / 2
 // falling to 0.14 midway between two. That is a pool of light under each
 // troffer with genuine gloom in between, which is what the lobby actually
 // looks like.
+static_assert([]{
+    int worst = 0;
+    for (const auto& a : kArchetype) { worst = a[0] > worst ? a[0] : worst;
+                                       worst = a[1] > worst ? a[1] : worst; }
+    return worst;
+}() < kSectorSize / 2,
+    "A room half-extent at or past half a sector can reach beyond an adjacent "
+    "sector, and isOpenBase only scans one ring of neighbours — so a cell would "
+    "miss the room it is standing in. This is the assertion the old kMaxRoomHalf "
+    "constant was supposed to be.");
+
 constexpr int kFixtureSpacing = 4;
 
 // How far a lattice point will look for floor to hang its fitting over. Two
@@ -172,32 +208,51 @@ inline void sectorRooms(int sx, int sz, uint64_t seed, Room out[kRoomsPerSector]
         // proportions, same column placement — and cannot tell whether you have
         // looped back. That doubt is the whole feeling this place trades on,
         // and it is what actual Level 0 does: identical rooms, forever.
-        static const int kArchetype[8][2] = {
-            {3, 2},   // long hall
-            {2, 3},   // long hall, turned
-            {2, 2},   // square bay
-            {1, 2},   // small office
-            {3, 1},   // narrow run
-            {1, 3},   // narrow run, turned
-            {2, 1},   // stub
-            {1, 1}    // closet
-        };
         const int arch = static_cast<int>((h2 >> 3) & 7ULL);
         out[i].halfW = kArchetype[arch][0];
         out[i].halfD = kArchetype[arch][1];
     }
 }
 
-/** True if the cell lies within an L-shaped corridor between two points. */
+/**
+ * True if the cell lies within a corridor between two points.
+ *
+ * A dogleg, not an L. An L runs one straight leg the whole way from a to b at a
+ * single z, and where the next sector's run happens to sit on that same z they
+ * chain: measured over 20 seeds, the longest unbroken straight line of open
+ * floor was 250 m at the median and 358 at the worst. That is most of "long
+ * straight corridors whose end you cannot see".
+ *
+ * The important part is the OFFSET. Stepping across only between az and bz does
+ * almost nothing when the two rooms happen to share a row, which is common —
+ * tried first, and it moved the worst case 358 m to 339 and the median not at
+ * all. The corridor now leaves az, steps to a row that is neither az nor bz,
+ * runs along it, and steps again to reach bz: two turns that are there whatever
+ * the endpoints do.
+ *
+ * Everything is derived from the endpoints, so this stays a pure function of
+ * the coordinates and both sides of a sector boundary still agree exactly.
+ */
 inline bool onCorridor(int cx, int cz, int ax, int az, int bx, int bz, int halfWidth) noexcept {
+    const uint64_t h = hashCell(ax * 73856093 + bx, az * 19349663 + bz, 0x5EEDULL, kSaltSpine);
+    // Where along the run it steps across, kept well inside so neither leg
+    // collapses, and how far off the direct line it steps.
+    const int mx = ax + static_cast<int>((bx - ax) * (0.34f + hashFloat(h) * 0.32f));
+    const int off = 3 + static_cast<int>(hashFloat(mix64(h)) * 4.0f);
+    const int mz = az + ((h & 1ULL) ? off : -off);
+
+    // Out of a along az to the step.
     if (cz >= az - halfWidth && cz <= az + halfWidth &&
-        cx >= std::min(ax, bx) && cx <= std::max(ax, bx)) {
-        return true;
-    }
+        cx >= std::min(ax, mx) && cx <= std::max(ax, mx)) return true;
+    // Across to the offset row.
+    if (cx >= mx - halfWidth && cx <= mx + halfWidth &&
+        cz >= std::min(az, mz) && cz <= std::max(az, mz)) return true;
+    // Along the offset row to b's column.
+    if (cz >= mz - halfWidth && cz <= mz + halfWidth &&
+        cx >= std::min(mx, bx) && cx <= std::max(mx, bx)) return true;
+    // And down b's column into b.
     if (cx >= bx - halfWidth && cx <= bx + halfWidth &&
-        cz >= std::min(az, bz) && cz <= std::max(az, bz)) {
-        return true;
-    }
+        cz >= std::min(mz, bz) && cz <= std::max(mz, bz)) return true;
     return false;
 }
 
