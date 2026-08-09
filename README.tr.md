@@ -90,6 +90,34 @@ Tools/                           sekiz kontrol
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
 
+- **Yaratık bütün oyun boyunca kıpırdamadan duruyordu.** "Neredeyse yok"
+  kelimenin tam anlamıyla doğruymuş ve bunu görmek için benzetim gerekti: sekiz
+  tohum, beşer dakika, el feneri kapalı yavaş bir tur atan bir oyuncu. Sekizin
+  üçünde yaratık oyuncuyu **turun %0'ında** gördü; medyan mesafe 33-51 m — aynı
+  katta olacak kadar yakın, hiçbir işe yaramayacak kadar uzak. Sebebini durum
+  histogramı söyledi: turun **%99'unu `AIState::Idle`'da, %0'ını Wander'da**
+  geçiriyordu — ve `executeState`'te Idle için hiçbir dal yok, yani hareket
+  etmiyor. Idle, davranış ağacının oyuncuyu göremediği ve alarmda olmadığı her
+  an seçtiği dal; yani bir turun çoğu. Bir koridorda kıpırdamadan duruyordu.
+  Artık Idle, Wander'a düşüyor; yerinde donmak pusu zamanlayıcısının işidir,
+  görüş dışında olduğun her saniyenin değil.
+- **Bulduğundaysa asla bırakmıyordu.** Aynı ölçümün diğer yarısı: kalan
+  tohumlarda **beş dakika boyunca medyan 1.4 m** mesafede, %100 görüş içinde
+  duruyordu. Onu yalnızca fener ışını ve hasar almak koparıyordu; fener kapalıyken
+  karşılaşmanın sonu yoktu. Artık temas ona pahalıya patlıyor: saniyede 1.05'e
+  karşı sönümün aldığı 0.8, yani üstünde yaklaşık dokuz saniye ve çekiliyor —
+  yaklaş, vur, karanlığa karış, dön. Bunu `doAttack` içinde değil mesafeye göre
+  hesaplıyorum: tam saldırı yarıçapında duran bir yaratık sınırın iki yanında
+  salınıyor ve zamanının çoğunu Stalk'ta geçiriyor; maliyeti saldırıya koymak
+  sayıları kelimenin tam anlamıyla hiç değiştirmedi, zaten bu böyle bulundu.
+  Sekiz tohumda: görülme %50 → %34, ve hiçbir tohumda 0 yok.
+- **Dururken duyulan tek şey baştaki tüptü.** Boş bir kat, uğultular arasında
+  sessiz değildir — oturur, boruları takırdar, bir yerde bir kapı kapanır, bir
+  şey halının üstünde sürüklenir. Artık uzak-olay üreteci var: on yedi saniyede
+  bir, arası çoğunlukla sessiz, dört çeşit; hepsi ağır alçak-geçiren süzülmüş ve
+  uzun kuyruklu, çünkü mesafe zaten bir alçak-geçiren ve bir kuyruktur. Buradaki
+  her şey gibi saatte deterministik — aynı yerde aynı anda duran iki oyuncu aynı
+  şeyi duyar — ve C++'ıyla sıfır farkla eşleşiyor.
 - **Bir güvenlik değişmezini belgeleyen ama kimsenin uygulamadığı bir sabit — ve
   derleyici bunu her derlemede söylüyormuş.** `kMaxRoomHalf = 5`, "kSectorSize /
   2'nin altında kalmalı" yorumunu taşıyordu; bu, seviyenin bütün O(1)

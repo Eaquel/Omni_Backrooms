@@ -71,6 +71,67 @@ constexpr float kRetreatExposure = 2.2f;
  *  does nothing and only deliberate aim accumulates. */
 constexpr float kExposureDecay = 0.8f;
 
+/**
+ * What being right on top of the player costs it, per second.
+ *
+ * Nothing but the beam and taking damage ever broke it off, so with the torch
+ * down an encounter had no end: simulated over eight seeds and five minutes,
+ * half of them had the creature at a MEDIAN distance of 1.4 metres for the
+ * entire run, in sight 100% of the time. That is not a stalker, it is a
+ * passenger.
+ *
+ * Charged on CONTACT rather than on a landed strike, and the difference
+ * matters: a creature sitting exactly at its attack radius oscillates across
+ * the boundary and spends most of its time in Stalk, so a cost inside
+ * doAttack() never fires. Measured -- adding it there changed the numbers by
+ * nothing at all. Distance is the honest trigger.
+ *
+ * 1.05/s against the 0.8/s that exposure bleeds off, so a quarter of a metre
+ * of net gain per second: about nine seconds of contact before it withdraws.
+ */
+constexpr float kContactExposure = 1.05f;
+/** Within this of the player it counts as contact. A little over the attack
+ *  radius, so hovering just outside striking distance still wears it out. */
+constexpr float kContactRange = 2.4f;
+
+/**
+ * How far it may drift before the level puts it back, and how long it has to
+ * stay out there first.
+ *
+ * The other half of the same measurement: on the seeds where it never acquired
+ * the player it wandered to a median 34-51 m and stayed there, never seeing
+ * them once in five minutes, with a re-spawn interval of one hour behind it.
+ * "The creature is almost absent" was both of those at once -- glued on or
+ * gone, with nothing in between.
+ *
+ * Coming back is not teleporting into view: it re-enters on a ring well past
+ * the torch's reach, out of sight, and has to find the player again.
+ *
+ * 45 m, not the 85 first tried: on the seeds where it never acquired the player
+ * its MEDIAN distance was 34-51 m, so a leash at 85 never fired once and the
+ * measurement came back byte-identical. The number has to sit inside the range
+ * the behaviour actually produces.
+ */
+/**
+ * How strongly wandering drifts toward the player, 0 none and 1 a beeline.
+ *
+ * This is the rest of "the creature is almost absent". On the seeds where it
+ * never acquired the player it was not far away — a median of 33-51 m, well
+ * inside the same floor — it simply wandered at random, and random search in an
+ * infinite maze does not find anything. Measured over five simulated minutes it
+ * saw the player 0% of the time on three seeds of eight.
+ *
+ * A drift, not a hunt. At 0.16 it takes a minute or two to close from across
+ * the floor and it does not walk a straight line to you, so it still arrives
+ * from a direction you did not expect. What it removes is the possibility of it
+ * never arriving at all.
+ */
+constexpr float kWanderDrift = 0.16f;
+
+constexpr float kLeashDistance = 45.0f;
+constexpr float kLeashPatience = 18.0f;
+constexpr float kReentryRadius = 38.0f;
+
 /** How quickly it fades out while retreating and back in while returning.
  *  Returning is slower on purpose: it should be a dread you notice building. */
 constexpr float kDissolveRate = 1.6f;
@@ -115,6 +176,8 @@ struct Entity {
     Vec3f pos, vel;
     float speed = 0, hearRadius = 0, sightRadius = 0, attackRadius = 0, aggroRadius = 0;
     float wanderAngle = 0, wanderTimer = 0, attackCooldown = 0;
+    /** Seconds spent beyond kLeashDistance from the player. */
+    float leashTimer = 0;
     float hp = 100, maxHp = 100;
     float stalkTimer = 0, ambushTimer = 0, flickerInfluence = 0;
 
@@ -170,7 +233,8 @@ private:
 
     static void executeState(Entity& e, const WorldSense& sense,
                              float dt, std::mt19937& rng) noexcept;
-    static void doWander(Entity& e, float dt, std::mt19937& rng) noexcept;
+    static void doWander(Entity& e, const Vec3f& player,
+                         float dt, std::mt19937& rng) noexcept;
     static void moveToward(Entity& e, const Vec3f& t, float dt, float speedMult) noexcept;
     static void doAttack(Entity& e, const Vec3f& t, float dt) noexcept;
     static void fleeFrom(Entity& e, const Vec3f& t, float dt, float speedMult) noexcept;
@@ -186,6 +250,52 @@ struct EntitySystem {
         for (auto& e : entities) {
             if (!e.active) continue;
             BehaviorTree::tick(field, e, sense, dt, rng);
+            leash(e, dt);
+        }
+    }
+
+    /**
+     * Brings a creature that has wandered out of the run back into it.
+     *
+     * The world is infinite and the player walks; without this the one Smiler
+     * a run spawns can simply be left behind, and the periodic re-spawn that
+     * was supposed to cover that is on a one-hour interval, which is longer
+     * than any run. Re-entry is deliberately out of sight and out of the
+     * torch's reach: it comes back to the level, not into the room.
+     */
+    void leash(Entity& e, float dt) noexcept {
+        const float dx = e.pos.x - sense.playerPos.x;
+        const float dz = e.pos.z - sense.playerPos.z;
+        const float d  = std::hypot(dx, dz);
+
+        // Standing on the player wears it out whatever state it thinks it is in.
+        if (d < kContactRange) e.torchExposure += kContactExposure * dt;
+
+        if (d < kLeashDistance) { e.leashTimer = 0.0f; return; }
+        e.leashTimer += dt;
+        if (e.leashTimer < kLeashPatience) return;
+        e.leashTimer = 0.0f;
+
+        // A ring around the player, snapped onto real floor. Bearing comes from
+        // the rng so two re-entries do not arrive from the same side.
+        const float a = std::uniform_real_distribution<float>(0.0f, 6.2831853f)(rng);
+        float rx = sense.playerPos.x + std::cos(a) * kReentryRadius;
+        float rz = sense.playerPos.z + std::sin(a) * kReentryRadius;
+        for (int r = 0; r < 24; ++r) {
+            for (int ddz = -r; ddz <= r; ++ddz) {
+                for (int ddx = -r; ddx <= r; ++ddx) {
+                    if (std::max(std::abs(ddx), std::abs(ddz)) != r) continue;
+                    const int cx = map::Level0Field::cellX(rx) + ddx;
+                    const int cz = map::Level0Field::cellZ(rz) + ddz;
+                    if (!field.isOpen(cx, cz)) continue;
+                    e.pos.x = map::Level0Field::worldX(cx) + map::Level0Field::kCell * 0.5f;
+                    e.pos.z = map::Level0Field::worldZ(cz) + map::Level0Field::kCell * 0.5f;
+                    e.state = AIState::Wander;
+                    e.bb.playerInSight = false;
+                    e.torchExposure = 0.0f;
+                    return;
+                }
+            }
         }
     }
 };

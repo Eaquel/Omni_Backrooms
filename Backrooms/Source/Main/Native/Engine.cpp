@@ -520,7 +520,13 @@ class AmbienceLayer : public Continuous {
 public:
     AmbienceLayer() noexcept : Continuous(0.4f) {}
     void setLevel(float l) noexcept { set(l); }
-    float next() noexcept { return omni::sound::roomTone(advance(),damp_.load())*get(); }
+    float next() noexcept {
+        const float t = advance();
+        // The room, plus whatever is happening elsewhere in the building. Both
+        // ride the ambience gain: they are the same place.
+        return (omni::sound::roomTone(t, damp_.load())
+              + omni::sound::distantEvent(t)) * get();
+    }
     void setDamp(float d) noexcept { damp_.store(std::clamp(d,0.0f,1.0f)); }
 private:
     std::atomic<float> damp_{0.35f};

@@ -182,6 +182,66 @@ float roomTone(float t, float damp) noexcept {
     return drone + air + top + drip;
 }
 
+float distantEvent(float t) noexcept {
+    // Something, a long way off.
+    //
+    // Standing still, the only thing you could hear was the tube overhead: a
+    // continuous tone and nothing else, which is the sound of a room rather
+    // than the sound of a place. An empty floor is not silent between the hums
+    // -- it settles, its pipes knock, a door somewhere shuts, something drags.
+    // You never find out what, and that is the point.
+    //
+    // Deterministic in t, like everything here: every player standing in the
+    // same place at the same moment hears the same thing, and it can be
+    // rendered and checked.
+    constexpr float kPeriod = 17.3f;      // prime-ish, so it never lines up
+                                          // with the room tone's 3.4 s drip
+    const float idx = std::floor(t / kPeriod);
+    const float u   = t - idx * kPeriod;
+
+    // Most of the window is silence. The event itself is short and the wait is
+    // the majority of it -- a noise every four seconds is a soundtrack.
+    const uint32_t e = static_cast<uint32_t>(static_cast<int32_t>(idx));
+    const float when = 1.5f + hash01(e * 2654435761u) * 11.0f;
+    const float dt   = u - when;
+    if (dt < 0.0f || dt > 3.2f) return 0.0f;
+
+    const uint32_t n = sampleIndex(t);
+    const int kind = static_cast<int>(hash01(e * 40503u + 11u) * 4.0f) & 3;
+
+    // Distance is the whole effect, and distance is a low-pass and a tail. A
+    // sound this far away has no top left in it and rings for a second in a
+    // floor plate this size.
+    float lp = 0.0f;
+    for (uint32_t k = 0; k < 24; ++k) lp += white(n - k + e * 7919u);
+    lp /= 24.0f;
+
+    float sig = 0.0f;
+    if (kind == 0) {
+        // A door, somewhere. Two knocks: the latch, then the frame.
+        const float a = std::exp(-dt * 14.0f) * (1.0f - std::exp(-dt * 700.0f));
+        const float b = dt > 0.09f ? std::exp(-(dt - 0.09f) * 9.0f) * 0.55f : 0.0f;
+        sig = (std::sin(kTwoPi * 96.0f * dt) * a + std::sin(kTwoPi * 61.0f * dt) * b) * 0.5f
+            + lp * (a + b) * 0.30f;
+    } else if (kind == 1) {
+        // Pipes. A metallic knock that rings on an inharmonic pair.
+        const float a = std::exp(-dt * 6.0f) * (1.0f - std::exp(-dt * 900.0f));
+        sig = (std::sin(kTwoPi * 214.0f * dt) * 0.6f +
+               std::sin(kTwoPi * 337.0f * dt) * 0.3f) * a * 0.42f;
+    } else if (kind == 2) {
+        // Something dragged across carpet, and stopping.
+        const float env = std::sin(std::numbers::pi_v<float> * std::min(dt / 1.4f, 1.0f));
+        sig = lp * env * 0.34f;
+    } else {
+        // The building settling: a low groan that arrives and goes.
+        const float env = std::sin(std::numbers::pi_v<float> * std::min(dt / 2.6f, 1.0f));
+        sig = (std::sin(kTwoPi * 38.0f * dt) * 0.5f +
+               std::sin(kTwoPi * 57.3f * dt) * 0.25f) * env * 0.40f;
+    }
+    // Everything arrives through a corridor, so nothing arrives dry.
+    return sig * 0.55f;
+}
+
 float breath(float t, float exertion) noexcept {
     // One cycle in and out. Faster and harder the more she is working, and it
     // is breath rather than noise because the in and the out are not the same

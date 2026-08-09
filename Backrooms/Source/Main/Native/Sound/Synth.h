@@ -87,6 +87,16 @@ constexpr int kSynthRate = 44100;
 [[nodiscard]] float roomTone(float t, float damp) noexcept;
 
 /**
+ * Something, a long way off: a door, pipes knocking, a drag across carpet, the
+ * building settling. One every 17 seconds or so, mostly silence in between.
+ *
+ * Standing still, the only thing you could hear was the tube overhead — the
+ * sound of a room rather than of a place. Deterministic in t like everything
+ * else here, so two players in the same place at the same moment hear it.
+ */
+[[nodiscard]] float distantEvent(float t) noexcept;
+
+/**
  * Her own breathing. `exertion` 0 standing still, 1 sprinting.
  *
  * In and out are deliberately different shapes — drawing in is longer and

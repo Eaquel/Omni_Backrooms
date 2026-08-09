@@ -200,7 +200,19 @@ AIState BehaviorTree::tickSmiler(Entity& e, float dt, std::mt19937&) noexcept {
                    ? AIState::Attack : AIState::Stalk;
     }
     e.flickerInfluence = std::max(0.0f, e.flickerInfluence - dt * 0.3f);
-    return e.bb.alertLevel > 0.3f ? AIState::Alert : AIState::Idle;
+    // Wander, not Idle.
+    //
+    // Idle has no case in executeState, so it does not move -- and this is the
+    // branch taken whenever the creature cannot see the player and is not
+    // alert, which is most of a run. Simulated over five minutes on eight
+    // seeds, three of them had it in Idle for 99% of the run and in Wander for
+    // 0%: it stood motionless in a corridor somewhere for the entire game,
+    // never once seeing the player. "The creature is almost absent" was the
+    // literal truth.
+    //
+    // An ambusher freezing in place is a real behaviour, but it belongs to the
+    // ambush timer, not to every second the player is out of sight.
+    return e.bb.alertLevel > 0.3f ? AIState::Alert : AIState::Wander;
 }
 
 
@@ -222,7 +234,7 @@ void BehaviorTree::executeState(Entity& e, const WorldSense& sense,
 
     switch (e.state) {
         case AIState::Wander:
-            doWander(e, dt, rng);
+            doWander(e, sense.playerPos, dt, rng);
             break;
         case AIState::Chase:
             moveToward(e, sense.playerPos, dt, torchDrag);
@@ -246,12 +258,30 @@ void BehaviorTree::executeState(Entity& e, const WorldSense& sense,
     }
 }
 
-void BehaviorTree::doWander(Entity& e, float dt, std::mt19937& rng) noexcept {
+void BehaviorTree::doWander(Entity& e, const Vec3f& player,
+                            float dt, std::mt19937& rng) noexcept {
     e.wanderTimer -= dt;
     if (e.wanderTimer <= 0) {
         std::uniform_real_distribution<float> ad(-1.0f, 1.0f);
         e.wanderAngle += ad(rng) * 1.2f;
         e.wanderTimer = 1.0f + std::uniform_real_distribution<float>(0, 2)(rng);
+
+        // And it drifts your way. Random search in an infinite maze does not
+        // find anything: measured over five simulated minutes, three seeds of
+        // eight never once had the creature see the player, at a median
+        // distance of 33-51 m -- near enough to be on the same floor, never
+        // near enough to matter. This turns the wander angle a fraction toward
+        // the bearing to the player each time it is redrawn, so it closes over
+        // a minute or two rather than by luck, and still not in a straight
+        // line.
+        //
+        // wanderAngle is measured from +Z (see the sin/cos below), so the
+        // bearing has to be atan2(dx, dz), not the other way round.
+        const float bearing = std::atan2(player.x - e.pos.x, player.z - e.pos.z);
+        float delta = bearing - e.wanderAngle;
+        while (delta >  3.14159265f) delta -= 6.28318531f;
+        while (delta < -3.14159265f) delta += 6.28318531f;
+        e.wanderAngle += delta * kWanderDrift;
     }
     e.vel.x = std::sin(e.wanderAngle) * e.speed * 0.4f;
     e.vel.z = std::cos(e.wanderAngle) * e.speed * 0.4f;

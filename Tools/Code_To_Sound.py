@@ -204,6 +204,39 @@ def room_tone(t: float, damp: float) -> float:
     return drone + air + top + drip
 
 
+def distant_event(t: float) -> float:
+    """Something a long way off. See Sound/Synth.cpp for why each kind is shaped
+    the way it is."""
+    PERIOD = 17.3
+    idx = math.floor(t / PERIOD)
+    u = t - idx * PERIOD
+    e = int(idx) & 0xFFFFFFFF
+    when = 1.5 + _hash01(e * 2654435761) * 11.0
+    dt = u - when
+    if dt < 0.0 or dt > 3.2:
+        return 0.0
+    n = _sample_index(t)
+    kind = int(_hash01(e * 40503 + 11) * 4.0) & 3
+    lp = sum(white((n - k + e * 7919) & 0xFFFFFFFF) for k in range(24)) / 24.0
+    if kind == 0:
+        a = math.exp(-dt * 14.0) * (1.0 - math.exp(-dt * 700.0))
+        b = math.exp(-(dt - 0.09) * 9.0) * 0.55 if dt > 0.09 else 0.0
+        sig = ((math.sin(2 * math.pi * 96.0 * dt) * a +
+                math.sin(2 * math.pi * 61.0 * dt) * b) * 0.5 + lp * (a + b) * 0.30)
+    elif kind == 1:
+        a = math.exp(-dt * 6.0) * (1.0 - math.exp(-dt * 900.0))
+        sig = (math.sin(2 * math.pi * 214.0 * dt) * 0.6 +
+               math.sin(2 * math.pi * 337.0 * dt) * 0.3) * a * 0.42
+    elif kind == 2:
+        env = math.sin(math.pi * min(dt / 1.4, 1.0))
+        sig = lp * env * 0.34
+    else:
+        env = math.sin(math.pi * min(dt / 2.6, 1.0))
+        sig = (math.sin(2 * math.pi * 38.0 * dt) * 0.5 +
+               math.sin(2 * math.pi * 57.3 * dt) * 0.25) * env * 0.40
+    return sig * 0.55
+
+
 def breath(t: float, exertion: float) -> float:
     """Her breathing. In and out are different shapes on purpose."""
     e = max(0.0, min(1.0, exertion))
@@ -256,6 +289,8 @@ GENERATORS = {
     "monster_near":     (lambda t: monster_voice(t, 1.0), 2.0),
     "room_tone_dry":    (lambda t: room_tone(t, 0.0), 4.0),
     "room_tone_damp":   (lambda t: room_tone(t, 1.0), 4.0),
+    "distant_door":     (lambda t: distant_event(t + 0.0), 17.3),
+    "distant_settle":   (lambda t: distant_event(t + 17.3 * 3), 17.3),
     "breath_rest":      (lambda t: breath(t, 0.15), 4.0),
     "breath_sprint":    (lambda t: breath(t, 1.0), 4.0),
     "heartbeat_calm":   (lambda t: heartbeat(t, 0.2), 4.0),
@@ -342,6 +377,8 @@ int main() {
     for (int i = 0; i < n; ++i) emit(monsterVoice(float(i) / kSynthRate, 1.0f));
     for (int i = 0; i < n; ++i) emit(roomTone(float(i) / kSynthRate, 0.0f));
     for (int i = 0; i < n; ++i) emit(roomTone(float(i) / kSynthRate, 1.0f));
+    for (int i = 0; i < n; ++i) emit(distantEvent(float(i) / kSynthRate));
+    for (int i = 0; i < n; ++i) emit(distantEvent(float(i) / kSynthRate + 17.3f * 3.0f));
     for (int i = 0; i < n; ++i) emit(breath(float(i) / kSynthRate, 0.15f));
     for (int i = 0; i < n; ++i) emit(breath(float(i) / kSynthRate, 1.0f));
     for (int i = 0; i < n; ++i) emit(heartbeat(float(i) / kSynthRate, 0.2f));
@@ -362,6 +399,8 @@ PARITY_ORDER = [
     ("monster_near",       lambda t: monster_voice(t, 1.0)),
     ("room_tone_dry",      lambda t: room_tone(t, 0.0)),
     ("room_tone_damp",     lambda t: room_tone(t, 1.0)),
+    ("distant_door",       lambda t: distant_event(t)),
+    ("distant_settle",     lambda t: distant_event(t + 17.3 * 3)),
     ("breath_rest",        lambda t: breath(t, 0.15)),
     ("breath_sprint",      lambda t: breath(t, 1.0)),
     ("heartbeat_calm",     lambda t: heartbeat(t, 0.2)),

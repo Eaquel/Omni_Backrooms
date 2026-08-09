@@ -107,6 +107,37 @@ Tools/                           the eight checks
 
 Newest first. This list is updated with every fix.
 
+- **The creature stood still for the whole game.** "It is almost absent" was
+  the literal truth and it took a simulation to see it: eight seeds, five
+  minutes each, a player walking a slow tour with the torch down. On three of
+  the eight the creature saw the player **0% of the time**, at a median distance
+  of 33-51 m — near enough to be on the same floor, never near enough to matter.
+  The state histogram said why. It spent **99% of the run in `AIState::Idle` and
+  0% in Wander**, and `Idle` has no case in `executeState`, so it does not move.
+  Idle is the branch the behaviour tree takes whenever it cannot see the player
+  and is not alert, which is most of a run. It was standing motionless in a
+  corridor somewhere for the entire game. Idle now falls through to Wander;
+  freezing in place belongs to the ambush timer, not to every second you are out
+  of sight.
+- **And when it did find you it never let go.** The other half of the same
+  measurement: on the other seeds it sat at a **median distance of 1.4 m for the
+  full five minutes**, in sight 100% of the time. Nothing but the torch beam and
+  taking damage ever broke it off, so with the torch down an encounter had no
+  end. Contact now costs it: 1.05 a second against the 0.8 that exposure bleeds
+  off, so about nine seconds on top of you and it withdraws — close, strike,
+  melt back, return. Charged on distance rather than inside `doAttack`, because
+  a creature sitting exactly at its attack radius oscillates across the boundary
+  and spends most of its time in Stalk; putting the cost in the attack changed
+  the numbers by literally nothing, which is how that was found. Across all
+  eight seeds: seen 50% → 34%, and no seed at 0.
+- **Standing still, the only thing you could hear was the tube overhead.** An
+  empty floor is not silent between the hums — it settles, its pipes knock, a
+  door somewhere shuts, something drags across carpet. There is a distant-event
+  generator now: one every seventeen seconds or so, mostly silence in between,
+  four kinds, all heavily low-passed and long-tailed because distance is a
+  low-pass and a tail. Deterministic in the clock like everything else here, so
+  two players in the same place at the same moment hear the same thing, and it
+  matches its C++ to zero.
 - **A constant documenting a safety invariant that nothing enforced, and the
   compiler had been saying so on every build.** `kMaxRoomHalf = 5` carried the
   comment "must stay < kSectorSize / 2" — the rule the whole O(1) level query

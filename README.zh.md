@@ -87,6 +87,18 @@ Tools/                           八项检查
 
 最新的在最上面。每次修复都会更新这份列表。
 
+- **The creature stood still for the whole game.** Simulated over eight seeds
+  and five minutes each, three of them had it see the player 0% of the time at a
+  median 33-51 m. The state histogram said why: 99% of the run in
+  `AIState::Idle`, 0% in Wander — and Idle has no case in `executeState`, so it
+  does not move. It falls through to Wander now.
+- **And when it did find you it never let go** — a median distance of 1.4 m for
+  the full five minutes on the other seeds. Only the torch and damage ever broke
+  it off. Contact costs it now, so an encounter is a cycle. Seen 50% → 34%, no
+  seed at 0.
+- **Standing still, the only thing you could hear was the tube overhead.** A
+  distant-event generator: a door, pipes knocking, a drag across carpet, the
+  building settling. One every seventeen seconds, mostly silence between.
 - **A constant documenting a safety invariant that nothing enforced.**
   `kMaxRoomHalf` carried the rule the O(1) level query rests on, and every build
   printed `warning: unused variable 'kMaxRoomHalf'`. Sweeping it to find the

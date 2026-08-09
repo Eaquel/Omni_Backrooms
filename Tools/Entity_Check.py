@@ -478,6 +478,68 @@ static void testStability(const map::Level0Field& f) {
     }
 }
 
+/**
+ * Does the creature turn up at all?
+ *
+ * Every other test here puts the creature in a corridor with the player and
+ * asks whether it behaves. None of them asked the prior question: over a whole
+ * run, on a level 460 m across, does it ever find you?
+ *
+ * It did not. Simulated over eight seeds and five minutes of a player walking a
+ * slow tour with the torch down, three of them had the creature see the player
+ * 0% of the time -- and the state histogram said why: 99% Idle, 0% Wander.
+ * AIState::Idle has no case in executeState, so it does not move, and Idle is
+ * the branch taken whenever the creature cannot see the player and is not
+ * alert. It stood motionless in a corridor for the entire game. "The creature
+ * is almost absent" was the literal truth.
+ */
+void testPresence(const map::Level0Field&) {
+    const float dt = 1.0f / 30.0f;
+    const int steps = static_cast<int>(5.0f * 60.0f / dt);
+    int worstSeen = 1000, idleWorst = 0;
+    for (int s = 0; s < 8; ++s) {
+        map::Level0Field f(0x9E3779B97F4A7C15ULL * (s + 1));
+        int sx, sz; f.findSpawn(sx, sz);
+        entity::EntitySystem sys; sys.field.setSeed(f.seed());
+        const float px0 = map::Level0Field::worldX(sx) + 1.6f;
+        const float pz0 = map::Level0Field::worldZ(sz) + 1.6f;
+        entity::Entity e{};
+        e.pos = {px0 + 24.0f, 0, pz0};
+        e.speed = 2.8f; e.hearRadius = 12; e.sightRadius = 18; e.aggroRadius = 9;
+        e.attackRadius = 1.4f; e.type = entity::EntityType::Smiler;
+        e.state = entity::AIState::Wander; e.hp = e.maxHp = 100;
+        e.wanderTimer = 1; e.ambushTimer = 5; e.active = true; e.id = 0;
+        sys.entities.push_back(e);
+
+        float px = px0, pz = pz0, dir = 0.4f;
+        int seen = 0, idle = 0;
+        std::mt19937 rng(99 + s);
+        for (int i = 0; i < steps; ++i) {
+            if (i % 90 == 0) dir += std::uniform_real_distribution<float>(-1.2f, 1.2f)(rng);
+            const float nx = px + std::cos(dir) * 1.4f * dt;
+            const float nz = pz + std::sin(dir) * 1.4f * dt;
+            if (f.isOpen(map::Level0Field::cellX(nx), map::Level0Field::cellZ(nz))) { px = nx; pz = nz; }
+            else dir += 1.9f;
+            sys.sense.playerPos = {px, 0, pz};
+            sys.sense.noise = 0.35f;
+            sys.sense.torchOn = false;
+            sys.tick(dt);
+            if (sys.entities[0].bb.playerInSight) ++seen;
+            if (sys.entities[0].state == entity::AIState::Idle) ++idle;
+        }
+        worstSeen = std::min(worstSeen, 100 * seen / steps);
+        idleWorst = std::max(idleWorst, 100 * idle / steps);
+    }
+    std::printf("   over 5 simulated minutes: seen on the quietest seed %d%% of "
+                "the run, most time standing still %d%%\n", worstSeen, idleWorst);
+    expect(worstSeen >= 2,
+           "on at least one seed the creature never finds the player in five "
+           "minutes -- it is in the level and it might as well not be");
+    expect(idleWorst <= 20,
+           "the creature spends most of a run in a state that does not move it; "
+           "AIState::Idle has no case in executeState");
+}
+
 int main() {
     map::Level0Field field(20260806ULL);
     testLineOfSight(field);
@@ -486,6 +548,7 @@ int main() {
     testTorch(field);
     testRetreatAndReturn(field);
     testStability(field);
+    testPresence(field);
     std::printf("%s\n", fails == 0 ? "PROBE-OK" : "PROBE-FAILED");
     return fails == 0 ? 0 : 1;
 }
