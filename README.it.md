@@ -49,7 +49,7 @@ ciascuno protegge qualcosa che la build Gradle semplicemente non può vedere:
 
 | Strumento | Cosa intercetta |
 |---|---|
-| `Shaders_Check.py` | Il GLSL vive dentro stringhe grezze Kotlin: uno shader che non compila resta invisibile finché non si apre la schermata che lo usa e resta nera. Ognuno viene compilato con `glslangValidator`. |
+| `Shaders_Check.py` | Il GLSL vive dentro stringhe grezze Kotlin: uno shader che non compila resta invisibile finché non si apre la schermata che lo usa e resta nera. Ognuno viene compilato con `glslangValidator`. Viene inoltre collegata ogni coppia nominata in una chiamata `linkGlProgram(V, F)`, perché due shader che compilano separatamente possono comunque rifiutarsi di formare un programma: un uniform con lo stesso nome deve coincidere fra gli stadi in tipo e precisione. |
 | `Assets_Check.py` | Icone vettoriali scritte a mano che `aapt2` accetta e disegna storte; UV di mesh che non corrispondono più alla posizione nel mondo; la telecamera d'ispezione che esce dal fondale; risorse duplicate e mai referenziate; una lingua rimasta indietro; il travestimento Unity che si contraddice. Inoltre `--optimise`, un ricodificatore PNG senza perdita. |
 | `Native_Check.py` | Il contratto JNI. Kotlin dichiara `external fun`, il C++ definisce `Java_..._name`, e in fase di build **niente** collega i due lati: né il compilatore Kotlin, né quello C++, né il linker. Rinominare da una parte sola è un `UnsatisfiedLinkError` alla prima chiamata; cambiare il numero di argomenti è peggio, perché JNI collega per nome e legge gli argomenti in eccesso dallo stack senza protestare. Esegue anche i rilevatori della protezione su un `/proc` allestito su disco, perché un controllo di root che nessuno può eseguire è un controllo di root che accusa telefoni normali. |
 | `Kotlin_Check.py` | Ogni import contro la dipendenza che lo sostiene, in entrambe le direzioni. Il Kotlin qui compila senza il classpath Android, quindi una libreria davvero rimossa è indistinguibile da una solo fuori dal percorso — così togliere Firebase si è portato via `androidx.media3`. |
@@ -89,6 +89,29 @@ Tools/                           gli otto controlli
 ## Correzioni recenti
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
+- **Un rettangolo nero sopra i pulsanti della lobby, per uno shader che compila
+  benissimo.** Da un log di Galaxy S23: `Omni program link failed: Error:
+  Uniform uGrowth precision mismatch with other stage.` Entrambe le metà dello
+  shader dei rampicanti sono valide da sole — proprio per questo questo
+  strumento le approvava da mesi. Compilare è solo metà della costruzione di un
+  programma. Gli uniform con lo stesso nome devono coincidere fra gli stadi in
+  tipo **e precisione**, e un vertex shader porta `float` a `highp` per
+  impostazione predefinita mentre un fragment shader non ha alcun valore
+  predefinito — per questo ogni fragment shader qui dichiara `precision mediump
+  float;`. Un uniform float letto da entrambi gli stadi e lasciato nudo è quindi
+  un conflitto per costruzione. I driver indulgenti lo collegano lo stesso, ed è
+  esattamente così che è finito in produzione. `uGrowth` ora è esplicitamente
+  `highp` in entrambi gli stadi, e `Shaders_Check.py` collega ogni coppia
+  nominata in una chiamata `linkGlProgram(V, F)` invece di limitarsi a compilare
+  le metà — il che scopre anche uno shader che non appartiene ad alcun programma.
+- **E il fallimento non degradava, copriva il pulsante.** Lo strato dei
+  rampicanti intercettava già il proprio errore di inizializzazione e non
+  disegnava nulla, il che sembra sicuro e non lo è: la view chiama
+  `setZOrderOnTop(true)`, mettendo la sua superficie sopra l'intera finestra
+  invece che dentro il pulsante. Una superficie che non presenta mai un
+  fotogramma non è «niente rampicanti», è un buco opaco sopra il pulsante e la
+  sua etichetta. Uno strato decorativo che non riesce a disegnare ora esce del
+  tutto dalla composizione, e il pulsante torna alla sua targa dipinta.
 - **La protezione accusava di root un telefono pulito.** Un giocatore ha
   fotografato la finestra di sicurezza: `motivo: root, flags=0x40200`. Due bit,
   e tutti i bit di root veri — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,

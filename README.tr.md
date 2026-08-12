@@ -49,7 +49,7 @@ derlemesinin gerçekten göremediği bir şeyi koruduğu için varlar:
 
 | Araç | Ne yakalar |
 |---|---|
-| `Shaders_Check.py` | GLSL, Kotlin ham dizelerinin içinde yaşıyor. Derlenmeyecek bir shader, onu kullanan ekran açılıp siyaha dönene kadar görünmez. Hepsi `glslangValidator` ile derleniyor. |
+| `Shaders_Check.py` | GLSL, Kotlin ham dizelerinin içinde yaşıyor. Derlenmeyecek bir shader, onu kullanan ekran açılıp siyaha dönene kadar görünmez. Hepsi `glslangValidator` ile derleniyor. Ayrıca `linkGlProgram(V, F)` çağrılarında adı geçen her çift link ediliyor; çünkü ayrı ayrı derlenen iki shader yine de bir program oluşturmayı reddedebilir — aynı isimli bir uniform, aşamalar arasında tip ve kesinlik olarak uyuşmak zorunda. |
 | `Assets_Check.py` | `aapt2`'nin kabul edip bozuk çizdiği elle yazılmış vektör ikonlar; artık dünya konumuyla eşleşmeyen mesh UV'leri; fon dışına çıkan inceleme kamerası; tekrarlanan ve hiç kullanılmayan varlıklar; geride kalmış bir dil; kendi kendisiyle çelişen Unity kamuflajı; sürdüğünü iddia ettiği geometrinin üzerinde olmayan kemiklere sahip bir karakter rig'i — animasyonu oynatıp dikişleri ölçerek kanıtlanır. Ayrıca `--optimise`: kayıpsız bir PNG yeniden kodlayıcı. |
 | `Native_Check.py` | JNI sözleşmesi. Kotlin `external fun` bildiriyor, C++ `Java_..._name` tanımlıyor ve derleme anında ikisini **hiçbir şey** bağlamıyor — ne Kotlin derleyicisi, ne C++ derleyicisi, ne bağlayıcı. Tek taraflı bir isim değişikliği ilk çağrıda `UnsatisfiedLinkError` demek; argüman sayısı değişirse daha kötü, çünkü JNI isimle bağlar ve fazla argümanları yığından şikâyet etmeden okur. Ayrıca korumanın dedektörlerini diske serilen sahte bir `/proc` üzerinde çalıştırır; çünkü hiç çalıştırılamayan bir root kontrolü, sıradan telefonları suçlayan bir root kontrolüdür. |
 | `Kotlin_Check.py` | Her import'u ardındaki bağımlılıkla, iki yönlü karşılaştırır. Buradaki Kotlin Android classpath'i olmadan derlendiği için gerçekten silinmiş bir kütüphane ile sadece yolda olmayan biri aynı görünür — Firebase'i kaldırırken `androidx.media3`'ün sessizce onunla gitmesi ve ancak Gradle derlemesinin doksanıncı saniyesinde ortaya çıkması böyle oldu. |
@@ -89,6 +89,27 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **Lobi butonlarının üstünde siyah bir dikdörtgen — hem de sorunsuz derlenen
+  bir shader yüzünden.** Galaxy S23 log'undan: `Omni program link failed:
+  Error: Uniform uGrowth precision mismatch with other stage.` Vine shader'ının
+  iki yarısı da tek başına geçerli; bu araç aylardır tam bu yüzden onları
+  onaylıyordu — derlemek, bir program kurmanın sadece yarısı. Aynı ismi
+  paylaşan uniform'lar aşamalar arasında hem tip hem **kesinlik** olarak
+  uyuşmak zorunda; vertex shader'da `float` varsayılan olarak `highp`,
+  fragment shader'da ise hiç varsayılan yok, o yüzden buradaki her fragment
+  shader `precision mediump float;` yazıyor. İki aşamanın da okuduğu, kesinliği
+  belirtilmemiş bir float uniform tanımı gereği uyuşmazlık demek. Hoşgörülü
+  sürücüler yine de link ediyor; sürüme çıkması tam olarak böyle oldu. `uGrowth`
+  artık iki aşamada da açıkça `highp`, ve `Shaders_Check.py` yalnızca yarıları
+  derlemek yerine `linkGlProgram(V, F)` çağrılarında adı geçen her çifti link
+  ediyor — bu ayrıca hiçbir programa ait olmayan bir shader'ı da yakalıyor.
+- **Ve hata zarifçe geri çekilmedi, butonun üstünü kapattı.** Vine katmanı
+  kendi kurulum hatasını zaten yakalayıp hiçbir şey çizmiyordu; kulağa güvenli
+  geliyor ama değil: görünüm `setZOrderOnTop(true)` çağırıyor, yani yüzeyi
+  butonun içine değil pencerenin tamamının üstüne koyuyor. Hiç kare sunmayan
+  bir yüzey "sarmaşık yok" demek değil, butonun ve yazısının üstünde opak bir
+  delik demek. Çizemeyen süs katmanı artık kompozisyondan tamamen çıkıyor,
+  buton da boyalı plakasına geri dönüyor.
 - **Koruma, temiz bir telefonu root'lu diye suçladı.** Bir oyuncu oyun içi
   güvenlik uyarısını fotoğrafladı: `Sebep: root, flags=0x40200`. İki bit, ve
   gerçek root bitlerinin hepsi — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,

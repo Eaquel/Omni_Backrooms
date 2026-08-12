@@ -46,7 +46,7 @@ Gradle 构建根本看不见的东西：
 
 | 工具 | 它能抓到什么 |
 |---|---|
-| `Shaders_Check.py` | GLSL 写在 Kotlin 的原始字符串里，所以一个编译不过的着色器在使用它的界面打开并变黑之前都是不可见的。每一个都用 `glslangValidator` 编译。 |
+| `Shaders_Check.py` | GLSL 写在 Kotlin 的原始字符串里，所以一个编译不过的着色器在使用它的界面打开并变黑之前都是不可见的。每一个都用 `glslangValidator` 编译。 此外，出现在 `linkGlProgram(V, F)` 调用里的每一组都会被链接一遍，因为两个各自能编译的着色器仍可能拒绝组成一个程序 —— 同名 uniform 必须在各阶段之间在类型和精度上都一致。 |
 | `Assets_Check.py` | `aapt2` 接受却画得乱七八糟的手写矢量图标；不再与世界坐标对应的网格 UV；跑出背景的观赏相机；重复以及从未被引用的资源；落后的语言；自相矛盾的 Unity 伪装。还有 `--optimise`——一个无损的 PNG 重编码器。 |
 | `Native_Check.py` | JNI 契约。Kotlin 声明 `external fun`，C++ 定义 `Java_..._name`，而在构建期**没有任何东西**把两边连起来——Kotlin 编译器不会，C++ 编译器不会，链接器也不会。单边改名意味着首次调用时的 `UnsatisfiedLinkError`；参数个数变了更糟，因为 JNI 按名字绑定，会一声不吭地从栈上读走多出来的参数。 它还会让防护的各个检测器跑在一份铺在磁盘上的 `/proc` 上，因为一个谁都没法执行的 root 检查，就是一个会冤枉普通手机的 root 检查。 |
 | `Kotlin_Check.py` | 把每一个 import 与其背后的依赖双向核对。这里的 Kotlin 在没有 Android classpath 的情况下编译，所以真正被删掉的库和只是不在路径上的库看起来一模一样——移除 Firebase 时 `androidx.media3` 就这样被悄悄带走了。 |
@@ -86,6 +86,22 @@ Tools/                           八项检查
 ## 近期修复
 
 最新的在最上面。每次修复都会更新这份列表。
+- **大厅按钮上出现一块黑色矩形，起因是一个编译完全正常的着色器。** 来自一台
+  Galaxy S23 的日志：`Omni program link failed: Error: Uniform uGrowth precision
+  mismatch with other stage.` 藤蔓着色器的两半各自都是合法的 —— 这正是本工具几个
+  月来一直放行它们的原因。编译只是构建一个程序的一半。同名 uniform 必须在各阶段之
+  间在类型**和精度**上都一致，而顶点着色器默认把 `float` 视为 `highp`，片元着色器
+  却根本没有默认值，所以这里每个片元着色器都写着 `precision mediump float;`。一个
+  被两个阶段同时读取、又没写精度限定符的 float uniform，按构造就是一处不匹配。宽松
+  的驱动照样能链接，它就是这样进入正式版的。`uGrowth` 现在在两个阶段都显式写作
+  `highp`，而 `Shaders_Check.py` 不再只编译两半，而是把每个出现在
+  `linkGlProgram(V, F)` 调用里的组合都链接一遍 —— 顺带还能查出不属于任何程序的
+  着色器。
+- **而且失败时它没有优雅退化，而是盖住了按钮。** 藤蔓层原本就捕获了自己的初始化
+  失败并且什么都不画，听起来安全，其实不然：这个 view 调用了
+  `setZOrderOnTop(true)`，把它的 surface 放在整个窗口之上，而不是按钮内部。一个
+  从不提交任何一帧的 surface 不是「没有藤蔓」，而是覆盖在按钮及其文字上的一个不透明
+  空洞。画不出来的装饰层现在会彻底退出组合，按钮也就回到它那块绘制好的底板。
 - **防护把一台干净的手机指认为已 root。** 一位玩家拍下了游戏内的安全提示：
   `原因：root，flags=0x40200`。两个位，而所有真正的 root 位 —— ROOT_BINARY、
   ROOT_PROPS、ROOT_PATHS、MAGISK、ZYGISK、KSU、SELINUX_OFF —— 全都没亮。那不是

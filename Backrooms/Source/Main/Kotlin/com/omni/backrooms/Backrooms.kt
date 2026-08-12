@@ -9959,7 +9959,15 @@ layout(location=1) in vec3 aNormal;
 layout(location=2) in float aGrow;   // 0..1 position along the spine
 
 uniform mat4 uMVP;
-uniform float uGrowth;    // how far the vine has extended, 0..1
+// Explicitly highp, and explicitly highp in the fragment stage too. A uniform
+// of the same name must match in precision across stages or the program fails
+// to LINK — both halves compile perfectly on their own, which is why nothing
+// caught this. A vertex shader defaults float to highp; a fragment shader has
+// no default and every one here declares mediump, so a shared float uniform
+// left bare is a mismatch by construction. Lenient drivers link it anyway;
+// Samsung's does not, and a Galaxy S23 got a black screen where the lobby
+// buttons should have been.
+uniform highp float uGrowth;    // how far the vine has extended, 0..1
 uniform float uSway;
 out vec3 vNormal; out float vGrow; out vec3 vLocal;
 
@@ -9985,7 +9993,7 @@ precision mediump float;
 in vec3 vNormal; in float vGrow; in vec3 vLocal;
 uniform vec3 uAccent;
 uniform float uPulse;
-uniform float uGrowth;
+uniform highp float uGrowth;   // must match the vertex stage — see OMNI_VINE_VERT
 out vec4 fragColor;
 void main(){
     if (vGrow > uGrowth) discard;
@@ -10117,7 +10125,7 @@ private fun buildVineMesh(spec: VineSpec, segments: Int = 26, sides: Int = 7):
 /** Renders the 3D vines for one button. A small dedicated GLSurfaceView sits
  *  behind the button's content with a transparent background, so genuine lit
  *  geometry composites over the UI. */
-class VineRenderer : GLSurfaceView.Renderer {
+class VineRenderer(private val onFailed: () -> Unit = {}) : GLSurfaceView.Renderer {
     @Volatile var accent: Triple<Float, Float, Float> = Triple(0.3f, 0.85f, 0.4f)
     @Volatile var enabled: Boolean = true
 
@@ -10156,7 +10164,17 @@ class VineRenderer : GLSurfaceView.Renderer {
                 counts[i] = idx.size
             }
             OmniLog.i("Vine", "built ${VINE_SPECS.size} vine meshes")
-        }.onFailure { OmniLog.e("Vine", "vine setup failed", it) }
+        }.onFailure {
+            OmniLog.e("Vine", "vine setup failed", it)
+            // Catching the failure was not enough. This view sets
+            // setZOrderOnTop(true), which puts its surface above the whole
+            // window rather than inside the button — so a surface that never
+            // presents a frame is not "no vines", it is a black rectangle
+            // sitting over the button and its label. A Galaxy S23 hit exactly
+            // that when the program failed to link. Decoration that cannot
+            // draw has to leave, not stay as a hole in the UI.
+            onFailed()
+        }
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -10211,7 +10229,8 @@ class VineRenderer : GLSurfaceView.Renderer {
 @Composable
 fun VineLayer(accent: Color, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
-    val renderer = remember { VineRenderer() }
+    var failed by remember { mutableStateOf(false) }
+    val renderer = remember { VineRenderer(onFailed = { failed = true }) }
     LaunchedEffect(accent) {
         renderer.accent = Triple(accent.red, accent.green, accent.blue)
     }
@@ -10239,7 +10258,9 @@ fun VineLayer(accent: Color, modifier: Modifier = Modifier) {
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs); glView.onPause() }
     }
-    AndroidView(factory = { glView }, modifier = modifier)
+    // Leaving composition detaches the surface, which is the whole point: the
+    // button goes back to its painted plate instead of wearing a black hole.
+    if (!failed) AndroidView(factory = { glView }, modifier = modifier)
 }
 
 

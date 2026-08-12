@@ -51,7 +51,7 @@ ver:
 
 | Herramienta | Qué detecta |
 |---|---|
-| `Shaders_Check.py` | El GLSL vive dentro de cadenas literales de Kotlin, así que un shader que no compila es invisible hasta que se abre la pantalla que lo usa y se queda en negro. Todos se compilan con `glslangValidator`. |
+| `Shaders_Check.py` | El GLSL vive dentro de cadenas literales de Kotlin, así que un shader que no compila es invisible hasta que se abre la pantalla que lo usa y se queda en negro. Todos se compilan con `glslangValidator`. También se enlaza cada par nombrado en una llamada `linkGlProgram(V, F)`, porque dos shaders que compilan por separado aún pueden negarse a formar un programa: un uniforme del mismo nombre debe coincidir entre etapas en tipo y precisión. |
 | `Assets_Check.py` | Iconos vectoriales escritos a mano que `aapt2` acepta y dibuja mal; UVs de malla que ya no coinciden con la posición en el mundo; la cámara de inspección saliéndose del fondo; recursos duplicados y nunca referenciados; un idioma que se ha quedado atrás; el disfraz de Unity contradiciéndose. También `--optimise`, un recodificador PNG sin pérdida. |
 | `Native_Check.py` | El contrato JNI. Kotlin declara `external fun`, C++ define `Java_..._name`, y en tiempo de compilación **nada** conecta ambos lados: ni el compilador de Kotlin, ni el de C++, ni el enlazador. Un renombrado en un solo lado es un `UnsatisfiedLinkError` en la primera llamada; cambiar el número de argumentos es peor, porque JNI enlaza por nombre y lee los argumentos sobrantes de la pila sin quejarse. También ejecuta los detectores de la protección contra un `/proc` dispuesto en disco, porque una comprobación de root que nadie puede ejecutar es una comprobación de root que acusa a teléfonos corrientes. |
 | `Kotlin_Check.py` | Cada import contra la dependencia que lo respalda, en ambos sentidos. El Kotlin aquí compila sin el classpath de Android, así que una biblioteca realmente eliminada es idéntica a una que solo no está en la ruta: así quitar Firebase se llevó `androidx.media3` sin decir nada. |
@@ -92,6 +92,28 @@ Tools/                           las ocho comprobaciones
 ## Correcciones recientes
 
 Lo más nuevo primero. Esta lista se actualiza con cada corrección.
+- **Un rectángulo negro sobre los botones del vestíbulo, por un shader que
+  compila perfectamente.** De un registro de Galaxy S23: `Omni program link
+  failed: Error: Uniform uGrowth precision mismatch with other stage.` Ambas
+  mitades del shader de enredaderas son válidas por separado — justo por eso
+  esta herramienta las aprobó durante meses. Compilar es solo la mitad de
+  construir un programa. Los uniformes con el mismo nombre deben coincidir entre
+  etapas en tipo **y precisión**, y un vertex shader pone `float` en `highp` por
+  omisión mientras que un fragment shader no tiene omisión alguna — de ahí que
+  todos los fragment shaders aquí declaren `precision mediump float;`. Un
+  uniforme float leído por ambas etapas y dejado desnudo es, por construcción,
+  un conflicto. Los controladores permisivos lo enlazan igual, y así fue
+  exactamente como llegó a producción. `uGrowth` ahora es explícitamente `highp`
+  en ambas etapas, y `Shaders_Check.py` enlaza cada par nombrado en una llamada
+  `linkGlProgram(V, F)` en vez de solo compilar las mitades — lo que además
+  detecta un shader que no pertenece a ningún programa.
+- **Y el fallo no degradaba, tapaba el botón.** La capa de enredaderas ya
+  capturaba su fallo de inicialización y no dibujaba nada, lo que suena seguro y
+  no lo es: la vista llama a `setZOrderOnTop(true)`, colocando su superficie
+  sobre toda la ventana en lugar de dentro del botón. Una superficie que nunca
+  presenta un fotograma no es «sin enredaderas», es un agujero opaco sobre el
+  botón y su etiqueta. Una capa decorativa que no puede dibujar ahora abandona
+  la composición por completo, y el botón vuelve a su placa pintada.
 - **La protección acusó de estar rooteado a un teléfono limpio.** Un jugador
   fotografió el diálogo de seguridad: `motivo: root, flags=0x40200`. Dos bits, y
   todos los bits de root reales — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,

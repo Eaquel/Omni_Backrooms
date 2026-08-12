@@ -51,7 +51,7 @@ simplement pas voir :
 
 | Outil | Ce qu'il attrape |
 |---|---|
-| `Shaders_Check.py` | Le GLSL vit à l'intérieur de chaînes brutes Kotlin : un shader qui ne compile pas reste invisible jusqu'à ce que l'écran qui l'utilise s'ouvre et reste noir. Chacun est compilé avec `glslangValidator`. |
+| `Shaders_Check.py` | Le GLSL vit à l'intérieur de chaînes brutes Kotlin : un shader qui ne compile pas reste invisible jusqu'à ce que l'écran qui l'utilise s'ouvre et reste noir. Chacun est compilé avec `glslangValidator`. Chaque paire nommée dans un appel `linkGlProgram(V, F)` est aussi liée, car deux shaders qui compilent séparément peuvent tout de même refuser de former un programme — un uniforme de même nom doit s'accorder entre étages en type et en précision. |
 | `Assets_Check.py` | Des icônes vectorielles écrites à la main qu'`aapt2` accepte et dessine de travers ; des UV de maillage qui ne correspondent plus à la position monde ; la caméra d'inspection qui sort de son décor ; des ressources dupliquées ou jamais référencées ; une langue restée en arrière ; le déguisement Unity qui se contredit. Et aussi `--optimise`, un ré-encodeur PNG sans perte. |
 | `Native_Check.py` | Le contrat JNI. Kotlin déclare `external fun`, le C++ définit `Java_..._name`, et **rien** ne relie les deux à la compilation — ni le compilateur Kotlin, ni celui du C++, ni l'éditeur de liens. Un renommage d'un seul côté donne un `UnsatisfiedLinkError` au premier appel ; un nombre d'arguments modifié est pire, car JNI lie par le nom et lit les arguments en trop sur la pile sans broncher. Il exécute aussi les détecteurs de la protection sur un `/proc` déposé sur disque, car un contrôle de root que personne ne peut exécuter est un contrôle de root qui accuse des téléphones ordinaires. |
 | `Kotlin_Check.py` | Chaque import face à la dépendance qui le porte, dans les deux sens. Le Kotlin ici compile sans le classpath Android : une bibliothèque réellement supprimée ressemble à s'y méprendre à une simplement absente du chemin — c'est ainsi que retirer Firebase a emporté `androidx.media3`. |
@@ -91,6 +91,29 @@ Tools/                           les huit vérifications
 ## Corrections récentes
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
+- **Un rectangle noir sur les boutons du hall, à cause d'un shader qui compile
+  très bien.** Extrait d'un journal de Galaxy S23 : `Omni program link failed:
+  Error: Uniform uGrowth precision mismatch with other stage.` Les deux moitiés
+  du shader de lianes sont valides séparément — c'est précisément pour cela que
+  cet outil les acceptait depuis des mois. Compiler n'est que la moitié de la
+  construction d'un programme. Les uniformes de même nom doivent s'accorder
+  entre étages en type **et en précision**, or un vertex shader met `float` en
+  `highp` par défaut tandis qu'un fragment shader n'a aucun défaut — d'où le
+  `precision mediump float;` de tous les fragment shaders ici. Un uniforme float
+  lu par les deux étages et laissé nu est donc un conflit par construction. Des
+  pilotes indulgents le lient quand même, et c'est exactement ainsi qu'il est
+  parti en production. `uGrowth` est désormais explicitement `highp` dans les
+  deux étages, et `Shaders_Check.py` lie chaque paire nommée dans un appel
+  `linkGlProgram(V, F)` au lieu de seulement compiler les moitiés — ce qui
+  attrape aussi un shader n'appartenant à aucun programme.
+- **Et l'échec ne se dégradait pas, il recouvrait le bouton.** La couche de
+  lianes rattrapait déjà son échec d'initialisation et ne dessinait rien, ce qui
+  semble sûr et ne l'est pas : la vue appelle `setZOrderOnTop(true)`, plaçant sa
+  surface au-dessus de toute la fenêtre plutôt que dans le bouton. Une surface
+  qui ne présente jamais d'image n'est pas « pas de lianes », c'est un trou
+  opaque sur le bouton et son libellé. Une couche décorative incapable de
+  dessiner quitte maintenant la composition, et le bouton retombe sur sa plaque
+  peinte.
 - **La protection accusait un téléphone sain d'être rooté.** Un joueur a
   photographié la boîte de dialogue de sécurité : `raison : root,
   flags=0x40200`. Deux bits, et tous les vrais bits de root — ROOT_BINARY,

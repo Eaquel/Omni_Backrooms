@@ -50,7 +50,7 @@ uma protege algo que a build do Gradle simplesmente não consegue ver:
 
 | Ferramenta | O que ela pega |
 |---|---|
-| `Shaders_Check.py` | O GLSL mora dentro de strings brutas do Kotlin, então um shader que não compila fica invisível até a tela que o usa abrir e ficar preta. Todos são compilados com `glslangValidator`. |
+| `Shaders_Check.py` | O GLSL mora dentro de strings brutas do Kotlin, então um shader que não compila fica invisível até a tela que o usa abrir e ficar preta. Todos são compilados com `glslangValidator`. Também se liga cada par nomeado numa chamada `linkGlProgram(V, F)`, porque dois shaders que compilam isoladamente podem mesmo assim recusar-se a formar um programa — um uniforme com o mesmo nome tem de concordar entre etapas em tipo e precisão. |
 | `Assets_Check.py` | Ícones vetoriais escritos à mão que o `aapt2` aceita e desenha torto; UVs de malha que não batem mais com a posição no mundo; a câmera de inspeção saindo do fundo; recursos duplicados e nunca referenciados; um idioma que ficou para trás; o disfarce de Unity se contradizendo. Também `--optimise`, um recodificador PNG sem perdas. |
 | `Native_Check.py` | O contrato JNI. O Kotlin declara `external fun`, o C++ define `Java_..._name`, e em tempo de build **nada** liga os dois lados: nem o compilador Kotlin, nem o do C++, nem o linker. Renomear de um lado só é um `UnsatisfiedLinkError` na primeira chamada; mudar a quantidade de argumentos é pior, porque o JNI liga por nome e lê os argumentos sobrando da pilha sem reclamar. Também executa os detetores da proteção contra um `/proc` montado em disco, porque uma verificação de root que ninguém consegue executar é uma verificação de root que acusa telemóveis comuns. |
 | `Kotlin_Check.py` | Cada import contra a dependência que o sustenta, nos dois sentidos. O Kotlin aqui compila sem o classpath do Android, então uma biblioteca de fato removida é idêntica a uma que apenas não está no caminho — foi assim que remover o Firebase levou junto o `androidx.media3`. |
@@ -90,6 +90,28 @@ Tools/                           as oito verificações
 ## Correções recentes
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
+- **Um retângulo preto sobre os botões do átrio, por causa de um shader que
+  compila perfeitamente.** De um registo de Galaxy S23: `Omni program link
+  failed: Error: Uniform uGrowth precision mismatch with other stage.` As duas
+  metades do shader das trepadeiras são válidas isoladamente — foi precisamente
+  por isso que esta ferramenta as aprovou durante meses. Compilar é apenas
+  metade da construção de um programa. Uniformes com o mesmo nome têm de
+  concordar entre etapas em tipo **e precisão**, e um vertex shader coloca
+  `float` em `highp` por omissão, enquanto um fragment shader não tem omissão
+  nenhuma — daí todos os fragment shaders aqui declararem `precision mediump
+  float;`. Um uniforme float lido pelas duas etapas e deixado nu é, por
+  construção, um conflito. Controladores permissivos ligam-no à mesma, e foi
+  exatamente assim que chegou à produção. `uGrowth` é agora explicitamente
+  `highp` nas duas etapas, e o `Shaders_Check.py` liga cada par nomeado numa
+  chamada `linkGlProgram(V, F)` em vez de apenas compilar as metades — o que
+  também apanha um shader que não pertence a programa nenhum.
+- **E a falha não degradava, tapava o botão.** A camada das trepadeiras já
+  apanhava a sua própria falha de arranque e não desenhava nada, o que soa
+  seguro e não é: a view chama `setZOrderOnTop(true)`, colocando a sua
+  superfície sobre toda a janela em vez de dentro do botão. Uma superfície que
+  nunca apresenta um fotograma não é «sem trepadeiras», é um buraco opaco sobre
+  o botão e a sua legenda. Uma camada decorativa que não consegue desenhar sai
+  agora por completo da composição, e o botão volta à sua placa pintada.
 - **A proteção acusou um telemóvel limpo de ter root.** Um jogador fotografou o
   diálogo de segurança: `motivo: root, flags=0x40200`. Dois bits, e todos os
   bits de root verdadeiros — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,

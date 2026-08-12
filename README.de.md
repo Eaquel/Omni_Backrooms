@@ -50,7 +50,7 @@ jedes etwas absichert, das der Gradle-Build schlicht nicht sehen kann:
 
 | Werkzeug | Was es findet |
 |---|---|
-| `Shaders_Check.py` | GLSL steht in Kotlin-Rohstrings. Ein Shader, der nicht kompiliert, bleibt unsichtbar, bis der Bildschirm, der ihn nutzt, sich öffnet und schwarz bleibt. Jeder wird mit `glslangValidator` übersetzt. |
+| `Shaders_Check.py` | GLSL steht in Kotlin-Rohstrings. Ein Shader, der nicht kompiliert, bleibt unsichtbar, bis der Bildschirm, der ihn nutzt, sich öffnet und schwarz bleibt. Jeder wird mit `glslangValidator` übersetzt. Außerdem wird jedes in einem `linkGlProgram(V, F)`-Aufruf genannte Paar gelinkt, denn zwei einzeln kompilierende Shader können sich trotzdem weigern, ein Programm zu bilden — ein gleichnamiges Uniform muss über die Stufen hinweg in Typ und Präzision übereinstimmen. |
 | `Assets_Check.py` | Handgeschriebene Vektor-Icons, die `aapt2` annimmt und verzerrt zeichnet; Mesh-UVs, die nicht mehr zur Weltposition passen; die Inspektionskamera, die ihren Hintergrund verlässt; doppelte und nie referenzierte Assets; eine zurückgefallene Sprache; eine Unity-Tarnung, die sich selbst widerspricht. Außerdem `--optimise`, ein verlustfreier PNG-Neucodierer. |
 | `Native_Check.py` | Der JNI-Vertrag. Kotlin deklariert `external fun`, C++ definiert `Java_..._name`, und zur Bauzeit verbindet die beiden **nichts** — weder der Kotlin-Compiler noch der C++-Compiler noch der Linker. Eine einseitige Umbenennung ist ein `UnsatisfiedLinkError` beim ersten Aufruf; eine geänderte Argumentzahl ist schlimmer, denn JNI bindet über den Namen und liest die überzähligen Argumente kommentarlos vom Stack. Außerdem laufen die Detektoren des Schutzes gegen ein auf der Platte ausgelegtes `/proc`, denn eine Root-Prüfung, die niemand ausführen kann, ist eine Root-Prüfung, die gewöhnliche Telefone beschuldigt. |
 | `Kotlin_Check.py` | Jeden Import gegen die Abhängigkeit dahinter, in beide Richtungen. Das Kotlin hier kompiliert ohne Android-Classpath, also sieht eine wirklich entfernte Bibliothek genauso aus wie eine, die nur nicht im Pfad liegt — so nahm das Entfernen von Firebase still `androidx.media3` mit. |
@@ -91,6 +91,29 @@ Tools/                           die acht Prüfungen
 ## Zuletzt behoben
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
+- **Ein schwarzes Rechteck über den Lobby-Schaltflächen, von einem Shader, der
+  sauber kompiliert.** Aus einem Galaxy-S23-Log: `Omni program link failed:
+  Error: Uniform uGrowth precision mismatch with other stage.` Beide Hälften
+  des Ranken-Shaders sind für sich gültig — genau darum ließ dieses Werkzeug sie
+  monatelang durch. Kompilieren ist nur die halbe Programmerstellung. Uniforms
+  mit gleichem Namen müssen über die Stufen hinweg in Typ **und Präzision**
+  übereinstimmen, und ein Vertex-Shader setzt `float` standardmäßig auf `highp`,
+  während ein Fragment-Shader gar keinen Standard hat — deshalb deklariert hier
+  jeder Fragment-Shader `precision mediump float;`. Ein von beiden Stufen
+  gelesenes, unqualifiziertes float-Uniform ist damit per Konstruktion ein
+  Konflikt. Nachsichtige Treiber linken es trotzdem, und genau so ging es in
+  den Release. `uGrowth` ist jetzt in beiden Stufen ausdrücklich `highp`, und
+  `Shaders_Check.py` linkt jedes in `linkGlProgram(V, F)` genannte Paar, statt
+  nur die Hälften zu kompilieren — was nebenbei einen Shader findet, der zu gar
+  keinem Programm gehört.
+- **Und der Fehler degradierte nicht, er verdeckte die Schaltfläche.** Die
+  Rankenschicht fing ihren Setup-Fehler bereits ab und zeichnete nichts, was
+  sicher klingt und es nicht ist: die View ruft `setZOrderOnTop(true)` und legt
+  ihre Surface damit über das ganze Fenster statt in die Schaltfläche. Eine
+  Surface, die nie ein Bild liefert, ist nicht "keine Ranken", sondern ein
+  undurchsichtiges Loch über der Schaltfläche und ihrer Beschriftung. Eine
+  dekorative Schicht, die nicht zeichnen kann, verlässt jetzt die Komposition
+  ganz, und die Schaltfläche fällt auf ihre gemalte Platte zurück.
 - **Der Schutz beschuldigte ein sauberes Telefon, gerootet zu sein.** Ein
   Spieler fotografierte den Sicherheitsdialog: `Grund: root, flags=0x40200`.
   Zwei Bits, und jedes echte Root-Bit — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS,

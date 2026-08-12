@@ -66,7 +66,7 @@ guards something the Gradle build genuinely cannot see:
 
 | Tool | What it catches |
 |---|---|
-| `Shaders_Check.py` | GLSL lives inside Kotlin raw strings, so a shader that will not compile is invisible until the screen using it opens and goes black. Every one is compiled with `glslangValidator`. |
+| `Shaders_Check.py` | GLSL lives inside Kotlin raw strings, so a shader that will not compile is invisible until the screen using it opens and goes black. Every one is compiled with `glslangValidator`. Every pair named in a `linkGlProgram(V, F)` call is also linked, because two shaders that each compile can still refuse to form a program — a uniform of the same name must match across stages in type and precision. |
 | `Assets_Check.py` | Hand-written vector icons that `aapt2` accepts and renders garbled; mesh UVs that no longer match world position; the inspection camera leaving its backdrop; duplicate and unreferenced assets; a locale that fell behind; the Unity build contradicting itself; a character rig whose bones are not on the geometry they claim to drive, proved by animating it and measuring the seams. Also `--optimise`, a lossless PNG re-encoder. |
 | `Native_Check.py` | The JNI contract. Kotlin declares `external fun`, C++ defines `Java_..._name`, and **nothing** connects them at build time — not the Kotlin compiler, not the C++ compiler, not the linker. A rename on one side is an `UnsatisfiedLinkError` on first call; a changed argument count is worse, because JNI binds by name and reads the extra arguments off the stack without complaining. It also runs the guard's detectors against a `/proc` staged on disk, because a root check nobody can execute is a root check that accuses ordinary phones. |
 | `Kotlin_Check.py` | Every import against the dependency behind it, both ways. The Kotlin here compiles without the Android classpath, so a library that is genuinely gone looks exactly like one that is merely off the path — which is how removing Firebase quietly took `androidx.media3` with it and only surfaced ninety seconds into a Gradle build. |
@@ -106,6 +106,26 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **A black rectangle over the lobby buttons, from a shader that compiled
+  fine.** From a Galaxy S23 log: `Omni program link failed: Error: Uniform
+  uGrowth precision mismatch with other stage.` Both halves of the vine shader
+  are valid on their own, which is why this tool passed them for months —
+  compiling is only half of building a program. Uniforms sharing a name must
+  agree across stages in type **and precision**, and a vertex shader defaults
+  `float` to `highp` while a fragment shader has no default at all, so every
+  fragment shader here declares `precision mediump float;`. A float uniform read
+  by both stages and left bare is therefore a mismatch by construction. Lenient
+  drivers link it anyway, which is exactly how it shipped. `uGrowth` is now
+  explicitly `highp` in both stages, and `Shaders_Check.py` links every pair
+  named in a `linkGlProgram(V, F)` call instead of only compiling the halves —
+  which also catches a shader that belongs to no program at all.
+- **And the failure did not degrade, it covered the button.** The vine layer
+  already caught its own setup failure and drew nothing, which sounds safe and
+  is not: the view calls `setZOrderOnTop(true)`, putting its surface above the
+  whole window rather than inside the button. A surface that never presents a
+  frame is not "no vines", it is an opaque hole over the button and its label.
+  A decorative layer that cannot draw now leaves composition entirely, so the
+  button falls back to its painted plate.
 - **The guard accused a clean phone of being rooted.** A player photographed
   the in-game security dialog: `reason: root, flags=0x40200`. Two bits, and
   every genuine root bit — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK, ZYGISK,
