@@ -53,7 +53,7 @@ simplement pas voir :
 |---|---|
 | `Shaders_Check.py` | Le GLSL vit à l'intérieur de chaînes brutes Kotlin : un shader qui ne compile pas reste invisible jusqu'à ce que l'écran qui l'utilise s'ouvre et reste noir. Chacun est compilé avec `glslangValidator`. |
 | `Assets_Check.py` | Des icônes vectorielles écrites à la main qu'`aapt2` accepte et dessine de travers ; des UV de maillage qui ne correspondent plus à la position monde ; la caméra d'inspection qui sort de son décor ; des ressources dupliquées ou jamais référencées ; une langue restée en arrière ; le déguisement Unity qui se contredit. Et aussi `--optimise`, un ré-encodeur PNG sans perte. |
-| `Native_Check.py` | Le contrat JNI. Kotlin déclare `external fun`, le C++ définit `Java_..._name`, et **rien** ne relie les deux à la compilation — ni le compilateur Kotlin, ni celui du C++, ni l'éditeur de liens. Un renommage d'un seul côté donne un `UnsatisfiedLinkError` au premier appel ; un nombre d'arguments modifié est pire, car JNI lie par le nom et lit les arguments en trop sur la pile sans broncher. |
+| `Native_Check.py` | Le contrat JNI. Kotlin déclare `external fun`, le C++ définit `Java_..._name`, et **rien** ne relie les deux à la compilation — ni le compilateur Kotlin, ni celui du C++, ni l'éditeur de liens. Un renommage d'un seul côté donne un `UnsatisfiedLinkError` au premier appel ; un nombre d'arguments modifié est pire, car JNI lie par le nom et lit les arguments en trop sur la pile sans broncher. Il exécute aussi les détecteurs de la protection sur un `/proc` déposé sur disque, car un contrôle de root que personne ne peut exécuter est un contrôle de root qui accuse des téléphones ordinaires. |
 | `Kotlin_Check.py` | Chaque import face à la dépendance qui le porte, dans les deux sens. Le Kotlin ici compile sans le classpath Android : une bibliothèque réellement supprimée ressemble à s'y méprendre à une simplement absente du chemin — c'est ainsi que retirer Firebase a emporté `androidx.media3`. |
 | `Level_0_Check.py` | Inonde le monde depuis le point d'arrivée sur de nombreuses graines et prouve que la sortie est atteignable. Une sortie inatteignable est une partie ingagnable, et c'est parfaitement silencieux. |
 | `Entity_Check.py` | Compile la vraie IA, place une créature dans le vrai Niveau 0 et regarde : la vue bloquée par les murs, l'ouïe qui suit le bruit, et le cycle retraite-retour qui ne doit jamais se bloquer. |
@@ -91,6 +91,39 @@ Tools/                           les huit vérifications
 ## Corrections récentes
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
+- **La protection accusait un téléphone sain d'être rooté.** Un joueur a
+  photographié la boîte de dialogue de sécurité : `raison : root,
+  flags=0x40200`. Deux bits, et tous les vrais bits de root — ROOT_BINARY,
+  ROOT_PROPS, ROOT_PATHS, MAGISK, ZYGISK, KSU, SELINUX_OFF — éteints. Ce
+  n'était pas un appareil rooté, c'étaient deux de nos propres contrôles.
+  **SHADOW_MOUNT** demandait `containsCI(m,"overlay") && containsCI(m,"/system")`
+  sur toute la table de montage : deux recherches indépendantes, donc un overlay
+  sur `/vendor/overlay` et la ligne `/system_ext` — l'un et l'autre d'origine
+  sur tout téléphone Android 11+ — se combinaient en « root », soit HIGH, soit
+  la boîte de dialogue. **PTRACE_TRACED** appelait `PTRACE_TRACEME` et tentait
+  de l'annuler par `PTRACE_DETACH` sur le pid 0, ce qui est impossible : le
+  détachement exige le vrai pid, échoue avec `ESRCH`, et le processus reste
+  tracé par son parent. Le TRACEME du scan suivant renvoie alors `EPERM` —
+  « déjà tracé » — donc à partir d'environ cinq secondes, sur tout appareil,
+  pour toujours, puisque le mot de drapeaux est OR-é sur toute la partie. Cela
+  nous a aussi coûté des rapports de plantage : un processus coincé en tracee
+  envoie ses signaux à un traceur qui n'attend jamais, donc un vrai SIGSEGV se
+  fige au lieu de planter. Les deux contrôles analysent désormais le champ
+  concerné au lieu de chercher une sous-chaîne dans le fichier, et la boîte de
+  dialogue porte la ligne de montage incriminée.
+- **Et le contrôle Frida jouait à pile ou face la fin d'une partie.** Trouvé en
+  relisant les deux précédents. `fridaPort` cherchait dans `/proc/net/tcp` les
+  littéraux `6D58`, `71D4`, `2717` et `5039` — soit les ports 27992, 29140,
+  10007 et 20537, pas les 27042-27045 de Frida ; quelqu'un avait écrit des
+  chiffres décimaux là où de l'hexadécimal était attendu. Se tromper était la
+  moindre moitié. Ils étaient cherchés comme sous-chaînes dans un fichier
+  presque entièrement hexadécimal : dans la table de 19 sockets de cette machine
+  de build, **220 des 65536 aiguilles possibles de quatre chiffres hexadécimaux
+  apparaissent déjà**, et un téléphone porte bien plus de sockets. Une
+  correspondance dans un numéro d'inode lève FLAG_FRIDA_PORT, qui est CRITICAL,
+  et CRITICAL appelle `killProcess`. Il analyse maintenant la colonne d'adresse
+  locale et exige l'état `0A` (LISTEN), pour qu'une connexion sortante vers le
+  Frida de quelqu'un d'autre ne soit pas lue comme un serveur tournant ici.
 
 - **The creature stood still for the whole game.** Simulated over eight seeds
   and five minutes each, three of them had it see the player 0% of the time at a

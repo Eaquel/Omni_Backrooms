@@ -68,7 +68,7 @@ guards something the Gradle build genuinely cannot see:
 |---|---|
 | `Shaders_Check.py` | GLSL lives inside Kotlin raw strings, so a shader that will not compile is invisible until the screen using it opens and goes black. Every one is compiled with `glslangValidator`. |
 | `Assets_Check.py` | Hand-written vector icons that `aapt2` accepts and renders garbled; mesh UVs that no longer match world position; the inspection camera leaving its backdrop; duplicate and unreferenced assets; a locale that fell behind; the Unity build contradicting itself; a character rig whose bones are not on the geometry they claim to drive, proved by animating it and measuring the seams. Also `--optimise`, a lossless PNG re-encoder. |
-| `Native_Check.py` | The JNI contract. Kotlin declares `external fun`, C++ defines `Java_..._name`, and **nothing** connects them at build time — not the Kotlin compiler, not the C++ compiler, not the linker. A rename on one side is an `UnsatisfiedLinkError` on first call; a changed argument count is worse, because JNI binds by name and reads the extra arguments off the stack without complaining. |
+| `Native_Check.py` | The JNI contract. Kotlin declares `external fun`, C++ defines `Java_..._name`, and **nothing** connects them at build time — not the Kotlin compiler, not the C++ compiler, not the linker. A rename on one side is an `UnsatisfiedLinkError` on first call; a changed argument count is worse, because JNI binds by name and reads the extra arguments off the stack without complaining. It also runs the guard's detectors against a `/proc` staged on disk, because a root check nobody can execute is a root check that accuses ordinary phones. |
 | `Kotlin_Check.py` | Every import against the dependency behind it, both ways. The Kotlin here compiles without the Android classpath, so a library that is genuinely gone looks exactly like one that is merely off the path — which is how removing Firebase quietly took `androidx.media3` with it and only surfaced ninety seconds into a Gradle build. |
 | `Level_0_Check.py` | Floods the world from the spawn over many seeds and proves the exit is reachable. An unreachable exit is an unwinnable run and it is completely silent. |
 | `Entity_Check.py` | Compiles the real AI, puts a creature in the real Level 0, and watches: sight blocked by walls, hearing that scales with noise, the retreat-and-return cycle that must never latch. |
@@ -106,6 +106,36 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **The guard accused a clean phone of being rooted.** A player photographed
+  the in-game security dialog: `reason: root, flags=0x40200`. Two bits, and
+  every genuine root bit — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK, ZYGISK,
+  KSU, SELINUX_OFF — clear. It was not a rooted device, it was two of our own
+  checks. **SHADOW_MOUNT** asked `containsCI(m,"overlay") && containsCI(m,"/system")`
+  over the whole mount table: two independent searches, so an overlay over
+  `/vendor/overlay` and the `/system_ext` line — both stock furniture on every
+  Android 11+ phone — combined into "root", which is HIGH, which is the dialog.
+  **PTRACE_TRACED** called `PTRACE_TRACEME` and tried to undo it with
+  `PTRACE_DETACH` on pid 0, which cannot work: detach needs the tracee's real
+  pid, fails with `ESRCH`, and leaves the process traced by its parent. The next
+  scan's TRACEME then returns `EPERM` — "already traced" — so from about five
+  seconds in, on every device, forever, because the flag word is OR-ed for the
+  life of the run. That one also cost us crash reports: a process stuck as a
+  tracee routes its signals to a tracer that never waits, so a real SIGSEGV
+  hangs instead of crashing. Both checks now parse the field the question is
+  about instead of searching the file for a substring, and the dialog carries
+  the mount line it objected to.
+- **And the Frida check was a coin toss on ending a player's run.** Found while
+  reading the two above. `fridaPort` searched `/proc/net/tcp` for the literals
+  `6D58`, `71D4`, `2717` and `5039` — which are ports 27992, 29140, 10007 and
+  20537, not Frida's 27042-27045; someone had written decimal digits where hex
+  belonged. Being wrong was the smaller half. They were matched as substrings
+  against a file that is almost entirely hex: on this build machine's 19-socket
+  table, **220 of the 65536 possible four-hex-digit needles already occur**, and
+  a phone carries many times that many sockets. A hit inside an inode number
+  raises FLAG_FRIDA_PORT, which is CRITICAL, and CRITICAL calls `killProcess`.
+  It now parses the local-address column and requires state `0A` (LISTEN), so an
+  outbound connection to someone else's Frida is not read as a server running
+  here.
 
 - **The creature stood still for the whole game.** "It is almost absent" was
   the literal truth and it took a simulation to see it: eight seeds, five

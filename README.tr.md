@@ -51,7 +51,7 @@ derlemesinin gerçekten göremediği bir şeyi koruduğu için varlar:
 |---|---|
 | `Shaders_Check.py` | GLSL, Kotlin ham dizelerinin içinde yaşıyor. Derlenmeyecek bir shader, onu kullanan ekran açılıp siyaha dönene kadar görünmez. Hepsi `glslangValidator` ile derleniyor. |
 | `Assets_Check.py` | `aapt2`'nin kabul edip bozuk çizdiği elle yazılmış vektör ikonlar; artık dünya konumuyla eşleşmeyen mesh UV'leri; fon dışına çıkan inceleme kamerası; tekrarlanan ve hiç kullanılmayan varlıklar; geride kalmış bir dil; kendi kendisiyle çelişen Unity kamuflajı; sürdüğünü iddia ettiği geometrinin üzerinde olmayan kemiklere sahip bir karakter rig'i — animasyonu oynatıp dikişleri ölçerek kanıtlanır. Ayrıca `--optimise`: kayıpsız bir PNG yeniden kodlayıcı. |
-| `Native_Check.py` | JNI sözleşmesi. Kotlin `external fun` bildiriyor, C++ `Java_..._name` tanımlıyor ve derleme anında ikisini **hiçbir şey** bağlamıyor — ne Kotlin derleyicisi, ne C++ derleyicisi, ne bağlayıcı. Tek taraflı bir isim değişikliği ilk çağrıda `UnsatisfiedLinkError` demek; argüman sayısı değişirse daha kötü, çünkü JNI isimle bağlar ve fazla argümanları yığından şikâyet etmeden okur. |
+| `Native_Check.py` | JNI sözleşmesi. Kotlin `external fun` bildiriyor, C++ `Java_..._name` tanımlıyor ve derleme anında ikisini **hiçbir şey** bağlamıyor — ne Kotlin derleyicisi, ne C++ derleyicisi, ne bağlayıcı. Tek taraflı bir isim değişikliği ilk çağrıda `UnsatisfiedLinkError` demek; argüman sayısı değişirse daha kötü, çünkü JNI isimle bağlar ve fazla argümanları yığından şikâyet etmeden okur. Ayrıca korumanın dedektörlerini diske serilen sahte bir `/proc` üzerinde çalıştırır; çünkü hiç çalıştırılamayan bir root kontrolü, sıradan telefonları suçlayan bir root kontrolüdür. |
 | `Kotlin_Check.py` | Her import'u ardındaki bağımlılıkla, iki yönlü karşılaştırır. Buradaki Kotlin Android classpath'i olmadan derlendiği için gerçekten silinmiş bir kütüphane ile sadece yolda olmayan biri aynı görünür — Firebase'i kaldırırken `androidx.media3`'ün sessizce onunla gitmesi ve ancak Gradle derlemesinin doksanıncı saniyesinde ortaya çıkması böyle oldu. |
 | `Level_0_Check.py` | Dünyayı doğuş noktasından birçok tohumla tarayıp çıkışın gerçekten erişilebilir olduğunu kanıtlıyor. Erişilemez bir çıkış, kazanılamaz bir tur demek ve tamamen sessiz. |
 | `Entity_Check.py` | Gerçek yapay zekâyı derliyor, gerçek Seviye 0'a bir canavar koyup izliyor: duvarların engellediği görüş, gürültüyle ölçeklenen duyma, asla kilitlenmemesi gereken kaç-ve-dön döngüsü. |
@@ -89,6 +89,38 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **Koruma, temiz bir telefonu root'lu diye suçladı.** Bir oyuncu oyun içi
+  güvenlik uyarısını fotoğrafladı: `Sebep: root, flags=0x40200`. İki bit, ve
+  gerçek root bitlerinin hepsi — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,
+  ZYGISK, KSU, SELINUX_OFF — kapalı. Cihaz root'lu değildi; sorun bizim iki
+  kontrolümüzdü. **SHADOW_MOUNT**, mount tablosunun tamamında
+  `containsCI(m,"overlay") && containsCI(m,"/system")` soruyordu: iki ayrı
+  arama, yani `/vendor/overlay` üzerindeki bir overlay ile `/system_ext` satırı
+  — ikisi de Android 11+ her telefonda standart — birleşip "root" oluyordu; o
+  da HIGH, o da uyarı. **PTRACE_TRACED** ise `PTRACE_TRACEME` çağırıp bunu pid 0
+  ile `PTRACE_DETACH` ederek geri almaya çalışıyordu, ki bu mümkün değil:
+  detach izlenen sürecin gerçek pid'ini ister, `ESRCH` ile başarısız olur ve
+  süreç ebeveyni tarafından izlenir hâlde kalır. Sonraki taramanın TRACEME'si
+  bu sefer `EPERM` — "zaten izleniyor" — döner; yani her cihazda, yaklaşık beş
+  saniye sonra, kalıcı olarak, çünkü bayrak sözcüğü tur boyunca OR'lanıyor. Bu
+  bize çökme raporlarına da mal oldu: izlenen hâlde sıkışmış bir süreç
+  sinyallerini hiç beklemeyen bir izleyiciye yollar, yani gerçek bir SIGSEGV
+  çökmek yerine askıda kalır. İki kontrol de artık dosyada altdizi aramak
+  yerine sorunun ilgili olduğu alanı ayrıştırıyor ve uyarı, itiraz ettiği mount
+  satırını da taşıyor.
+- **Frida kontrolü de bir oyuncunun turunu bitirmek üzerine yazı turaydı.**
+  Yukarıdaki ikisini okurken bulundu. `fridaPort`, `/proc/net/tcp` içinde
+  `6D58`, `71D4`, `2717` ve `5039` dizgilerini arıyordu — bunlar 27992, 29140,
+  10007 ve 20537 portları; Frida'nın 27042-27045'i değil. Biri onaltılık
+  yazılması gereken yere ondalık rakamları yazmış. Yanlış olmaları küçük
+  yarısıydı. Bunlar neredeyse tamamı onaltılık olan bir dosyada altdizi olarak
+  aranıyordu: bu derleme makinesinin 19 soketlik tablosunda **65536 olası
+  dört-haneli-onaltılık dizgiden 220'si zaten geçiyor**, bir telefonda ise kat
+  kat fazla soket var. Bir inode numarasının içine denk gelen eşleşme
+  FLAG_FRIDA_PORT'u yakar, o CRITICAL'dır, CRITICAL da `killProcess` çağırır.
+  Artık yerel adres sütununu ayrıştırıyor ve `0A` (LISTEN) durumunu şart
+  koşuyor; böylece başkasının Frida'sına giden bir bağlantı, burada sunucu
+  çalışıyor diye okunmuyor.
 
 - **Yaratık bütün oyun boyunca kıpırdamadan duruyordu.** "Neredeyse yok"
   kelimenin tam anlamıyla doğruymuş ve bunu görmek için benzetim gerekti: sekiz

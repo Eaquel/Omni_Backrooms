@@ -52,7 +52,7 @@ jedes etwas absichert, das der Gradle-Build schlicht nicht sehen kann:
 |---|---|
 | `Shaders_Check.py` | GLSL steht in Kotlin-Rohstrings. Ein Shader, der nicht kompiliert, bleibt unsichtbar, bis der Bildschirm, der ihn nutzt, sich öffnet und schwarz bleibt. Jeder wird mit `glslangValidator` übersetzt. |
 | `Assets_Check.py` | Handgeschriebene Vektor-Icons, die `aapt2` annimmt und verzerrt zeichnet; Mesh-UVs, die nicht mehr zur Weltposition passen; die Inspektionskamera, die ihren Hintergrund verlässt; doppelte und nie referenzierte Assets; eine zurückgefallene Sprache; eine Unity-Tarnung, die sich selbst widerspricht. Außerdem `--optimise`, ein verlustfreier PNG-Neucodierer. |
-| `Native_Check.py` | Der JNI-Vertrag. Kotlin deklariert `external fun`, C++ definiert `Java_..._name`, und zur Bauzeit verbindet die beiden **nichts** — weder der Kotlin-Compiler noch der C++-Compiler noch der Linker. Eine einseitige Umbenennung ist ein `UnsatisfiedLinkError` beim ersten Aufruf; eine geänderte Argumentzahl ist schlimmer, denn JNI bindet über den Namen und liest die überzähligen Argumente kommentarlos vom Stack. |
+| `Native_Check.py` | Der JNI-Vertrag. Kotlin deklariert `external fun`, C++ definiert `Java_..._name`, und zur Bauzeit verbindet die beiden **nichts** — weder der Kotlin-Compiler noch der C++-Compiler noch der Linker. Eine einseitige Umbenennung ist ein `UnsatisfiedLinkError` beim ersten Aufruf; eine geänderte Argumentzahl ist schlimmer, denn JNI bindet über den Namen und liest die überzähligen Argumente kommentarlos vom Stack. Außerdem laufen die Detektoren des Schutzes gegen ein auf der Platte ausgelegtes `/proc`, denn eine Root-Prüfung, die niemand ausführen kann, ist eine Root-Prüfung, die gewöhnliche Telefone beschuldigt. |
 | `Kotlin_Check.py` | Jeden Import gegen die Abhängigkeit dahinter, in beide Richtungen. Das Kotlin hier kompiliert ohne Android-Classpath, also sieht eine wirklich entfernte Bibliothek genauso aus wie eine, die nur nicht im Pfad liegt — so nahm das Entfernen von Firebase still `androidx.media3` mit. |
 | `Level_0_Check.py` | Flutet die Welt vom Startpunkt aus über viele Seeds und beweist, dass der Ausgang erreichbar ist. Ein unerreichbarer Ausgang ist ein ungewinnbarer Durchgang, und er ist völlig lautlos. |
 | `Entity_Check.py` | Kompiliert die echte KI, setzt eine Kreatur in die echte Ebene 0 und schaut zu: von Wänden blockierte Sicht, mit Lautstärke skalierendes Gehör, der Rückzug-und-Rückkehr-Zyklus, der niemals hängen bleiben darf. |
@@ -91,6 +91,39 @@ Tools/                           die acht Prüfungen
 ## Zuletzt behoben
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
+- **Der Schutz beschuldigte ein sauberes Telefon, gerootet zu sein.** Ein
+  Spieler fotografierte den Sicherheitsdialog: `Grund: root, flags=0x40200`.
+  Zwei Bits, und jedes echte Root-Bit — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS,
+  MAGISK, ZYGISK, KSU, SELINUX_OFF — aus. Kein gerootetes Gerät, sondern zwei
+  eigene Prüfungen. **SHADOW_MOUNT** fragte
+  `containsCI(m,"overlay") && containsCI(m,"/system")` über die ganze
+  Mount-Tabelle: zwei unabhängige Suchen, also ergaben ein Overlay auf
+  `/vendor/overlay` und die `/system_ext`-Zeile — beides Serienausstattung auf
+  jedem Android-11+-Telefon — zusammen "root", also HIGH, also den Dialog.
+  **PTRACE_TRACED** rief `PTRACE_TRACEME` und versuchte, das mit
+  `PTRACE_DETACH` auf PID 0 rückgängig zu machen, was nicht geht: Detach
+  braucht die echte PID, scheitert mit `ESRCH`, und der Prozess bleibt vom
+  Elternprozess getraced. Das TRACEME des nächsten Scans liefert dann `EPERM` —
+  "bereits getraced" — also ab etwa fünf Sekunden, auf jedem Gerät, dauerhaft,
+  weil das Flag-Wort über den ganzen Lauf ge-ODER-t wird. Das kostete uns auch
+  Absturzberichte: ein als Tracee feststeckender Prozess leitet seine Signale an
+  einen Tracer, der nie wartet, ein echtes SIGSEGV hängt also, statt
+  abzustürzen. Beide Prüfungen parsen jetzt das Feld, um das es geht, statt die
+  Datei nach einer Teilzeichenkette zu durchsuchen, und der Dialog trägt die
+  beanstandete Mount-Zeile mit.
+- **Und die Frida-Prüfung war ein Münzwurf über das Ende eines Laufs.** Beim
+  Lesen der beiden oben gefunden. `fridaPort` suchte in `/proc/net/tcp` nach
+  `6D58`, `71D4`, `2717` und `5039` — das sind die Ports 27992, 29140, 10007
+  und 20537, nicht Fridas 27042-27045; jemand hatte Dezimalziffern dorthin
+  geschrieben, wo Hex hingehörte. Falsch zu sein war die kleinere Hälfte. Sie
+  wurden als Teilzeichenketten gegen eine Datei geprüft, die fast nur aus Hex
+  besteht: in der 19-Socket-Tabelle dieses Build-Rechners kommen **220 der
+  65536 möglichen vierstelligen Hex-Nadeln bereits vor**, und ein Telefon hat
+  ein Vielfaches an Sockets. Ein Treffer in einer Inode-Nummer setzt
+  FLAG_FRIDA_PORT, das ist CRITICAL, und CRITICAL ruft `killProcess`. Jetzt wird
+  die Spalte der lokalen Adresse geparst und der Zustand `0A` (LISTEN)
+  verlangt, damit eine ausgehende Verbindung zu fremdem Frida nicht als hier
+  laufender Server gelesen wird.
 
 - **The creature stood still for the whole game.** Simulated over eight seeds
   and five minutes each, three of them had it see the player 0% of the time at a

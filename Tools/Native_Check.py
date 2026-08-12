@@ -417,12 +417,281 @@ def check_ending() -> None:
               "move the exposure the same way")
 
 
+SHIELD_PROBE = r"""
+// Runs the guard's detectors against a /proc we lay out ourselves.
+//
+// The point of going through RootDetector::scan() rather than calling the
+// parsing functions directly: a detector is free to stop calling them. The
+// first version of this probe did call them directly, and it passed with every
+// original bug put back.
+#include "Shield/Shield.h"
+
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+using namespace omni::shield;
+namespace fs = std::filesystem;
+
+// A stock, locked-bootloader user build. The only "overlay" is the RRO mount
+// that ships on the hardware, and /system_ext is on every Android 11+ device.
+static constexpr const char* kStock =
+    "/dev/block/dm-4 / ext4 ro,seclabel,relatime 0 0\n"
+    "/dev/block/dm-5 /system_ext ext4 ro,seclabel,relatime 0 0\n"
+    "/dev/block/dm-6 /vendor ext4 ro,seclabel,relatime 0 0\n"
+    "/dev/block/dm-7 /product ext4 ro,seclabel,relatime 0 0\n"
+    "tmpfs /apex tmpfs ro,seclabel,relatime 0 0\n"
+    "overlay /vendor/overlay overlay ro,seclabel,lowerdir=/vendor 0 0\n"
+    "/dev/block/by-name/userdata /data f2fs rw,seclabel 0 0\n";
+
+// An overlay whose target really is the system image.
+static constexpr const char* kOverlaidSystem =
+    "/dev/block/dm-4 / ext4 ro,seclabel,relatime 0 0\n"
+    "overlay /system overlay rw,seclabel,upperdir=/mnt/scratch/overlay 0 0\n"
+    "/dev/block/by-name/userdata /data f2fs rw,seclabel 0 0\n";
+
+// A root manager naming itself.
+static constexpr const char* kMagiskMounts =
+    "/dev/block/dm-4 / ext4 ro,seclabel,relatime 0 0\n"
+    "magisk /sbin tmpfs rw,seclabel,mode=755 0 0\n";
+
+// A socket table with no Frida in it. 69A2 — port 27042 — appears twice as a
+// decoy: inside an inode number and inside a remote address. A substring
+// search takes both.
+static constexpr const char* kCleanTcp =
+    "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+    "   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000  0 4269A2 1 0000000000000000 100 0 0 10 0\n"
+    "   1: 020200C0:BF26 A56069A2:01BB 01 00000000:00000000 02:00000040 00000000  1000  0 2357   2 0000000039f06d0f 20 4 30 281 -1\n"
+    "   2: 00000000:1BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0  0 1969   1 0000000038ff7476 100 0 0 10 0\n";
+
+// frida-server actually listening on 27042.
+static constexpr const char* kFridaTcp =
+    "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+    "   1: 00000000:69A2 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0  0 1969   1 0000000038ff7476 100 0 0 10 0\n";
+
+// An outbound connection to someone else's Frida. Not this process being
+// instrumented, and not a server running here.
+static constexpr const char* kConnectedTcp =
+    "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+    "   0: 0100007F:69A2 0A684FA0:01BB 01 00000000:00000000 02:00000040 00000000  1000  0 2357 2 00000000 20 4 30 281 -1\n";
+
+static constexpr const char* kCleanStatus =
+    "Name:\tomni.backrooms\nState:\tS (sleeping)\nTgid:\t9001\nTracerPid:\t0\n";
+static constexpr const char* kTracedStatus =
+    "Name:\tomni.backrooms\nState:\tS (sleeping)\nTgid:\t9001\nTracerPid:\t3241\n";
+static constexpr const char* kHeldStatus =
+    "Name:\tomni.backrooms\nState:\tt (tracing stop)\nTgid:\t9001\nTracerPid:\t3241\n";
+
+static void put(const fs::path& p, const char* body) {
+    fs::create_directories(p.parent_path());
+    std::ofstream(p) << body;
+}
+
+/** Lays out a /proc the detectors will read, and points them at it. */
+static void stage(const fs::path& root, const char* mounts, const char* tcp, const char* status) {
+    fs::remove_all(root);
+    put(root / "self" / "mounts", mounts);
+    put(root / "self" / "status", status);
+    put(root / "self" / "maps",   "7f8a00000000-7f8a00021000 r-xp 00000000 fd:00 128  /apex/com.android.runtime/lib64/bionic/libc.so\n");
+    put(root / "net"  / "tcp",    tcp);
+    put(root / "net"  / "tcp6",   "  sl  local_address rem_address   st\n");
+    put(root / "cpuinfo",         "Processor\t: AArch64 Processor rev 1 (aarch64)\n");
+    fs::create_directories(root / "self" / "task");
+    procRoot() = root.string();
+}
+
+static void say(const char* name, bool v) { std::printf("%s %d\n", name, v ? 1 : 0); }
+
+// Scanning must not change what the next scan sees.
+//
+// This runs in its own process, on the real /proc, and nothing else may run
+// first. The bug it exists for was a detector mutating the process it was
+// inspecting — PTRACE_TRACEME with an undo that could not work — and once the
+// mutation has happened the readings are steady again. Sharing a process with
+// the staged tests hid it: they tripped the mutation, and by the time this ran
+// there was nothing left to observe.
+static int stability() {
+    DebugDetector debug;
+    RootDetector  root;
+    const uint32_t d0 = debug.scan(), r0 = root.scan();
+    bool stable = true;
+    for (int i = 0; i < 4; ++i)
+        if (debug.scan() != d0 || root.scan() != r0) stable = false;
+    std::printf("STABLE %d 0x%x\n", stable ? 1 : 0, d0);
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    const std::string mode = argc > 1 ? argv[1] : "staged";
+    if (mode == "stable") return stability();
+
+    const fs::path base = argc > 2 ? fs::path(argv[2]) : fs::temp_directory_path() / "omni_shield";
+    const fs::path root = base / "proc";
+
+    // Root, through RootDetector::scan().
+    stage(root, kStock, kCleanTcp, kCleanStatus);
+    RootDetector rd;
+    say("MOUNT_STOCK", (rd.scan() & FLAG_SHADOW_MOUNT) != 0);
+
+    stage(root, kOverlaidSystem, kCleanTcp, kCleanStatus);
+    const bool sysHit = (rd.scan() & FLAG_SHADOW_MOUNT) != 0;
+    say("MOUNT_SYSTEM", sysHit);
+    std::printf("WHY_MOUNT %s\n", rd.why().empty() ? "-" : "yes");
+
+    stage(root, kMagiskMounts, kCleanTcp, kCleanStatus);
+    say("MOUNT_MAGISK", (rd.scan() & FLAG_SHADOW_MOUNT) != 0);
+
+    stage(root, "", kCleanTcp, kCleanStatus);
+    say("MOUNT_EMPTY", (rd.scan() & FLAG_SHADOW_MOUNT) != 0);
+    // Evidence must not outlive the verdict it belongs to.
+    std::printf("WHY_CLEARED %s\n", rd.why().empty() ? "yes" : "-");
+
+    // Frida, through FridaDetector::scan().
+    FridaDetector fd;
+    stage(root, kStock, kCleanTcp, kCleanStatus);
+    say("TCP_CLEAN", (fd.scan() & FLAG_FRIDA_PORT) != 0);
+    stage(root, kStock, kFridaTcp, kCleanStatus);
+    say("TCP_FRIDA", (fd.scan() & FLAG_FRIDA_PORT) != 0);
+    stage(root, kStock, kConnectedTcp, kCleanStatus);
+    say("TCP_CONNECTED", (fd.scan() & FLAG_FRIDA_PORT) != 0);
+
+    // Debug, through DebugDetector::scan().
+    DebugDetector dd;
+    stage(root, kStock, kCleanTcp, kCleanStatus);
+    uint32_t clean = dd.scan();
+    say("DBG_CLEAN_TRACED", (clean & FLAG_PTRACE_TRACED) != 0);
+    say("DBG_CLEAN_WAIT",   (clean & FLAG_DEBUG_WAIT)    != 0);
+    stage(root, kStock, kCleanTcp, kTracedStatus);
+    uint32_t traced = dd.scan();
+    say("DBG_TRACED",      (traced & FLAG_PTRACE_TRACED) != 0);
+    say("DBG_TRACED_WAIT", (traced & FLAG_DEBUG_WAIT)    != 0);
+    stage(root, kStock, kCleanTcp, kHeldStatus);
+    say("DBG_HELD", (dd.scan() & FLAG_DEBUG_WAIT) != 0);
+
+    fs::remove_all(base);
+    return 0;
+}
+"""
+
+
+def check_shield() -> None:
+    """
+    The guard's detectors, run against inputs instead of against opinion.
+
+    A player photographed the in-game security dialog: `reason: root,
+    flags=0x40200`. Decoded, that is FLAG_PTRACE_TRACED and FLAG_SHADOW_MOUNT
+    with every genuine root bit — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,
+    ZYGISK, KSU, SELINUX_OFF — clear. It was not a rooted device. It was two of
+    our own checks, and a third one sitting next to them that was worse:
+
+      * SHADOW_MOUNT asked `containsCI(m,"overlay") && containsCI(m,"/system")`
+        over the whole mount table. Two independent searches, so an overlay
+        over /vendor/overlay and the /system_ext line — both present on stock
+        retail hardware — combined into "root", which is HIGH, which is the
+        dialog.
+
+      * PTRACE_TRACED called PTRACE_TRACEME and tried to undo it with
+        PTRACE_DETACH on pid 0, which cannot work. The process stayed traced,
+        so every scan after the first reported a debugger.
+
+      * FRIDA_PORT searched /proc/net/tcp for the literals "6D58", "71D4",
+        "2717" and "5039" — not Frida's ports, and matched as substrings
+        against a file that is nothing but hex. Frida is CRITICAL, and CRITICAL
+        calls killProcess. That one was a coin toss on ending a player's run.
+
+    Everything here is a property those checks must have. The Shield module
+    compiles on a host, which is what makes asking possible at all.
+    """
+    section("Shield")
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "shield_probe.cpp")
+        exe = os.path.join(tmp, "shield_probe")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(SHIELD_PROBE)
+        build = subprocess.run(
+            ["g++", "-std=c++20", "-O2", "-I", NATIVE, src,
+             os.path.join(NATIVE, "Shield/Shield.cpp"), "-o", exe],
+            capture_output=True, text=True)
+        if build.returncode != 0:
+            failures.append("the shield probe did not compile:\n" + build.stderr[:2000])
+            return
+        stdout = ""
+        # Two runs, because the stability check needs a process nothing has
+        # scanned in yet — see the comment above stability() in the probe.
+        for mode in ("staged", "stable"):
+            run = subprocess.run([exe, mode, os.path.join(tmp, "stage")],
+                                 capture_output=True, text=True)
+            if run.returncode != 0:
+                failures.append(f"the shield probe exited {run.returncode} in {mode} mode")
+                return
+            stdout += run.stdout
+        out = dict(line.split(None, 1) for line in stdout.splitlines() if line.strip())
+
+    def flag(key: str) -> bool:
+        return out.get(key, "").split()[0] == "1"
+
+    # Mount tables. The first of these is the bug a player photographed.
+    check(not flag("MOUNT_STOCK"),
+          "a stock mount table with a /vendor/overlay RRO mount is read as root "
+          "— this is the SHADOW_MOUNT false positive that put 'root' in front of "
+          "a player with an unmodified phone")
+    check(not flag("MOUNT_EMPTY"),
+          "an unreadable mount table is read as root, so a device that denies us "
+          "/proc/self/mounts is accused rather than left alone")
+    check(flag("MOUNT_SYSTEM"),
+          "an overlay mounted directly over /system is not detected — the check "
+          "has been narrowed past the thing it exists for")
+    check(flag("MOUNT_MAGISK"),
+          "a mount whose source is literally 'magisk' is not detected")
+    check(out.get("WHY_MOUNT") == "yes",
+          "a mount verdict carries no evidence — the flag word alone is what "
+          "made the last false positive take a morning to decode")
+    check(out.get("WHY_CLEARED") == "yes",
+          "evidence from an earlier scan survives into a clean one, so the "
+          "report names a mount the device no longer has")
+
+    # Socket tables.
+    check(not flag("TCP_CLEAN"),
+          "a socket table containing 69A2 inside an inode number and inside a "
+          "remote address is read as Frida — and Frida is CRITICAL, which kills "
+          "the process, so this false positive ends a player's run")
+    check(flag("TCP_FRIDA"),
+          "frida-server listening on 27042 is not detected — the port scan is "
+          "looking for the wrong numbers")
+    check(not flag("TCP_CONNECTED"),
+          "an established connection on port 27042 is read as Frida listening; "
+          "only a socket in state 0A (LISTEN) means a server is running here")
+
+    # The debugger flags, and the fact that they mean two different things.
+    check(not flag("DBG_CLEAN_TRACED") and not flag("DBG_CLEAN_WAIT"),
+          "an untraced process with TracerPid 0 is reported as debugged")
+    check(flag("DBG_TRACED"),
+          "a real TracerPid is not read as a debugger being attached")
+    check(not flag("DBG_TRACED_WAIT"),
+          "merely being attached to is reported as being held at a breakpoint, "
+          "so PTRACE_TRACED and DEBUG_WAIT carry the same meaning and one of "
+          "them is noise")
+    check(flag("DBG_HELD"),
+          "a process parked in tracing-stop is not detected")
+
+    # The one that has to hold on this machine rather than on staged text.
+    stable = out.get("STABLE", "0 0x0").split()
+    print(f"   detectors stable across 5 scans: {stable[0] == '1'} (debug flags {stable[1]})")
+    check(stable[0] == "1",
+          "scanning changes what the next scan sees. A detector that probes by "
+          "mutating the process reports something different the second time, and "
+          "since the flag word is OR-ed for the life of the run, that second "
+          "answer is permanent")
+
+
 def main() -> int:
     check_jni_contract()
     check_jni_signatures()
     check_cmake_sources()
     check_host_build()
     check_ending()
+    check_shield()
 
     print()
     for f in failures:

@@ -48,7 +48,7 @@ Gradle 构建根本看不见的东西：
 |---|---|
 | `Shaders_Check.py` | GLSL 写在 Kotlin 的原始字符串里，所以一个编译不过的着色器在使用它的界面打开并变黑之前都是不可见的。每一个都用 `glslangValidator` 编译。 |
 | `Assets_Check.py` | `aapt2` 接受却画得乱七八糟的手写矢量图标；不再与世界坐标对应的网格 UV；跑出背景的观赏相机；重复以及从未被引用的资源；落后的语言；自相矛盾的 Unity 伪装。还有 `--optimise`——一个无损的 PNG 重编码器。 |
-| `Native_Check.py` | JNI 契约。Kotlin 声明 `external fun`，C++ 定义 `Java_..._name`，而在构建期**没有任何东西**把两边连起来——Kotlin 编译器不会，C++ 编译器不会，链接器也不会。单边改名意味着首次调用时的 `UnsatisfiedLinkError`；参数个数变了更糟，因为 JNI 按名字绑定，会一声不吭地从栈上读走多出来的参数。 |
+| `Native_Check.py` | JNI 契约。Kotlin 声明 `external fun`，C++ 定义 `Java_..._name`，而在构建期**没有任何东西**把两边连起来——Kotlin 编译器不会，C++ 编译器不会，链接器也不会。单边改名意味着首次调用时的 `UnsatisfiedLinkError`；参数个数变了更糟，因为 JNI 按名字绑定，会一声不吭地从栈上读走多出来的参数。 它还会让防护的各个检测器跑在一份铺在磁盘上的 `/proc` 上，因为一个谁都没法执行的 root 检查，就是一个会冤枉普通手机的 root 检查。 |
 | `Kotlin_Check.py` | 把每一个 import 与其背后的依赖双向核对。这里的 Kotlin 在没有 Android classpath 的情况下编译，所以真正被删掉的库和只是不在路径上的库看起来一模一样——移除 Firebase 时 `androidx.media3` 就这样被悄悄带走了。 |
 | `Level_0_Check.py` | 用大量种子从出生点淹没整个世界，证明出口确实可达。不可达的出口意味着一局无法通关，而且它完全无声。 |
 | `Entity_Check.py` | 编译真正的 AI，把一只怪物放进真正的第0层并观察：被墙挡住的视线、随噪音变化的听觉，以及绝不能卡死的撤退—回归循环。 |
@@ -86,6 +86,29 @@ Tools/                           八项检查
 ## 近期修复
 
 最新的在最上面。每次修复都会更新这份列表。
+- **防护把一台干净的手机指认为已 root。** 一位玩家拍下了游戏内的安全提示：
+  `原因：root，flags=0x40200`。两个位，而所有真正的 root 位 —— ROOT_BINARY、
+  ROOT_PROPS、ROOT_PATHS、MAGISK、ZYGISK、KSU、SELINUX_OFF —— 全都没亮。那不是
+  一台 root 过的设备，而是我们自己的两处检查。**SHADOW_MOUNT** 在整张挂载表上
+  问 `containsCI(m,"overlay") && containsCI(m,"/system")`：两次互不相关的搜索，
+  于是 `/vendor/overlay` 上的一个 overlay 和 `/system_ext` 那一行 —— 两者在任何
+  Android 11+ 手机上都是原装配置 —— 合起来就成了「root」，那是 HIGH，那就是弹窗。
+  **PTRACE_TRACED** 调用 `PTRACE_TRACEME`，再试图用 pid 0 的 `PTRACE_DETACH`
+  撤销，这根本不可能：detach 需要被追踪者真实的 pid，会以 `ESRCH` 失败，进程就
+  一直被父进程追踪着。下一轮扫描的 TRACEME 于是返回 `EPERM` ——「已被追踪」——
+  也就是说，在任何设备上，大约五秒之后，永久如此，因为标志字在整局游戏中是按位
+  或累积的。这还让我们丢了崩溃报告：一个卡在被追踪状态的进程，会把信号送给一个
+  永远不会等待的追踪者，于是真正的 SIGSEGV 会挂起而不是崩溃。两处检查现在都改为
+  解析问题真正涉及的字段，而不是在文件里找子串，弹窗也会带上它所反对的那一行挂载。
+- **而 Frida 检查则是在拿玩家这一局掷硬币。** 是在读上面两处时发现的。
+  `fridaPort` 在 `/proc/net/tcp` 里搜索字面量 `6D58`、`71D4`、`2717` 和 `5039`
+  —— 它们是端口 27992、29140、10007 和 20537，并不是 Frida 的 27042-27045；有人
+  把十进制数字写在了该写十六进制的地方。写错只是较小的那一半。它们是以子串方式
+  去匹配一个几乎全由十六进制组成的文件：在这台构建机 19 个套接字的表里，
+  **65536 个可能的四位十六进制针中已经有 220 个出现过**，而一部手机的套接字要多
+  出好几倍。命中某个 inode 号里的一段就会点亮 FLAG_FRIDA_PORT，那是 CRITICAL，
+  而 CRITICAL 会调用 `killProcess`。现在它解析本地地址列并要求状态为 `0A`
+  （LISTEN），这样一条通往别人 Frida 的出站连接就不会被读成这里跑着一个服务端。
 
 - **The creature stood still for the whole game.** Simulated over eight seeds
   and five minutes each, three of them had it see the player 0% of the time at a

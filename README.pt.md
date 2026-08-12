@@ -52,7 +52,7 @@ uma protege algo que a build do Gradle simplesmente não consegue ver:
 |---|---|
 | `Shaders_Check.py` | O GLSL mora dentro de strings brutas do Kotlin, então um shader que não compila fica invisível até a tela que o usa abrir e ficar preta. Todos são compilados com `glslangValidator`. |
 | `Assets_Check.py` | Ícones vetoriais escritos à mão que o `aapt2` aceita e desenha torto; UVs de malha que não batem mais com a posição no mundo; a câmera de inspeção saindo do fundo; recursos duplicados e nunca referenciados; um idioma que ficou para trás; o disfarce de Unity se contradizendo. Também `--optimise`, um recodificador PNG sem perdas. |
-| `Native_Check.py` | O contrato JNI. O Kotlin declara `external fun`, o C++ define `Java_..._name`, e em tempo de build **nada** liga os dois lados: nem o compilador Kotlin, nem o do C++, nem o linker. Renomear de um lado só é um `UnsatisfiedLinkError` na primeira chamada; mudar a quantidade de argumentos é pior, porque o JNI liga por nome e lê os argumentos sobrando da pilha sem reclamar. |
+| `Native_Check.py` | O contrato JNI. O Kotlin declara `external fun`, o C++ define `Java_..._name`, e em tempo de build **nada** liga os dois lados: nem o compilador Kotlin, nem o do C++, nem o linker. Renomear de um lado só é um `UnsatisfiedLinkError` na primeira chamada; mudar a quantidade de argumentos é pior, porque o JNI liga por nome e lê os argumentos sobrando da pilha sem reclamar. Também executa os detetores da proteção contra um `/proc` montado em disco, porque uma verificação de root que ninguém consegue executar é uma verificação de root que acusa telemóveis comuns. |
 | `Kotlin_Check.py` | Cada import contra a dependência que o sustenta, nos dois sentidos. O Kotlin aqui compila sem o classpath do Android, então uma biblioteca de fato removida é idêntica a uma que apenas não está no caminho — foi assim que remover o Firebase levou junto o `androidx.media3`. |
 | `Level_0_Check.py` | Inunda o mundo a partir do ponto de entrada com muitas sementes e prova que a saída é alcançável. Uma saída inalcançável é uma partida impossível de vencer, e é completamente silenciosa. |
 | `Entity_Check.py` | Compila a IA real, põe uma criatura no Nível 0 real e observa: visão bloqueada por paredes, audição que escala com o barulho, e o ciclo de recuo e retorno que jamais pode travar. |
@@ -90,6 +90,38 @@ Tools/                           as oito verificações
 ## Correções recentes
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
+- **A proteção acusou um telemóvel limpo de ter root.** Um jogador fotografou o
+  diálogo de segurança: `motivo: root, flags=0x40200`. Dois bits, e todos os
+  bits de root verdadeiros — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,
+  ZYGISK, KSU, SELINUX_OFF — apagados. Não era um dispositivo com root, eram
+  duas verificações nossas. **SHADOW_MOUNT** perguntava
+  `containsCI(m,"overlay") && containsCI(m,"/system")` sobre toda a tabela de
+  montagens: duas pesquisas independentes, portanto um overlay em
+  `/vendor/overlay` e a linha `/system_ext` — ambos mobiliário de série em
+  qualquer telemóvel Android 11+ — combinavam-se em «root», que é HIGH, que é o
+  diálogo. **PTRACE_TRACED** chamava `PTRACE_TRACEME` e tentava desfazê-lo com
+  `PTRACE_DETACH` no pid 0, o que não pode funcionar: o detach precisa do pid
+  real, falha com `ESRCH`, e o processo fica traçado pelo pai. O TRACEME da
+  varredura seguinte devolve então `EPERM` — «já traçado» — ou seja, a partir de
+  cerca de cinco segundos, em qualquer dispositivo, para sempre, porque a
+  palavra de bandeiras é OR-ada durante toda a partida. Isso também nos custou
+  relatórios de falha: um processo preso como tracee encaminha os seus sinais
+  para um tracer que nunca espera, por isso um SIGSEGV real fica pendurado em
+  vez de falhar. Ambas as verificações agora analisam o campo em questão em vez
+  de procurar uma subcadeia no ficheiro, e o diálogo transporta a linha de
+  montagem que o incomodou.
+- **E a verificação do Frida era cara ou coroa sobre acabar com uma partida.**
+  Encontrada ao ler as duas acima. `fridaPort` procurava em `/proc/net/tcp` os
+  literais `6D58`, `71D4`, `2717` e `5039` — que são as portas 27992, 29140,
+  10007 e 20537, não as 27042-27045 do Frida; alguém escrevera dígitos decimais
+  onde era preciso hexadecimal. Estarem errados era a metade menor. Eram
+  procurados como subcadeias contra um ficheiro que é quase só hexadecimal: na
+  tabela de 19 sockets desta máquina de compilação **220 das 65536 agulhas
+  possíveis de quatro dígitos hexadecimais já aparecem**, e um telemóvel tem
+  muitos mais sockets. Um acerto dentro de um número de inode levanta
+  FLAG_FRIDA_PORT, que é CRITICAL, e CRITICAL chama `killProcess`. Agora analisa
+  a coluna do endereço local e exige o estado `0A` (LISTEN), para que uma ligação
+  de saída ao Frida de outra pessoa não seja lida como um servidor a correr aqui.
 
 - **The creature stood still for the whole game.** Simulated over eight seeds
   and five minutes each, three of them had it see the player 0% of the time at a

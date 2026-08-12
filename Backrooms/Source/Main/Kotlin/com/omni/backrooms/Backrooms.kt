@@ -572,6 +572,15 @@ private fun OmniBackroomsAppContent() {
                             "${stringResource(R.string.guard_threat_reason)}: $why",
                             color = TextDim, fontSize = 11.sp
                         )
+                        // The named checks and the evidence behind them, not
+                        // just the hex. A player who photographs this dialog
+                        // should be handing us something we can act on: the
+                        // last time one did, the hex alone took a morning to
+                        // decode and the answer was two of our own bugs.
+                        if (guardReport.report.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(guardReport.report, color = TextDim, fontSize = 9.sp)
+                        }
                         OmniLog.sinkPath()?.let { path ->
                             Spacer(Modifier.height(6.dp))
                             Text(path, color = TextDim, fontSize = 9.sp)

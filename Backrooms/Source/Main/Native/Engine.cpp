@@ -1315,6 +1315,11 @@ Java_com_omni_backrooms_NativeBridge_getThreatReport(JNIEnv* env, jobject) {
     ap(FLAG_XPOSED,"XPOSED"); ap(FLAG_SUBSTRATE,"SUBSTRATE"); ap(FLAG_SHADOW_MOUNT,"SHADOW_MOUNT");
     ap(FLAG_MAPS_TAMPER,"MAPS_TAMPER"); ap(FLAG_HOOK_INLINE,"INLINE_HOOK"); ap(FLAG_PROC_TAMPER,"PROC_TAMPER");
     if(r.empty()) r="CLEAN";
+    // The line the verdict came from, where a detector kept one. A flag name
+    // says which check fired; only this says what it saw, and a false positive
+    // that cannot be told apart from a true one is not diagnosable at all.
+    if(!gGuard.root.why().empty())  r+=" {mount: "+gGuard.root.why()+"}";
+    if(!gGuard.frida.why().empty()) r+=" {frida: "+gGuard.frida.why()+"}";
     return env->NewStringUTF(r.c_str());
 }
 

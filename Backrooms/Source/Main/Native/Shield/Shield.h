@@ -18,12 +18,22 @@
 // The signature check is the exception and stays in Engine.cpp: it calls into
 // PackageManager through JNI, so there is no version of it that runs without a
 // JVM. Keeping it there rather than pretending otherwise is the honest split.
+//
+// Being compilable was not enough on its own. A detector reads /proc, and a
+// tool cannot put a Magisk mount or a frida-server socket into the machine's
+// real one — so for a while these were compiled and never actually run, and
+// three of them were wrong in ways that accused ordinary phones. `procRoot()`
+// below is what closed that: the detectors read through it, a check stages a
+// /proc on disk, and the assertions go through `RootDetector::scan()` — the
+// same call the game makes.
 // ============================================================================
 
 #ifndef OMNI_SHIELD_SHIELD_H
 #define OMNI_SHIELD_SHIELD_H
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdarg>
 #include <cstdint>
 #include <cstring>
@@ -34,7 +44,6 @@
 #include <string>
 #include <string_view>
 #include <sys/prctl.h>
-#include <sys/ptrace.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -69,10 +78,29 @@ constexpr uint32_t
     FLAG_ZYGISK=1u<<21,      FLAG_LSPOSED=1u<<22,    FLAG_KSU=1u<<23;
 
 [[nodiscard]] static bool fileExists(std::string_view p) noexcept { struct stat st{}; return ::stat(p.data(),&st)==0; }
-[[nodiscard]] static std::string readSmallFile(std::string_view p) noexcept {
-    int fd=::open(p.data(),O_RDONLY|O_CLOEXEC); if(fd<0) return {};
+[[nodiscard]] static std::string readSmallFile(const std::string& p) noexcept {
+    int fd=::open(p.c_str(),O_RDONLY|O_CLOEXEC); if(fd<0) return {};
     char buf[8192]{}; ssize_t n=::read(fd,buf,sizeof(buf)-1); ::close(fd);
     return n>0?std::string(buf,static_cast<size_t>(n)):std::string{};
+}
+
+/**
+ * Where the detectors look for /proc. `/proc` everywhere except under a test.
+ *
+ * The parsing below is written as pure functions so it can be asserted on, and
+ * the first version of the check that came with them called those functions
+ * directly. That check passed with the original bugs put back, because the
+ * detectors were free to stop calling them — which is the exact shape of
+ * failure this project has hit six times now: one rule in two places, and the
+ * copy under test is not the copy that ships.
+ *
+ * With a settable root, a tool lays out a mount table and a socket table on
+ * disk and runs `RootDetector::scan()` — the same call the game makes, through
+ * the same file reads. Nothing can be bypassed without the check noticing.
+ */
+inline std::string& procRoot() noexcept { static std::string root="/proc"; return root; }
+[[nodiscard]] inline std::string procPath(std::string_view rel) {
+    std::string p=procRoot(); p+='/'; p.append(rel); return p;
 }
 [[nodiscard]] static bool containsCI(std::string_view hay,std::string_view needle) noexcept {
     if(needle.size()>hay.size()) return false;
@@ -88,6 +116,147 @@ constexpr uint32_t
     addr.sin_port=htons(port); addr.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
     bool ok=(::connect(fd,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))==0);
     ::close(fd); return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Reading a /proc file, as opposed to searching it.
+//
+// Three detectors below used to draw their conclusions from containsCI() over
+// a whole /proc file. That is a substring search, and a substring search does
+// not know what a field is — so "is an overlay mounted over /system" became
+// "does the word overlay appear anywhere AND does the string /system appear
+// anywhere", which are two different lines on every stock Android 11+ device,
+// and "is Frida listening on 27042" became "does this four-character run of
+// hex appear anywhere in a file that is nothing but hex".
+//
+// The fix is not a longer needle. It is parsing the field the question is
+// actually about. These three are pure functions of the file's text, with no
+// I/O in them, which is also what lets Native_Check.py feed them mount tables
+// and socket tables copied off real devices and assert on the answers.
+//
+// Each takes an optional `why`: the line the verdict came from. A flag word
+// tells a player their device is unauthorised and tells us nothing we can act
+// on — the whole reason this round of fixes was possible is that a screenshot
+// happened to carry the hex.
+// ---------------------------------------------------------------------------
+
+/** Splits `line` on runs of spaces, filling up to `want` views. Returns how
+ *  many fields were found. */
+static size_t splitFields(std::string_view line,std::string_view* out,size_t want) noexcept {
+    size_t got=0,at=0;
+    while(got<want&&at<line.size()){
+        while(at<line.size()&&(line[at]==' '||line[at]=='\t')) ++at;
+        const size_t s=at;
+        while(at<line.size()&&line[at]!=' '&&line[at]!='\t') ++at;
+        if(at>s) out[got++]=line.substr(s,at-s);
+    }
+    return got;
+}
+
+/**
+ * True if the mount table shows something laid over the system image.
+ *
+ * A line in /proc/self/mounts is `source target fstype options freq passno`.
+ * What makes a mount suspicious is an overlay whose *target* is a read-only
+ * system partition — one line, one field, not two searches.
+ *
+ * The target must be the partition root exactly. A subdirectory of one is not
+ * enough: /vendor/overlay is where a device keeps its runtime resource
+ * overlays and is stock furniture, and the first version of this rewrite
+ * flagged it, which is the same false positive again wearing better clothes.
+ * On Android "/" is the system partition, so it belongs in the list.
+ *
+ * Bind-mounting individual files under /system is the older root technique and
+ * does not show as an overlay at all; those lines carry the manager's name in
+ * the source, which is the check above.
+ */
+[[nodiscard]] inline bool mountsShadowSystem(std::string_view mounts,std::string* why=nullptr) noexcept {
+    static constexpr std::string_view kGuarded[]={
+        "/","/system","/system_ext","/vendor","/product","/odm"
+    };
+    size_t pos=0;
+    while(pos<mounts.size()){
+        size_t end=mounts.find('\n',pos);
+        if(end==std::string_view::npos) end=mounts.size();
+        const std::string_view line=mounts.substr(pos,end-pos);
+        pos=end+1;
+        std::string_view f[3];
+        if(splitFields(line,f,3)<3) continue;
+        // A root manager naming itself in the source or the target is
+        // conclusive wherever it is mounted.
+        for(auto n: {"magisk","supersu","kernelsu"})
+            if(containsCI(f[0],n)||containsCI(f[1],n)){
+                if(why) *why=std::string(line);
+                return true;
+            }
+        if(!containsCI(f[2],"overlay")&&!containsCI(f[0],"overlay")) continue;
+        for(auto g: kGuarded)
+            if(f[1]==g){ if(why) *why=std::string(line); return true; }
+    }
+    return false;
+}
+
+/**
+ * True if the table holds a LISTENING socket on one of `ports`.
+ *
+ * /proc/net/tcp columns: `sl local_address rem_address st ...`, where the
+ * address is `HHHHHHHH:PPPP` and st 0A is TCP_LISTEN. The port is the half
+ * after the colon — searching the whole line for its hex matches inode
+ * numbers, sequence numbers and remote addresses just as happily.
+ */
+[[nodiscard]] inline bool netTableListens(std::string_view table,const uint16_t* ports,
+                                          size_t count,std::string* why=nullptr) noexcept {
+    constexpr std::string_view kListen="0A";
+    size_t pos=0;
+    bool header=true;
+    while(pos<table.size()){
+        size_t end=table.find('\n',pos);
+        if(end==std::string_view::npos) end=table.size();
+        const std::string_view line=table.substr(pos,end-pos);
+        pos=end+1;
+        if(header){ header=false; continue; }   // "sl local_address rem_address st ..."
+        std::string_view f[4];
+        if(splitFields(line,f,4)<4) continue;
+        if(f[3]!=kListen) continue;
+        const size_t colon=f[1].rfind(':');
+        if(colon==std::string_view::npos) continue;
+        const std::string_view hex=f[1].substr(colon+1);
+        if(hex.size()!=4) continue;
+        uint32_t port=0;
+        bool ok=true;
+        for(char c: hex){
+            const int d=(c>='0'&&c<='9')?c-'0':(c>='a'&&c<='f')?c-'a'+10:(c>='A'&&c<='F')?c-'A'+10:-1;
+            if(d<0){ ok=false; break; }
+            port=port*16+static_cast<uint32_t>(d);
+        }
+        if(!ok) continue;
+        for(size_t i=0;i<count;++i)
+            if(port==ports[i]){ if(why) *why="listening on "+std::to_string(port); return true; }
+    }
+    return false;
+}
+
+/** The value of TracerPid in a /proc/<pid>/status blob, or 0 when there is no
+ *  such line — which is the same answer as "nothing is tracing us". */
+[[nodiscard]] inline int tracerPidOf(std::string_view status) noexcept {
+    const size_t pos=status.find("TracerPid:");
+    if(pos==std::string_view::npos) return 0;
+    std::string_view sv=status.substr(pos+10);
+    while(!sv.empty()&&(sv[0]==' '||sv[0]=='\t')) sv.remove_prefix(1);
+    int v=0;
+    for(char c: sv){ if(c<'0'||c>'9') break; v=v*10+(c-'0'); }
+    return v;
+}
+
+/** True if the process is parked in tracing-stop — a debugger has it held,
+ *  rather than merely being attached. `State:` is a single letter, and `t` is
+ *  the one that means stopped by a tracer. */
+[[nodiscard]] inline bool inTracingStop(std::string_view status) noexcept {
+    const size_t pos=status.find("State:");
+    if(pos==std::string_view::npos) return false;
+    std::string_view sv=status.substr(pos+6);
+    while(!sv.empty()&&(sv[0]==' '||sv[0]=='\t')) sv.remove_prefix(1);
+    return !sv.empty()&&sv[0]=='t';
 }
 
 inline std::string sha256Hex(const uint8_t* data,size_t len) noexcept {
@@ -128,6 +297,7 @@ inline std::string sha256Hex(const uint8_t* data,size_t len) noexcept {
 class RootDetector {
 public:
     [[nodiscard]] uint32_t scan() noexcept {
+        why_.clear();   // evidence belongs to this scan, not the last one
         uint32_t f=0;
         if(rootBinaries())   f|=FLAG_ROOT_BINARY;
         if(rootProperties()) f|=FLAG_ROOT_PROPS;
@@ -139,7 +309,10 @@ public:
         if(zygisk())         f|=FLAG_ZYGISK;
         return f;
     }
+    /** The mount line a SHADOW_MOUNT verdict came from, empty otherwise. */
+    [[nodiscard]] const std::string& why() const noexcept { return why_; }
 private:
+    std::string why_;
     [[nodiscard]] bool rootBinaries() noexcept {
         static constexpr std::string_view bins[]={
             "/sbin/su","/system/bin/su","/system/xbin/su","/system/sbin/su","/vendor/bin/su",
@@ -169,23 +342,22 @@ private:
     [[nodiscard]] bool magisk() noexcept {
         static constexpr std::string_view mp[]={"/sbin/.magisk","/dev/.magisk","/data/adb/magisk","/data/adb/magisk.img","/sbin/magisk","/dev/magisk"};
         for(auto p: mp) if(fileExists(p)) return true;
-        return containsCI(readSmallFile("/proc/self/maps"),"magisk");
+        return containsCI(readSmallFile(procPath("self/maps")),"magisk");
     }
     [[nodiscard]] bool ksu() noexcept { return fileExists("/data/adb/ksu")||fileExists("/data/adb/ksud")||fileExists("/data/adb/modules/.ksu"); }
     [[nodiscard]] bool zygisk() noexcept {
-        auto m=readSmallFile("/proc/self/maps");
+        auto m=readSmallFile(procPath("self/maps"));
         return containsCI(m,"zygisk")||containsCI(m,"riru")||fileExists("/data/adb/modules/.zygisk");
     }
     [[nodiscard]] bool shadowMount() noexcept {
-        auto m=readSmallFile("/proc/self/mounts");
-        if(containsCI(m,"magisk")||containsCI(m,"supersu")) return true;
-        return containsCI(m,"overlay")&&containsCI(m,"/system");
+        return mountsShadowSystem(readSmallFile(procPath("self/mounts")),&why_);
     }
 };
 
 class FridaDetector {
 public:
     [[nodiscard]] uint32_t scan() noexcept {
+        why_.clear();
         uint32_t f=0;
         if(fridaPort())   f|=FLAG_FRIDA_PORT;
         if(fridaMaps())   f|=FLAG_FRIDA_MAPS;
@@ -193,26 +365,47 @@ public:
         if(fridaGadget()) f|=FLAG_FRIDA_GADGET;
         return f;
     }
+    /** What a FRIDA_PORT verdict saw, empty otherwise. This one earns its
+     *  keep more than the others: a Frida flag is CRITICAL, and CRITICAL kills
+     *  the process. Nothing should be able to do that without leaving a line
+     *  behind saying why. */
+    [[nodiscard]] const std::string& why() const noexcept { return why_; }
 private:
+    std::string why_;
+    /**
+     * Frida's server listens on 27042 and counts up from there.
+     *
+     * The hex fallback that used to sit here searched /proc/net/tcp for the
+     * literals "6D58", "71D4", "2717" and "5039". Those are 27992, 29140,
+     * 10007 and 20537 — not Frida's ports at all, and someone had written the
+     * decimal digits where the hex belonged. Worse than being wrong, they were
+     * matched as substrings against a file that is almost entirely hex: on
+     * this build machine's tiny 19-socket table, 220 of the 65536 possible
+     * four-hex-digit needles already occur somewhere, and a phone carries many
+     * times that many sockets. Sooner or later one lands in an inode number
+     * and the game kills itself in a player's hands.
+     */
     [[nodiscard]] bool fridaPort() noexcept {
         static constexpr uint16_t ports[]={27042,27043,27044,27045};
-        for(auto p: ports) if(portOpen(p)) return true;
-        auto tcp=readSmallFile("/proc/net/tcp"),tcp6=readSmallFile("/proc/net/tcp6");
-        for(auto h: {"6D58","71D4","2717","5039"}) if(containsCI(tcp,h)||containsCI(tcp6,h)) return true;
+        for(auto p: ports)
+            if(portOpen(p)){ why_="connected to loopback "+std::to_string(p); return true; }
+        for(auto rel: {"net/tcp","net/tcp6"})
+            if(netTableListens(readSmallFile(procPath(rel)),ports,4,&why_)){ why_=std::string(rel)+" "+why_; return true; }
         return false;
     }
     [[nodiscard]] bool fridaMaps() noexcept {
-        auto m=readSmallFile("/proc/self/maps");
+        auto m=readSmallFile(procPath("self/maps"));
         for(auto p: {"frida","gum-js-loop","frida-agent","frida-gadget","frida-server","linjector","re.frida.server","frida-helper"})
             if(containsCI(m,p)) return true;
         return false;
     }
     [[nodiscard]] bool fridaThread() noexcept {
-        DIR* dir=opendir("/proc/self/task"); if(!dir) return false;
+        const std::string taskDir=procPath("self/task");
+        DIR* dir=opendir(taskDir.c_str()); if(!dir) return false;
         bool found=false; struct dirent* e;
         while((e=readdir(dir))!=nullptr){
             if(e->d_name[0]=='.') continue;
-            std::string path="/proc/self/task/"; path+=e->d_name; path+="/comm";
+            std::string path=taskDir; path+='/'; path+=e->d_name; path+="/comm";
             auto comm=readSmallFile(path);
             if(containsCI(comm,"gum-js-loop")||containsCI(comm,"frida")||containsCI(comm,"gmain")){ found=true; break; }
         }
@@ -240,29 +433,47 @@ public:
         return f;
     }
 private:
+    /**
+     * Is a debugger attached right now?
+     *
+     * This used to call PTRACE_TRACEME and then PTRACE_DETACH to undo it. The
+     * undo never worked: PTRACE_DETACH needs the tracee's real pid and was
+     * being handed 0, so it failed with ESRCH every time and the process was
+     * left traced by its parent. The next scan's TRACEME then returned EPERM —
+     * "already traced" — and the detector reported a debugger. On every device,
+     * about five seconds in, permanently, because the flag word is sticky.
+     * That is one of the two bits behind the 0x40200 a player photographed.
+     *
+     * The damage was not only the false positive. A process stuck as a tracee
+     * routes its signals to a tracer that never waits, so a genuine SIGSEGV
+     * hangs instead of crashing and Crashlytics gets nothing.
+     *
+     * TracerPid is the authoritative answer to the same question and reading
+     * it changes nothing about the process. Occupying the tracer slot on
+     * purpose — a single TRACEME at startup, never undone — is a real
+     * technique, but it buys a little friction for a debugger at the cost of
+     * every future crash report, which is a bad trade for a game.
+     */
     [[nodiscard]] bool ptrace_check() noexcept {
-        if(ptrace(PTRACE_TRACEME,0,nullptr,nullptr)==-1) return true;
-        ptrace(PTRACE_DETACH,0,nullptr,nullptr); return false;
+        return tracerPidOf(readSmallFile(procPath("self/status")))!=0;
     }
+    /** Held by a debugger, rather than merely attached to one. Distinct from
+     *  the above, which is what gives the two flags separate meanings. */
     [[nodiscard]] bool debugWait() noexcept {
-        auto s=readSmallFile("/proc/self/status");
-        auto pos=s.find("TracerPid:"); if(pos==std::string::npos) return false;
-        std::string_view sv(s); sv=sv.substr(pos+10);
-        while(!sv.empty()&&(sv[0]==' '||sv[0]=='\t')) sv.remove_prefix(1);
-        return !sv.empty()&&sv[0]!='0';
+        return inTracingStop(readSmallFile(procPath("self/status")));
     }
-    [[nodiscard]] bool xposed() noexcept { return containsCI(readSmallFile("/proc/self/maps"),"XposedBridge")||fileExists("/system/framework/XposedBridge.jar"); }
+    [[nodiscard]] bool xposed() noexcept { return containsCI(readSmallFile(procPath("self/maps")),"XposedBridge")||fileExists("/system/framework/XposedBridge.jar"); }
     [[nodiscard]] bool lsposed() noexcept {
-        return containsCI(readSmallFile("/proc/self/maps"),"lsposed")||
+        return containsCI(readSmallFile(procPath("self/maps")),"lsposed")||
                fileExists("/data/data/org.lsposed.manager")||fileExists("/data/data/io.github.lsposed.manager");
     }
     [[nodiscard]] bool substrate() noexcept {
         for(auto lib: {"libsubstrate.so","libsubstrate-dvm.so","libCydiaSubstrate.so"}){
             void* h=dlopen(lib,RTLD_NOLOAD); if(h){ dlclose(h); return true; }
         }
-        return containsCI(readSmallFile("/proc/self/maps"),"substrate");
+        return containsCI(readSmallFile(procPath("self/maps")),"substrate");
     }
-    [[nodiscard]] bool procStatus() noexcept { auto s=readSmallFile("/proc/self/status"); return s.empty()||!containsCI(s,"Name:"); }
+    [[nodiscard]] bool procStatus() noexcept { auto s=readSmallFile(procPath("self/status")); return s.empty()||!containsCI(s,"Name:"); }
     [[nodiscard]] bool inlineHook() noexcept {
         for(auto lib: {"libdobby.so","libsandHook.so","libwhale.so","libAndHook.so","libepic.so","libreactivehole.so"}){
             void* h=dlopen(lib,RTLD_NOLOAD); if(h){ dlclose(h); return true; }
@@ -291,7 +502,7 @@ private:
         return false;
     }
     [[nodiscard]] bool emuHw() noexcept { for(auto f: {"/dev/socket/qemud","/dev/qemu_pipe","/sys/qemu_trace"}) if(fileExists(f)) return true; return false; }
-    [[nodiscard]] bool cpuInfo() noexcept { auto c=readSmallFile("/proc/cpuinfo"); return containsCI(c,"goldfish")||containsCI(c,"ranchu"); }
+    [[nodiscard]] bool cpuInfo() noexcept { auto c=readSmallFile(procPath("cpuinfo")); return containsCI(c,"goldfish")||containsCI(c,"ranchu"); }
 };
 
 
