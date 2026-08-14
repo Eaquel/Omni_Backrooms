@@ -91,6 +91,38 @@ Tools/                           les huit vérifications
 ## Corrections récentes
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
+- **Les douze programmes étaient tous en désaccord avec eux-mêmes entre les
+  étages.** Le Galaxy S23 nommait un uniforme ; un Galaxy A17 sur Mali disait
+  la même chose autrement — `L0001 The fragment floating-point variable uGrowth
+  does not match the vertex variable uGrowth. The precision does not match.` En
+  mesurant les douze paires, 25 autres sont apparues : une variable variante
+  écrite `out vec3 vNormal` dans l'étage sommet (highp par défaut) et lue
+  `in vec3 vNormal` dans l'étage fragment (mediump, d'après sa ligne
+  `precision`). La spécification ES 3.00 l'autorise pour les variantes — elle
+  n'exige l'accord que pour les uniformes — et glslang suit la spécification,
+  donc rien n'était signalé. Les pilotes ne sont pas si uniformes, et le message
+  de Mali ne distingue même pas une variante d'un uniforme. Les 25 sont
+  désormais fixées à la précision de l'étage sommet, et `Shaders_Check.py`
+  impose l'accord pour les deux sortes — volontairement plus strict que la
+  spécification.
+- **Une image qui dessine dans le vide ressemble exactement à un écran noir.**
+  Le moteur de rendu construisait une cible couleur hors écran, un tampon de
+  profondeur et une paire de bloom en demi-résolution, sans jamais appeler
+  `glCheckFramebufferStatus`. Un framebuffer incomplet n'est pas une erreur
+  qu'un pilote signale : chaque dessin y est jeté, la partie continue de
+  tourner, l'ATH continue de se composer par-dessus, et le monde est simplement
+  absent — sans une ligne exploitable dans aucun journal. La complétude est
+  maintenant vérifiée à chaque reconstruction, et un échec se dégrade au lieu de
+  disparaître : une paire de bloom inutilisable coûte les halos, une cible de
+  scène inutilisable envoie l'image directement à l'écran sans la chaîne de
+  post-traitement.
+- **Et rien ne disait quel GPU dessinait.** Deux signalements d'écran noir sont
+  arrivés avec un journal complet, et aucun n'identifiait le pilote : il a
+  fallu le deviner d'après le numéro de modèle. Le fabricant GL, le renderer, la
+  version et la version GLSL sont désormais journalisés une fois par contexte,
+  et un programme qui ne se lie pas se nomme — le programme de scène n'est
+  enveloppé dans rien, son échec était donc un plantage nu sans indication de
+  lequel des douze avait lâché.
 - **Un rectangle noir sur les boutons du hall, à cause d'un shader qui compile
   très bien.** Extrait d'un journal de Galaxy S23 : `Omni program link failed:
   Error: Uniform uGrowth precision mismatch with other stage.` Les deux moitiés

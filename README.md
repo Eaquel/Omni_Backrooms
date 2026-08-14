@@ -106,6 +106,33 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **Every one of the twelve programs disagreed with itself across stages.** The
+  Galaxy S23 named a uniform; a Galaxy A17 on Mali named the same thing in
+  different words — `L0001 The fragment floating-point variable uGrowth does not
+  match the vertex variable uGrowth. The precision does not match.` Measuring
+  all twelve pairs turned up 25 more: a varying written `out vec3 vNormal` in
+  the vertex stage (highp by default) and read `in vec3 vNormal` in the
+  fragment stage (mediump, from its `precision` line). The ES 3.00 spec permits
+  that for varyings — it only requires uniforms to match — and glslang follows
+  the spec, so nothing flagged them. Drivers are not so uniform, and Mali's
+  message does not even distinguish a varying from a uniform. All 25 are now
+  pinned to the vertex stage's precision, and `Shaders_Check.py` enforces
+  agreement for both kinds, deliberately stricter than the spec.
+- **A frame that draws into nothing looks exactly like a black screen.** The
+  renderer built an offscreen colour target, a depth buffer and a half-res
+  bloom pair, and never once called `glCheckFramebufferStatus`. An incomplete
+  framebuffer is not an error any driver reports: every draw into it is
+  discarded, the run keeps ticking, the HUD keeps compositing over the top, and
+  the world is simply absent — with nothing in any log to act on. Completeness
+  is now checked on every rebuild, and a failure degrades instead of
+  disappearing: an unusable bloom pair costs the halos, an unusable scene
+  target sends the frame straight to the display without the post chain.
+- **And nothing said which GPU was drawing.** Two black-screen reports arrived
+  with a full log and neither identified the driver, so it had to be guessed
+  from the model number. The GL vendor, renderer, version and GLSL version are
+  now logged once per context, and a program that fails to link names itself —
+  the scene program is not wrapped in anything, so its failure used to be a
+  bare crash with no line saying which of the twelve had gone.
 - **A black rectangle over the lobby buttons, from a shader that compiled
   fine.** From a Galaxy S23 log: `Omni program link failed: Error: Uniform
   uGrowth precision mismatch with other stage.` Both halves of the vine shader

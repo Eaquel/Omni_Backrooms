@@ -91,6 +91,36 @@ Tools/                           die acht Prüfungen
 ## Zuletzt behoben
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
+- **Alle zwölf Programme widersprachen sich über die Stufen hinweg.** Das
+  Galaxy S23 nannte ein Uniform; ein Galaxy A17 auf Mali sagte dasselbe mit
+  anderen Worten — `L0001 The fragment floating-point variable uGrowth does not
+  match the vertex variable uGrowth. The precision does not match.` Beim
+  Vermessen aller zwölf Paare kamen 25 weitere zum Vorschein: ein Varying, in
+  der Vertex-Stufe als `out vec3 vNormal` geschrieben (standardmäßig highp) und
+  in der Fragment-Stufe als `in vec3 vNormal` gelesen (mediump, aus deren
+  `precision`-Zeile). Die ES-3.00-Spezifikation erlaubt das für Varyings — nur
+  Uniforms müssen übereinstimmen — und glslang folgt der Spezifikation, also
+  fiel nichts auf. Treiber sind nicht so einheitlich, und Malis Meldung
+  unterscheidet Varying und Uniform nicht einmal. Alle 25 sind jetzt auf die
+  Präzision der Vertex-Stufe festgelegt, und `Shaders_Check.py` erzwingt
+  Übereinstimmung für beide Arten — bewusst strenger als die Spezifikation.
+- **Ein Frame, das ins Nichts zeichnet, sieht genau aus wie ein schwarzer
+  Bildschirm.** Der Renderer baute ein Offscreen-Farbziel, einen Tiefenpuffer
+  und ein halbaufgelöstes Bloom-Paar — und rief kein einziges Mal
+  `glCheckFramebufferStatus`. Ein unvollständiges Framebuffer ist kein Fehler,
+  den irgendein Treiber meldet: jeder Draw hinein wird verworfen, der Lauf
+  tickt weiter, das HUD komponiert weiter darüber, und die Welt ist einfach
+  nicht da — ohne eine Zeile in irgendeinem Log. Die Vollständigkeit wird jetzt
+  bei jedem Neuaufbau geprüft, und ein Fehler degradiert statt zu verschwinden:
+  ein unbrauchbares Bloom-Paar kostet die Halos, ein unbrauchbares Szenenziel
+  schickt das Frame ohne Post-Kette direkt auf die Anzeige.
+- **Und nichts sagte, welche GPU zeichnete.** Zwei Schwarzbild-Meldungen kamen
+  mit vollständigem Log, und keine nannte den Treiber — er musste aus der
+  Modellnummer erraten werden. GL-Hersteller, -Renderer, -Version und
+  GLSL-Version werden jetzt einmal pro Kontext geloggt, und ein Programm, das
+  nicht linkt, nennt sich selbst: das Szenenprogramm ist in nichts eingepackt,
+  sein Fehlschlag war also ein nackter Absturz ohne Hinweis, welches der zwölf
+  es getroffen hatte.
 - **Ein schwarzes Rechteck über den Lobby-Schaltflächen, von einem Shader, der
   sauber kompiliert.** Aus einem Galaxy-S23-Log: `Omni program link failed:
   Error: Uniform uGrowth precision mismatch with other stage.` Beide Hälften

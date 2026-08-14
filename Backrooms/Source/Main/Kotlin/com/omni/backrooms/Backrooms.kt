@@ -2377,7 +2377,17 @@ private fun compileGlShader(type: Int, src: String): Int {
     return shader
 }
 
-private fun linkGlProgram(vertSrc: String, fragSrc: String): Int {
+/**
+ * Builds one program.
+ *
+ * [label] names it in the failure. Without it a link error carries only what
+ * the driver said about a variable, and on the scene program — which is not
+ * wrapped in anything — that arrived as a bare crash with no line in any log
+ * saying which of the twelve programs had gone. Shaders_Check.py reads the
+ * first two arguments of every call to this function and links those pairs on
+ * a build machine, so the pairing here is also the pairing it checks.
+ */
+private fun linkGlProgram(vertSrc: String, fragSrc: String, label: String = "?"): Int {
     val vs = compileGlShader(GLES30.GL_VERTEX_SHADER, vertSrc)
     val fs = compileGlShader(GLES30.GL_FRAGMENT_SHADER, fragSrc)
     val prog = GLES30.glCreateProgram()
@@ -2389,7 +2399,8 @@ private fun linkGlProgram(vertSrc: String, fragSrc: String): Int {
     if (status[0] == 0) {
         val log = GLES30.glGetProgramInfoLog(prog)
         GLES30.glDeleteProgram(prog)
-        throw RuntimeException("Omni program link failed: $log")
+        OmniLog.e("GL", "program '$label' failed to link: $log")
+        throw RuntimeException("Omni program '$label' link failed: $log")
     }
     return prog
 }
@@ -2427,7 +2438,7 @@ private const val kCeilTileM = 0.60f
 
 private const val OMNI_SCENE_FRAG = """#version 300 es
 precision mediump float;
-in vec3 vNormal; in vec2 vUV; in float vLight; in vec3 vWorldPos;
+in highp vec3 vNormal; in highp vec2 vUV; in highp float vLight; in highp vec3 vWorldPos;
 uniform vec3 uCamPos;
 uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
 /**
@@ -2811,7 +2822,7 @@ void main(){
  */
 private const val OMNI_BILLBOARD_FRAG = """#version 300 es
 precision mediump float;
-in vec2 vUV;
+in highp vec2 vUV;
 uniform vec3 uColor; uniform float uAlert; uniform float uAlpha; uniform float uColorBlind;
 uniform float uTime; uniform float uSeed; uniform float uDissolve;
 out vec4 fragColor;
@@ -2967,7 +2978,7 @@ void main(){
 
 private const val OMNI_SHADOW_FRAG = """#version 300 es
 precision mediump float;
-in vec2 vUV;
+in highp vec2 vUV;
 uniform float uAlpha; uniform float uTime; uniform float uSeed;
 out vec4 fragColor;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
@@ -3015,7 +3026,7 @@ void main(){
 
 private const val OMNI_EXIT_FRAG = """#version 300 es
 precision mediump float;
-in vec2 vUV;
+in highp vec2 vUV;
 uniform float uTime; uniform float uNear;
 out vec4 fragColor;
 void main(){
@@ -3087,7 +3098,7 @@ void main(){
 
 private const val OMNI_DECAL_FRAG = """#version 300 es
 precision mediump float;
-in vec2 vUv; in float vAge; in float vLit;
+in highp vec2 vUv; in highp float vAge; in highp float vLit;
 /** Tint from the trail's own entry in Native/Trail. */
 uniform vec3 uTint;
 /** 0 sole, 1 static glyph, 2 grain. */
@@ -3171,7 +3182,7 @@ void main(){
 
 private const val OMNI_TORCH_FRAG = """#version 300 es
 precision mediump float;
-in vec3 vNormal; in float vPart; in float vAxial;
+in highp vec3 vNormal; in highp float vPart; in highp float vAxial;
 uniform float uOn;
 uniform vec3 uAmbient;
 out vec4 fragColor;
@@ -3223,7 +3234,7 @@ void main(){ vUV = aPos*0.5+0.5; gl_Position = vec4(aPos, 0.0, 1.0); }
  */
 private const val OMNI_BRIGHT_FRAG = """#version 300 es
 precision mediump float;
-in vec2 vUV;
+in highp vec2 vUV;
 uniform sampler2D uScene;
 uniform float uThreshold; uniform float uKnee;
 out vec4 fragColor;
@@ -3241,7 +3252,7 @@ void main(){
 /** Separable Gaussian. Run once horizontally, once vertically, per mip level. */
 private const val OMNI_BLUR_FRAG = """#version 300 es
 precision mediump float;
-in vec2 vUV;
+in highp vec2 vUV;
 uniform sampler2D uSource;
 uniform vec2 uDir;          // texel-sized step, one axis at a time
 out vec4 fragColor;
@@ -3259,7 +3270,7 @@ void main(){
 
 private const val OMNI_POST_FRAG = """#version 300 es
 precision mediump float;
-in vec2 vUV;
+in highp vec2 vUV;
 uniform sampler2D uScene;
 uniform sampler2D uBloom;
 uniform float uTime; uniform float uFlicker; uniform float uVhsStrength; uniform vec2 uResolution;
@@ -3563,6 +3574,11 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
     private var surfaceW = 1; private var surfaceH = 1
     private var renderW = 1; private var renderH = 1
     private var lastResScale = -1f
+    /** Whether the offscreen scene target and the bloom pair could be
+     *  completed. Both start true and are re-decided on every rebuild; when
+     *  either is false the frame degrades rather than disappearing. */
+    private var fboUsable = true
+    private var bloomUsable = true
 
     /** Avatar height in metres. The mesh is normalised to unit height. */
     private val AVATAR_SCALE = 1.7f
@@ -3609,13 +3625,23 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         fbo = 0; fboTex = 0; fboDepth = 0
         bloomFbo = IntArray(2); bloomTex = IntArray(2)
         renderW = 1; renderH = 1; lastResScale = -1f
+        fboUsable = true; bloomUsable = true
 
         GLES30.glClearColor(0.02f, 0.02f, 0.017f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
 
-        sceneProgram = linkGlProgram(OMNI_SCENE_VERT, OMNI_SCENE_FRAG)
+        // Which GPU this is. Two black-screen reports arrived with a full log
+        // and neither said what was drawing — so the driver had to be guessed
+        // from the model number, and the answer to "does this device reject
+        // that shader" was unavailable. One line, once per context.
+        OmniLog.i("GL", "vendor=${GLES30.glGetString(GLES30.GL_VENDOR)} " +
+                        "renderer=${GLES30.glGetString(GLES30.GL_RENDERER)} " +
+                        "version=${GLES30.glGetString(GLES30.GL_VERSION)} " +
+                        "glsl=${GLES30.glGetString(GLES30.GL_SHADING_LANGUAGE_VERSION)}")
+
+        sceneProgram = linkGlProgram(OMNI_SCENE_VERT, OMNI_SCENE_FRAG, "scene")
         uMVP = GLES30.glGetUniformLocation(sceneProgram, "uMVP")
         uFlatAlbedo = GLES30.glGetUniformLocation(sceneProgram, "uFlatAlbedo")
         uCamPos = GLES30.glGetUniformLocation(sceneProgram, "uCamPos")
@@ -3629,7 +3655,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         uTorchOn = GLES30.glGetUniformLocation(sceneProgram, "uTorchOn")
         uSceneTime = GLES30.glGetUniformLocation(sceneProgram, "uTime")
 
-        billboardProgram = linkGlProgram(OMNI_BILLBOARD_VERT, OMNI_BILLBOARD_FRAG)
+        billboardProgram = linkGlProgram(OMNI_BILLBOARD_VERT, OMNI_BILLBOARD_FRAG, "billboard")
         bVP = GLES30.glGetUniformLocation(billboardProgram, "uVP")
         bCenter = GLES30.glGetUniformLocation(billboardProgram, "uCenter")
         bRight = GLES30.glGetUniformLocation(billboardProgram, "uCamRight")
@@ -3643,7 +3669,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         bSeed = GLES30.glGetUniformLocation(billboardProgram, "uSeed")
         bDissolve = GLES30.glGetUniformLocation(billboardProgram, "uDissolve")
 
-        postProgram = linkGlProgram(OMNI_POST_VERT, OMNI_POST_FRAG)
+        postProgram = linkGlProgram(OMNI_POST_VERT, OMNI_POST_FRAG, "post")
         pScene = GLES30.glGetUniformLocation(postProgram, "uScene")
         pTime = GLES30.glGetUniformLocation(postProgram, "uTime")
         pFlicker = GLES30.glGetUniformLocation(postProgram, "uFlicker")
@@ -3659,16 +3685,16 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         pEnd0 = GLES30.glGetUniformLocation(postProgram, "uEnd0")
         pEnd1 = GLES30.glGetUniformLocation(postProgram, "uEnd1")
 
-        brightProgram = linkGlProgram(OMNI_POST_VERT, OMNI_BRIGHT_FRAG)
+        brightProgram = linkGlProgram(OMNI_POST_VERT, OMNI_BRIGHT_FRAG, "bright")
         brScene = GLES30.glGetUniformLocation(brightProgram, "uScene")
         brThreshold = GLES30.glGetUniformLocation(brightProgram, "uThreshold")
         brKnee = GLES30.glGetUniformLocation(brightProgram, "uKnee")
 
-        blurProgram = linkGlProgram(OMNI_POST_VERT, OMNI_BLUR_FRAG)
+        blurProgram = linkGlProgram(OMNI_POST_VERT, OMNI_BLUR_FRAG, "blur")
         blSource = GLES30.glGetUniformLocation(blurProgram, "uSource")
         blDir = GLES30.glGetUniformLocation(blurProgram, "uDir")
 
-        exitProgram = linkGlProgram(OMNI_EXIT_VERT, OMNI_EXIT_FRAG)
+        exitProgram = linkGlProgram(OMNI_EXIT_VERT, OMNI_EXIT_FRAG, "exit")
         xVP = GLES30.glGetUniformLocation(exitProgram, "uVP")
         xCenter = GLES30.glGetUniformLocation(exitProgram, "uCenter")
         xRight = GLES30.glGetUniformLocation(exitProgram, "uRight")
@@ -3677,12 +3703,12 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         xTime = GLES30.glGetUniformLocation(exitProgram, "uTime")
         xNear = GLES30.glGetUniformLocation(exitProgram, "uNear")
 
-        shaftProgram = linkGlProgram(OMNI_SHAFT_VERT, OMNI_SHAFT_FRAG)
+        shaftProgram = linkGlProgram(OMNI_SHAFT_VERT, OMNI_SHAFT_FRAG, "shaft")
         sMVP = GLES30.glGetUniformLocation(shaftProgram, "uMVP")
         sFlicker = GLES30.glGetUniformLocation(shaftProgram, "uFlicker")
         sTint = GLES30.glGetUniformLocation(shaftProgram, "uTint")
 
-        shadowProgram = linkGlProgram(OMNI_SHADOW_VERT, OMNI_SHADOW_FRAG)
+        shadowProgram = linkGlProgram(OMNI_SHADOW_VERT, OMNI_SHADOW_FRAG, "shadow")
         sVP = GLES30.glGetUniformLocation(shadowProgram, "uVP")
         sCenter = GLES30.glGetUniformLocation(shadowProgram, "uCenter")
         sSize = GLES30.glGetUniformLocation(shadowProgram, "uSize")
@@ -3693,7 +3719,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         // Avatar: shares the preview's shader, which already implements the
         // joint rotation that breaks the source mesh's T-pose.
         runCatching {
-            charProgram = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG)
+            charProgram = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG, "preview")
             cMVP = GLES30.glGetUniformLocation(charProgram, "uMVP")
             cModel = GLES30.glGetUniformLocation(charProgram, "uModel")
             cTexU = GLES30.glGetUniformLocation(charProgram, "uTex")
@@ -3702,12 +3728,12 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             cSubject = GLES30.glGetUniformLocation(charProgram, "uSubject")
             cBones = GLES30.glGetUniformLocation(charProgram, "uBones")
 
-            torchProgram = linkGlProgram(OMNI_TORCH_VERT, OMNI_TORCH_FRAG)
+            torchProgram = linkGlProgram(OMNI_TORCH_VERT, OMNI_TORCH_FRAG, "torch")
             tMVP = GLES30.glGetUniformLocation(torchProgram, "uMVP")
             tModel = GLES30.glGetUniformLocation(torchProgram, "uModel")
             tOn = GLES30.glGetUniformLocation(torchProgram, "uOn")
             tAmbient = GLES30.glGetUniformLocation(torchProgram, "uAmbient")
-            decalProgram = linkGlProgram(OMNI_DECAL_VERT, OMNI_DECAL_FRAG)
+            decalProgram = linkGlProgram(OMNI_DECAL_VERT, OMNI_DECAL_FRAG, "decal")
             dMVP  = GLES30.glGetUniformLocation(decalProgram, "uMVP")
             dTint = GLES30.glGetUniformLocation(decalProgram, "uTint")
             dMark = GLES30.glGetUniformLocation(decalProgram, "uMark")
@@ -3819,8 +3845,15 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         val world = state.world
         if (world.isValid && cam != null) streamChunks(world, cam.posX, cam.posZ)
 
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
-        GLES30.glViewport(0, 0, renderW, renderH)
+        // Straight to the display when the offscreen target could not be
+        // completed. An incomplete framebuffer swallows every draw silently:
+        // the run keeps ticking, the HUD keeps drawing over the top, and the
+        // world is simply not there — which is indistinguishable from a black
+        // screen and reports as one.
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, if (fboUsable) fbo else 0)
+        GLES30.glViewport(0, 0,
+            if (fboUsable) renderW else surfaceW,
+            if (fboUsable) renderH else surfaceH)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
@@ -4072,9 +4105,20 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             }
         }
 
+        // Nothing below this point applies when the scene was drawn straight to
+        // the screen: there is no offscreen texture to extract bloom from and
+        // nothing to composite. The picture is already on the display.
+        if (!fboUsable) {
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+            return
+        }
+
         // Bloom before the composite: the lights have to be extracted from the
         // scene buffer while it still holds raw, un-tonemapped brightness.
-        val bloomPasses = when (rs.quality) { "low" -> 0; "high" -> 3; else -> 2 }
+        val bloomPasses = when {
+            !bloomUsable    -> 0
+            else -> when (rs.quality) { "low" -> 0; "high" -> 3; else -> 2 }
+        }
         if (bloomPasses > 0) renderBloom(bloomPasses)
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
@@ -5333,14 +5377,37 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, fboTex, 0)
         GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, fboDepth)
+        // Nothing anywhere in this renderer used to ask whether the target it
+        // was about to draw into actually existed. An incomplete framebuffer is
+        // not an error the driver reports — every draw into it is discarded and
+        // the frame comes out empty, which is exactly the "screen is black, the
+        // buttons are there" report, with no line in any log to act on.
+        fboUsable = checkFramebuffer("scene", w, h)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
 
         rebuildBloomTargets(w, h)
     }
 
+    /** True when the currently bound framebuffer is complete; logs why not. */
+    private fun checkFramebuffer(what: String, w: Int, h: Int): Boolean {
+        val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+        if (status == GLES30.GL_FRAMEBUFFER_COMPLETE) return true
+        val name = when (status) {
+            GLES30.GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT -> "INCOMPLETE_ATTACHMENT"
+            GLES30.GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT -> "MISSING_ATTACHMENT"
+            GLES30.GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE -> "INCOMPLETE_MULTISAMPLE"
+            GLES30.GL_FRAMEBUFFER_UNSUPPORTED -> "UNSUPPORTED"
+            else -> "0x" + Integer.toHexString(status)
+        }
+        OmniLog.e("GL", "$what framebuffer incomplete at ${w}x$h: $name — " +
+                        "falling back so the world still draws")
+        return false
+    }
+
     /** Half-res ping-pong pair. Bloom is a wide, low-frequency effect, so full
      *  resolution buys nothing and costs four times the fill. */
     private fun rebuildBloomTargets(w: Int, h: Int) {
+        bloomUsable = true
         for (i in 0 until 2) {
             if (bloomFbo[i] != 0) GLES30.glDeleteFramebuffers(1, intArrayOf(bloomFbo[i]), 0)
             if (bloomTex[i] != 0) GLES30.glDeleteTextures(1, intArrayOf(bloomTex[i]), 0)
@@ -5364,6 +5431,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
                 GLES30.GL_TEXTURE_2D, bloomTex[i], 0
             )
+            // Bloom is the part worth losing: the scene still composites
+            // without it, so a device that cannot make these targets gets a
+            // game with no halos rather than no picture.
+            if (!checkFramebuffer("bloom", bloomW, bloomH)) bloomUsable = false
         }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
@@ -9990,7 +10061,7 @@ void main(){
 
 private const val OMNI_VINE_FRAG = """#version 300 es
 precision mediump float;
-in vec3 vNormal; in float vGrow; in vec3 vLocal;
+in highp vec3 vNormal; in highp float vGrow; in highp vec3 vLocal;
 uniform vec3 uAccent;
 uniform float uPulse;
 uniform highp float uGrowth;   // must match the vertex stage — see OMNI_VINE_VERT
@@ -10144,7 +10215,7 @@ class VineRenderer(private val onFailed: () -> Unit = {}) : GLSurfaceView.Render
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         runCatching {
-            program = linkGlProgram(OMNI_VINE_VERT, OMNI_VINE_FRAG)
+            program = linkGlProgram(OMNI_VINE_VERT, OMNI_VINE_FRAG, "vine")
             uMVP = GLES30.glGetUniformLocation(program, "uMVP")
             uGrowth = GLES30.glGetUniformLocation(program, "uGrowth")
             uSway = GLES30.glGetUniformLocation(program, "uSway")
@@ -10291,7 +10362,7 @@ void main(){
 
 private const val OMNI_SHAFT_FRAG = """#version 300 es
 precision mediump float;
-in float vFall; in float vEdge; in float vIntensity;
+in highp float vFall; in highp float vEdge; in highp float vIntensity;
 uniform float uFlicker;
 uniform vec3 uTint;
 out vec4 fragColor;
@@ -10380,7 +10451,7 @@ void main(){
  */
 private const val OMNI_PREVIEW_FRAG = """#version 300 es
 precision mediump float;
-in vec3 vNormal; in vec2 vUV; in vec3 vWorldPos;
+in highp vec3 vNormal; in highp vec2 vUV; in highp vec3 vWorldPos;
 uniform sampler2D uTex;
 uniform float uIsCharacter;
 uniform float uTime;
@@ -10550,7 +10621,7 @@ class CharacterPreviewRenderer(private val appContext: Context) : GLSurfaceView.
         GLES30.glClearColor(0.030f, 0.030f, 0.036f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         runCatching {
-            program = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG)
+            program = linkGlProgram(OMNI_PREVIEW_VERT, OMNI_PREVIEW_FRAG, "preview")
             uMVP = GLES30.glGetUniformLocation(program, "uMVP")
             uModel = GLES30.glGetUniformLocation(program, "uModel")
             uTime = GLES30.glGetUniformLocation(program, "uTime")

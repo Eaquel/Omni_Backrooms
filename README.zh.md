@@ -86,6 +86,25 @@ Tools/                           八项检查
 ## 近期修复
 
 最新的在最上面。每次修复都会更新这份列表。
+- **十二个程序无一例外地在阶段之间自相矛盾。** Galaxy S23 报出的是一个 uniform；
+  一台 Mali 的 Galaxy A17 用不同措辞说了同一件事 —— `L0001 The fragment
+  floating-point variable uGrowth does not match the vertex variable uGrowth.
+  The precision does not match.` 把十二组全部量了一遍，又翻出 25 处：在顶点阶段写作
+  `out vec3 vNormal`（默认 highp），在片元阶段读作 `in vec3 vNormal`（按它自己的
+  `precision` 行是 mediump）的 varying。ES 3.00 规范对 varying 是允许这样的 ——
+  它只要求 uniform 必须一致 —— 而 glslang 遵循规范，所以什么都没标出来。驱动可没
+  这么统一，而 Mali 的报错甚至不区分 varying 和 uniform。这 25 处现在全部钉死在顶点
+  阶段的精度上，`Shaders_Check.py` 也对两类都强制一致 —— 这是有意比规范更严。
+- **一帧画进了虚空，看起来和黑屏一模一样。** 渲染器建了一个离屏颜色目标、一个深度
+  缓冲和一对半分辨率的 bloom 目标，却一次都没调用过
+  `glCheckFramebufferStatus`。不完整的 framebuffer 不是任何驱动会报告的错误：画进
+  去的每一笔都被丢弃，这一局照常推进，HUD 照常叠在上面，而世界干脆不在 —— 而且任何
+  日志里都没有一行可供着手。现在每次重建都会检查完整性，失败时是降级而不是消失：
+  bloom 一对不可用就损失光晕，场景目标不可用就把这一帧不走后处理链直接送到屏幕。
+- **而且没有任何地方说明是哪块 GPU 在画。** 两份黑屏报告都带着完整日志，却都没有
+  写出驱动，只能靠型号去猜。GL 的厂商、渲染器、版本和 GLSL 版本现在每个上下文记录
+  一次，链接失败的程序也会报出自己的名字 —— 场景程序没有被任何东西包住，所以它的
+  失败以前是一次赤裸的崩溃，连十二个里倒了哪一个都不说。
 - **大厅按钮上出现一块黑色矩形，起因是一个编译完全正常的着色器。** 来自一台
   Galaxy S23 的日志：`Omni program link failed: Error: Uniform uGrowth precision
   mismatch with other stage.` 藤蔓着色器的两半各自都是合法的 —— 这正是本工具几个

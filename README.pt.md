@@ -90,6 +90,36 @@ Tools/                           as oito verificações
 ## Correções recentes
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
+- **Os doze programas contradiziam-se a si próprios entre etapas.** O Galaxy
+  S23 nomeou um uniforme; um Galaxy A17 com Mali disse o mesmo por outras
+  palavras — `L0001 The fragment floating-point variable uGrowth does not match
+  the vertex variable uGrowth. The precision does not match.` Ao medir os doze
+  pares apareceram mais 25: uma varying escrita `out vec3 vNormal` na etapa de
+  vértices (highp por omissão) e lida `in vec3 vNormal` na de fragmentos
+  (mediump, pela sua linha `precision`). A especificação ES 3.00 permite-o para
+  varyings — só exige correspondência nos uniformes — e o glslang segue a
+  especificação, por isso nada era assinalado. Os controladores não são assim
+  tão uniformes, e a mensagem da Mali nem sequer distingue uma varying de um
+  uniforme. As 25 ficam agora fixadas à precisão da etapa de vértices, e o
+  `Shaders_Check.py` exige correspondência em ambos os casos —
+  deliberadamente mais estrito do que a especificação.
+- **Um fotograma que desenha para o nada é igualzinho a um ecrã preto.** O
+  renderizador construía um alvo de cor fora do ecrã, um buffer de profundidade
+  e um par de bloom a meia resolução, e nunca chamava
+  `glCheckFramebufferStatus`. Um framebuffer incompleto não é um erro que
+  qualquer controlador reporte: todos os desenhos nele são descartados, a
+  partida continua a correr, o HUD continua a compor-se por cima, e o mundo
+  simplesmente não está lá — sem uma linha acionável em registo nenhum. A
+  completude passa a ser verificada em cada reconstrução e uma falha degrada em
+  vez de desaparecer: um par de bloom inutilizável custa os halos, um alvo de
+  cena inutilizável envia o fotograma direto para o ecrã sem a cadeia de
+  pós-processamento.
+- **E nada dizia qual GPU estava a desenhar.** Chegaram dois relatos de ecrã
+  preto com registo completo e nenhum identificava o controlador, que teve de
+  ser adivinhado pelo número do modelo. O fabricante, o renderizador, a versão
+  GL e a versão GLSL são agora registados uma vez por contexto, e um programa
+  que não liga diz o seu nome — o programa de cena não está envolvido em nada,
+  por isso a sua falha era um estoiro seco sem dizer qual dos doze tinha caído.
 - **Um retângulo preto sobre os botões do átrio, por causa de um shader que
   compila perfeitamente.** De um registo de Galaxy S23: `Omni program link
   failed: Error: Uniform uGrowth precision mismatch with other stage.` As duas

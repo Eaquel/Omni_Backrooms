@@ -38,7 +38,7 @@ import tempfile
 # Any `private const val NAME = """..."""` whose body declares a #version.
 SHADER_RE = re.compile(r'(?:private )?const val (\w+)\s*=\s*"""(.*?)"""', re.S)
 # The programs the game actually builds: linkGlProgram(VERTEX, FRAGMENT).
-PROGRAM_RE = re.compile(r"linkGlProgram\(\s*(\w+)\s*,\s*(\w+)\s*\)")
+PROGRAM_RE = re.compile(r"linkGlProgram\(\s*(\w+)\s*,\s*(\w+)\s*[,)]")
 
 KOTLIN_ROOT = os.path.join("Backrooms", "Source", "Main", "Kotlin")
 
@@ -100,6 +100,8 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
             print(f"  FAIL  {name} is in no linkGlProgram() call — it compiles "
                   f"but nothing ever runs it")
 
+    bodies = {n: b for n, b in SHADER_RE.findall(src) if "#version" in b}
+
     # And now the half that separate compilation cannot see.
     for vert, frag in sorted(programs):
         missing = [n for n in (vert, frag) if n not in written]
@@ -121,7 +123,62 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
                 # glslang echoes each input filename; that is not a diagnostic.
                 if line.strip() and not line.strip().endswith((".vert", ".frag")):
                     print(f"        {line.strip()}")
+
+        for kind, name, vp, fp in precision_gaps(bodies[vert], bodies[frag]):
+            failed += 1
+            print(f"  FAIL  {vert} + {frag}: {kind} {name} is {vp} in the vertex "
+                  f"stage and {fp} in the fragment stage")
     return checked, failed
+
+
+FLOAT_TYPES = {"float", "vec2", "vec3", "vec4", "mat2", "mat3", "mat4"}
+DECL_RE = re.compile(
+    r"^\s*(?:layout\s*\([^)]*\)\s*)?(uniform|in|out)\s+"
+    r"(?:(highp|mediump|lowp)\s+)?([A-Za-z0-9_]+)\s+([A-Za-z_]\w*)", re.M)
+DEFAULT_RE = re.compile(r"precision\s+(highp|mediump|lowp)\s+float\s*;")
+
+
+def _precisions(body: str, stage: str) -> dict[str, dict[str, str]]:
+    """Effective precision of every float-typed declaration in one stage."""
+    m = DEFAULT_RE.search(body)
+    # GLSL ES 3.00: the vertex stage defaults float to highp; the fragment
+    # stage has no default at all, which is why every fragment shader must
+    # declare one — and why the two stages disagree unless someone says so.
+    default = m.group(1) if m else ("highp" if stage == "vert" else "none")
+    out: dict[str, dict[str, str]] = {}
+    for storage, explicit, typ, name in DECL_RE.findall(body):
+        if typ in FLOAT_TYPES:
+            out.setdefault(storage, {})[name] = explicit or default
+    return out
+
+
+def precision_gaps(vert_body: str, frag_body: str) -> list[tuple[str, str, str, str]]:
+    """
+    Cross-stage precision disagreements, for uniforms and for varyings.
+
+    glslang rejects the uniform case and accepts the varying one, which is what
+    the ES 3.00 spec says: uniforms must match, varyings need not. Drivers do
+    not all agree. The two field failures this exists for were
+
+        Error: Uniform uGrowth precision mismatch with other stage.   (Adreno)
+        L0001 The fragment floating-point variable uGrowth does not
+        match the vertex variable uGrowth. The precision does not match. (Mali)
+
+    and the second message does not distinguish a uniform from a varying at
+    all. Matching both costs a keyword per declaration and removes the whole
+    class, so this is stricter than the spec on purpose.
+    """
+    vp, fp = _precisions(vert_body, "vert"), _precisions(frag_body, "frag")
+    gaps = []
+    for name, p in sorted(vp.get("uniform", {}).items()):
+        q = fp.get("uniform", {}).get(name)
+        if q is not None and q != p:
+            gaps.append(("uniform", name, p, q))
+    for name, p in sorted(vp.get("out", {}).items()):
+        q = fp.get("in", {}).get(name)
+        if q is not None and q != p:
+            gaps.append(("varying", name, p, q))
+    return gaps
 
 
 def main() -> int:

@@ -89,6 +89,37 @@ Tools/                           gli otto controlli
 ## Correzioni recenti
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
+- **Tutti e dodici i programmi erano in disaccordo con sé stessi fra gli
+  stadi.** Il Galaxy S23 nominava un uniform; un Galaxy A17 su Mali diceva la
+  stessa cosa con altre parole — `L0001 The fragment floating-point variable
+  uGrowth does not match the vertex variable uGrowth. The precision does not
+  match.` Misurando tutte e dodici le coppie ne sono emerse altre 25: una
+  varying scritta `out vec3 vNormal` nello stadio dei vertici (highp per
+  impostazione predefinita) e letta `in vec3 vNormal` in quello dei frammenti
+  (mediump, dalla sua riga `precision`). La specifica ES 3.00 lo consente per le
+  varying — impone la corrispondenza solo per gli uniform — e glslang segue la
+  specifica, quindi nulla le segnalava. I driver non sono così uniformi, e il
+  messaggio di Mali non distingue nemmeno una varying da un uniform. Tutte e 25
+  sono ora fissate alla precisione dello stadio dei vertici, e
+  `Shaders_Check.py` impone la corrispondenza per entrambi: deliberatamente più
+  severo della specifica.
+- **Un fotogramma che disegna nel nulla è identico a uno schermo nero.** Il
+  renderer costruiva un bersaglio colore fuori schermo, un buffer di profondità
+  e una coppia di bloom a metà risoluzione, e non chiamava mai
+  `glCheckFramebufferStatus`. Un framebuffer incompleto non è un errore che
+  qualche driver segnali: ogni disegno al suo interno viene scartato, la partita
+  continua a scorrere, l'HUD continua a comporsi sopra, e il mondo semplicemente
+  non c'è — senza una riga utile in nessun log. Ora la completezza è verificata
+  a ogni ricostruzione e un fallimento degrada invece di sparire: una coppia di
+  bloom inutilizzabile costa gli aloni, un bersaglio di scena inutilizzabile
+  manda il fotogramma dritto allo schermo senza la catena di post-produzione.
+- **E nulla diceva quale GPU stesse disegnando.** Due segnalazioni di schermo
+  nero sono arrivate con un log completo e nessuna identificava il driver, che è
+  andato indovinato dal numero di modello. Produttore, renderer, versione GL e
+  versione GLSL sono ora registrati una volta per contesto, e un programma che
+  non si collega dichiara il proprio nome: il programma di scena non è
+  racchiuso in nulla, quindi il suo fallimento era un crash nudo senza dire
+  quale dei dodici fosse caduto.
 - **Un rettangolo nero sopra i pulsanti della lobby, per uno shader che compila
   benissimo.** Da un log di Galaxy S23: `Omni program link failed: Error:
   Uniform uGrowth precision mismatch with other stage.` Entrambe le metà dello

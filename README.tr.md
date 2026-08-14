@@ -89,6 +89,34 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **On iki programın hepsi aşamalar arasında kendisiyle çelişiyordu.** Galaxy
+  S23 bir uniform'un adını verdi; Mali'li bir Galaxy A17 aynı şeyi başka
+  kelimelerle söyledi — `L0001 The fragment floating-point variable uGrowth does
+  not match the vertex variable uGrowth. The precision does not match.` On iki
+  çiftin hepsini ölçünce 25 tane daha çıktı: vertex aşamasında `out vec3
+  vNormal` diye yazılan (varsayılan highp), fragment aşamasında `in vec3
+  vNormal` diye okunan (kendi `precision` satırından mediump) bir varying. ES
+  3.00 spec'i varying'ler için buna izin veriyor — sadece uniform'ların
+  eşleşmesini şart koşuyor — ve glslang spec'i takip ettiği için hiçbiri
+  işaretlenmiyordu. Sürücüler o kadar tekdüze değil, ve Mali'nin mesajı
+  varying ile uniform'u birbirinden ayırmıyor bile. 25'inin hepsi artık vertex
+  aşamasının kesinliğine sabitlendi, `Shaders_Check.py` de iki tür için de
+  eşleşmeyi şart koşuyor — bilerek spec'ten katı.
+- **Hiçbir yere çizmeyen bir kare, siyah ekrandan ayırt edilemez.** Renderer bir
+  ekran dışı renk hedefi, bir derinlik tamponu ve yarım çözünürlüklü bir bloom
+  çifti kuruyor ve bir kez bile `glCheckFramebufferStatus` çağırmıyordu. Eksik
+  bir framebuffer hiçbir sürücünün raporladığı bir hata değil: içine yapılan her
+  çizim atılır, tur işlemeye devam eder, HUD üstüne binmeye devam eder ve dünya
+  basitçe yoktur — üstelik hiçbir log'da tutunacak bir satır olmadan. Artık her
+  yeniden kurulumda tamlık denetleniyor ve hata yok olmak yerine geri çekiliyor:
+  kullanılamaz bir bloom çifti haleleri götürüyor, kullanılamaz bir sahne hedefi
+  ise kareyi post zinciri olmadan doğrudan ekrana gönderiyor.
+- **Ve hangi GPU'nun çizdiğini hiçbir şey söylemiyordu.** İki siyah ekran
+  raporu tam log'la geldi ve ikisi de sürücüyü belirtmiyordu; model numarasından
+  tahmin etmek zorunda kaldım. GL üreticisi, renderer'ı, sürümü ve GLSL sürümü
+  artık bağlam başına bir kez loglanıyor, ve link olmayan bir program kendi
+  adını veriyor — sahne programı hiçbir şeyin içine sarılı değil, yani hatası
+  eskiden on ikiden hangisinin gittiğini söylemeyen çıplak bir çökmeydi.
 - **Lobi butonlarının üstünde siyah bir dikdörtgen — hem de sorunsuz derlenen
   bir shader yüzünden.** Galaxy S23 log'undan: `Omni program link failed:
   Error: Uniform uGrowth precision mismatch with other stage.` Vine shader'ının
