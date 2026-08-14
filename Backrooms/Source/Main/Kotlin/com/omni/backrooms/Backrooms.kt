@@ -3564,6 +3564,10 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
      * direction, including diagonally.
      */
     private val chunkRadius = 3
+    /** Frames to wait before asking again for a chunk the provider missed. About
+ *  a third of a second at 60Hz: fast enough that a player never sees the gap,
+ *  slow enough that a genuinely absent chunk is not re-fetched every frame. */
+    private val kChunkRetryFrames = 20
     @Volatile var chunkProvider: ((Int, Int) -> WorldChunk?)? = null
 
     private var billboardVbo = 0
@@ -3579,6 +3583,20 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
      *  either is false the frame degrades rather than disappearing. */
     private var fboUsable = true
     private var bloomUsable = true
+    /**
+     * Chunks the provider had nothing for, and the frame to ask again on.
+     *
+     * A miss is transient — the provider returns null while the world is not
+     * valid yet — so it must not become a permanent hole in the level.
+     */
+    private val chunkMisses = HashMap<Long, Int>()
+    private var frameCounter = 0
+    /** Whether anything from the level has ever been drawn this context, and
+     *  the frame we gave up expecting it. Both exist because "the world is
+     *  black and the HUD is fine" arrived three times with a complete log and
+     *  no line in it about whether a single triangle had been submitted. */
+    private var everDrewLevel = false
+    private var reportedEmpty = false
 
     /** Avatar height in metres. The mesh is normalised to unit height. */
     private val AVATAR_SCALE = 1.7f
@@ -3626,6 +3644,8 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         bloomFbo = IntArray(2); bloomTex = IntArray(2)
         renderW = 1; renderH = 1; lastResScale = -1f
         fboUsable = true; bloomUsable = true
+        chunkMisses.clear(); frameCounter = 0
+        everDrewLevel = false; reportedEmpty = false
 
         GLES30.glClearColor(0.02f, 0.02f, 0.017f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
@@ -3842,6 +3862,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             lastResScale = resScale
         }
 
+        frameCounter++
         val world = state.world
         if (world.isValid && cam != null) streamChunks(world, cam.posX, cam.posZ)
 
@@ -4220,6 +4241,35 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         for (m in chunkMeshes.values) drawMeshGroup(m.floorVbo, m.floorIbo, m.floorCount)
         for (m in chunkMeshes.values) drawMeshGroup(m.roofVbo,  m.roofIbo,  m.roofCount)
         for (m in chunkMeshes.values) drawMeshGroup(m.wallVbo,  m.wallIbo,  m.wallCount)
+
+        // Did the level actually reach the GPU?
+        //
+        // "The world is black, the buttons are there" has now arrived three
+        // times with a complete log, and not one of those logs said whether a
+        // single triangle had been submitted. Everything upstream reports
+        // success — the programs link, the framebuffer is complete, the world
+        // is valid — and a scene with no geometry in it clears to 0.02 grey,
+        // which is a black screen. These two lines separate "drew nothing"
+        // from "drew something you could not see", which are different bugs
+        // with nothing in common, and each fires once.
+        // A plain loop rather than sumOf: the Int/Long overloads of sumOf can
+        // fail to resolve, and a Kotlin compile error here is only visible from
+        // a Gradle build, which is the slowest place to find one.
+        var levelIndices = 0
+        for (m in chunkMeshes.values) levelIndices += m.floorCount + m.roofCount + m.wallCount
+        if (levelIndices > 0) {
+            if (!everDrewLevel) {
+                everDrewLevel = true
+                OmniLog.i("GL", "level drawn: ${chunkMeshes.size} chunk(s) resident, " +
+                                "${levelIndices / 3} triangles, ${chunkMisses.size} awaiting retry")
+            }
+        } else if (!everDrewLevel && !reportedEmpty && frameCounter > 180) {
+            reportedEmpty = true
+            OmniLog.w("GL", "no level geometry after $frameCounter frames: " +
+                            "${chunkMeshes.size} chunk(s) resident, " +
+                            "${chunkMisses.size} unanswered, world=${world.isValid}, " +
+                            "provider=${if (chunkProvider != null) "set" else "NULL"}")
+        }
         // Fixtures last: their high baked light makes them read as emitters.
         // Flat colour, so its UVs need no scaling at all.
         // The fittings, flat. Warm white rather than the ceiling's mineral
@@ -4761,6 +4811,7 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
         }
         for (key in stale) {
             chunkMeshes.remove(key)?.release()
+            chunkMisses.remove(key)
         }
 
         // Build the nearest missing chunk, one per frame.
@@ -4770,18 +4821,31 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
                 val cx = pcx + dx; val cz = pcz + dz
                 val key = (cx.toLong() shl 32) or (cz.toLong() and 0xFFFFFFFFL)
                 if (chunkMeshes.containsKey(key)) continue
+                // Asked for recently and not answered. Skipped, not abandoned.
+                val retryAt = chunkMisses[key]
+                if (retryAt != null && frameCounter < retryAt) continue
                 val d = dx * dx + dz * dz
                 if (d < bestDist) { bestDist = d; bestKey = key; bestX = cx; bestZ = cz }
             }
         }
         if (bestDist == Int.MAX_VALUE) return
 
-        val chunk = provider(bestX, bestZ) ?: run {
-            // Remember the miss so we don't retry it every frame.
-            chunkMeshes[bestKey] = ChunkMesh()
+        // A miss is a transient answer and used to be recorded as a permanent
+        // one: an empty ChunkMesh went into the cache, `containsKey` skipped it
+        // for good, and that square of the world stayed blank for the rest of
+        // the run. The provider returns null whenever the world is not valid
+        // yet, so on a device where the GL thread gets ahead of the world's
+        // creation the entire ring is written off in the first forty-nine
+        // frames and the player stands in nothing with the HUD over the top.
+        // Nothing logged it, because the renderer considered those chunks done.
+        val chunk = provider(bestX, bestZ)
+        val mesh = if (chunk != null) buildChunkMesh(chunk, world) else null
+        if (mesh == null) {
+            chunkMisses[bestKey] = frameCounter + kChunkRetryFrames
             return
         }
-        chunkMeshes[bestKey] = buildChunkMesh(chunk, world) ?: ChunkMesh()
+        chunkMisses.remove(bestKey)
+        chunkMeshes[bestKey] = mesh
     }
 
     private fun buildChunkMesh(chunk: WorldChunk, world: WorldInfo): ChunkMesh? {

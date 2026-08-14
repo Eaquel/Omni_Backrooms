@@ -91,6 +91,31 @@ Tools/                           die acht Prüfungen
 ## Zuletzt behoben
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
+- **Ein Chunk, den der Provider verpasste, blieb für den Rest des Laufs
+  abgeschrieben.** Nachdem Shader- und Guard-Fehler weg waren, kam ein
+  Mali-G68-Log völlig sauber zurück — Programme gelinkt, Framebuffer
+  vollständig, Guard `CLEAN` — und die Welt war weiter schwarz, das HUD
+  darüber. `streamChunks` beantwortete einen Fehlschlag damit, ein leeres
+  `ChunkMesh()` in den Cache zu legen, das `containsKey` danach für immer
+  übersprang: eine dauerhafte Entscheidung aus einer vorübergehenden Antwort.
+  `fetchChunk` liefert null, solange die Welt noch nicht gültig ist — auf einem
+  Gerät, dessen GL-Thread der Weltentstehung vorauseilt, werden also alle
+  neunundvierzig Chunks des Rings in den ersten neunundvierzig Frames
+  abgeschrieben und der Spieler steht im Nichts. Es hängt am Timing, weshalb es
+  drei Tester traf und nie diese Maschine. Fehlschläge landen jetzt in einer
+  Retry-Map und werden zwanzig Frames später erneut angefragt, und
+  `Kotlin_Check.py` formuliert die Regel — der Renderer braucht GL-Kontext und
+  Android-Classpath, kein Werkzeug hier führt ein Frame davon aus, und beide
+  Schreibweisen kompilieren.
+- **Der Renderer sagte nie, ob er überhaupt etwas gezeichnet hatte.** Drei
+  Schwarzbild-Meldungen mit vollständigem Log, und keine beantwortete die erste
+  sinnvolle Frage: kam ein Dreieck bei der GPU an? Eine Szene ohne Geometrie
+  wird auf 0,02-Grau geleert, also schwarz, und alles davor meldet Erfolg. Jetzt
+  wird einmal geloggt, wenn das Level zum ersten Mal zeichnet — Chunk-Zahl,
+  Dreieckszahl, wartende Chunks — und einmal als Warnung, wenn drei Sekunden
+  ohne vergehen, samt Angabe, ob die Welt gültig und der Chunk-Provider
+  überhaupt gesetzt war. "Nichts gezeichnet" und "etwas Unsichtbares
+  gezeichnet" sind zwei Fehler ohne Gemeinsamkeit.
 - **Alle zwölf Programme widersprachen sich über die Stufen hinweg.** Das
   Galaxy S23 nannte ein Uniform; ein Galaxy A17 auf Mali sagte dasselbe mit
   anderen Worten — `L0001 The fragment floating-point variable uGrowth does not

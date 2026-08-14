@@ -92,6 +92,31 @@ Tools/                           las ocho comprobaciones
 ## Correcciones recientes
 
 Lo más nuevo primero. Esta lista se actualiza con cada corrección.
+- **Un chunk que el proveedor no dio quedaba descartado para el resto de la
+  partida.** Con los fallos de shader y de guardia ya fuera, un registro de
+  Mali-G68 volvió completamente limpio — programas enlazados, framebuffer
+  completo, guardia `CLEAN` — y el mundo seguía negro con el HUD encima.
+  `streamChunks` respondía a un fallo metiendo un `ChunkMesh()` vacío en la
+  caché, que `containsKey` saltaba desde entonces para siempre: una decisión
+  permanente tomada de una respuesta pasajera. `fetchChunk` devuelve null
+  mientras el mundo no es válido, así que en un dispositivo cuyo hilo GL se
+  adelanta a la creación del mundo, los cuarenta y nueve chunks del anillo
+  quedan descartados en los primeros cuarenta y nueve fotogramas y el jugador
+  se queda en la nada. Depende del temporizado, y por eso alcanzó a tres
+  probadores y nunca a esta máquina. Los fallos van ahora a un mapa de
+  reintento y se vuelven a pedir veinte fotogramas después, y `Kotlin_Check.py`
+  enuncia la regla: el renderizador necesita contexto GL y classpath de
+  Android, aquí ninguna herramienta ejecuta un fotograma suyo, y ambas
+  escrituras compilan.
+- **El renderizador nunca dijo si había dibujado algo.** Tres informes de
+  pantalla negra con registro completo, y ninguno respondía a la primera
+  pregunta que importa: ¿llegó un triángulo a la GPU? Una escena sin geometría
+  se limpia a gris 0,02, o sea negro, y todo lo anterior informa de éxito. Ahora
+  registra una vez cuando el nivel se dibuja por primera vez — número de
+  chunks, de triángulos, chunks en espera — y una vez como aviso si pasan tres
+  segundos sin nada, diciendo si el mundo era válido y si el proveedor de
+  chunks estaba siquiera asignado. «No dibujó nada» y «dibujó algo que no se
+  veía» son dos errores sin nada en común.
 - **Los doce programas se contradecían a sí mismos entre etapas.** El Galaxy
   S23 nombró un uniforme; un Galaxy A17 con Mali dijo lo mismo con otras
   palabras — `L0001 The fragment floating-point variable uGrowth does not match

@@ -91,6 +91,31 @@ Tools/                           les huit vérifications
 ## Corrections récentes
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
+- **Un chunk manqué par le fournisseur était condamné pour le reste de la
+  partie.** Une fois les fautes de shader et de garde parties, un journal de
+  Mali-G68 est revenu parfaitement propre — programmes liés, framebuffer
+  complet, garde `CLEAN` — et le monde restait noir, l'ATH par-dessus.
+  `streamChunks` répondait à un échec en mettant un `ChunkMesh()` vide dans le
+  cache, que `containsKey` sautait ensuite pour toujours : une décision
+  définitive tirée d'une réponse passagère. `fetchChunk` renvoie null tant que
+  le monde n'est pas valide, donc sur un appareil dont le fil GL devance la
+  création du monde, les quarante-neuf chunks de l'anneau sont condamnés dans
+  les quarante-neuf premières images et le joueur se tient dans le vide. Cela
+  dépend du minutage, d'où trois testeurs touchés et jamais cette machine. Les
+  échecs vont maintenant dans une table de reprise et sont redemandés vingt
+  images plus tard, et `Kotlin_Check.py` énonce la règle — le moteur de rendu
+  exige un contexte GL et un classpath Android, aucun outil ici n'en exécute
+  une image, et les deux écritures compilent.
+- **Le moteur de rendu n'a jamais dit s'il avait dessiné quoi que ce soit.**
+  Trois signalements d'écran noir avec journal complet, et aucun ne répondait à
+  la première question utile : un triangle est-il arrivé au GPU ? Une scène sans
+  géométrie est effacée en gris 0,02, c'est-à-dire noire, et tout en amont
+  annonce un succès. Il journalise désormais une fois quand le niveau se dessine
+  pour la première fois — nombre de chunks, de triangles, chunks en attente — et
+  une fois en avertissement si trois secondes passent sans rien, en précisant si
+  le monde était valide et si le fournisseur de chunks était seulement défini.
+  « N'a rien dessiné » et « a dessiné quelque chose d'invisible » sont deux bugs
+  sans rien en commun.
 - **Les douze programmes étaient tous en désaccord avec eux-mêmes entre les
   étages.** Le Galaxy S23 nommait un uniforme ; un Galaxy A17 sur Mali disait
   la même chose autrement — `L0001 The fragment floating-point variable uGrowth

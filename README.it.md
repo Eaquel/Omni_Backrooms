@@ -89,6 +89,30 @@ Tools/                           gli otto controlli
 ## Correzioni recenti
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
+- **Un chunk che il provider non ha dato restava cancellato per il resto della
+  partita.** Tolti i guasti di shader e di guardia, un log da Mali-G68 è
+  tornato del tutto pulito — programmi collegati, framebuffer completo, guardia
+  `CLEAN` — e il mondo era ancora nero con l'HUD sopra. `streamChunks`
+  rispondeva a un buco mettendo un `ChunkMesh()` vuoto nella cache, che
+  `containsKey` poi saltava per sempre: una decisione permanente presa da una
+  risposta transitoria. `fetchChunk` restituisce null finché il mondo non è
+  valido, quindi su un dispositivo in cui il thread GL precede la creazione del
+  mondo tutti e quarantanove i chunk dell'anello vengono cancellati nei primi
+  quarantanove fotogrammi e il giocatore resta nel nulla. Dipende dai tempi, ed
+  è per questo che ha colpito tre tester e mai questa macchina. I buchi ora
+  finiscono in una mappa di ritentativo e vengono richiesti venti fotogrammi
+  dopo, e `Kotlin_Check.py` enuncia la regola: il renderer richiede un contesto
+  GL e un classpath Android, nessuno strumento qui ne esegue un fotogramma, ed
+  entrambe le scritture compilano.
+- **Il renderer non ha mai detto se avesse disegnato qualcosa.** Tre
+  segnalazioni di schermo nero con log completo, e nessuna rispondeva alla
+  prima domanda utile: un triangolo è arrivato alla GPU? Una scena senza
+  geometria viene pulita a grigio 0,02, cioè nero, e tutto a monte segnala
+  successo. Ora registra una volta quando il livello disegna per la prima volta
+  — numero di chunk, di triangoli, chunk in attesa — e una volta come avviso se
+  passano tre secondi senza nulla, indicando se il mondo fosse valido e se il
+  provider dei chunk fosse anche solo impostato. «Non ha disegnato niente» e
+  «ha disegnato qualcosa di invisibile» sono due bug senza nulla in comune.
 - **Tutti e dodici i programmi erano in disaccordo con sé stessi fra gli
   stadi.** Il Galaxy S23 nominava un uniform; un Galaxy A17 su Mali diceva la
   stessa cosa con altre parole — `L0001 The fragment floating-point variable

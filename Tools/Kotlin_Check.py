@@ -290,6 +290,64 @@ def check_renderer_isolation() -> list[str]:
     return problems
 
 
+def check_chunk_miss_is_retried() -> list[str]:
+    """
+    A chunk the provider missed must be asked for again.
+
+    `streamChunks` used to answer a miss by writing an empty ChunkMesh into the
+    cache, which `containsKey` then skipped forever. That turns a transient
+    answer into a permanent hole: the provider returns null the whole time the
+    world is not valid yet, so on a device where the GL thread gets ahead of the
+    world's creation, every chunk in the ring is written off in the first
+    forty-nine frames and the player stands in an empty level with the HUD drawn
+    over the top. It reports as "the screen is black", it is silent, and it is
+    timing-dependent — which is why it reached three testers and never the
+    author's own phone.
+
+    Nothing else can catch this. The renderer needs a GL context and an Android
+    classpath, so no tool in here runs a frame of it; the compile pass cannot
+    see it because both spellings compile. So the rule is stated instead, the
+    way check_renderer_isolation states one: inside streamChunks, a bare
+    `ChunkMesh()` assigned into the cache is the bug, by construction. A miss
+    belongs in the retry map.
+    """
+    problems: list[str] = []
+    src = open(GAME, encoding="utf-8").read()
+    start = src.find("private fun streamChunks")
+    if start < 0:
+        return ["streamChunks is gone — this rule needs rewriting for whatever "
+                "replaced it"]
+    depth, i, opened = 0, src.index("{", start), False
+    while i < len(src):
+        if src[i] == "{":
+            depth += 1
+            opened = True
+        elif src[i] == "}":
+            depth -= 1
+            if opened and depth == 0:
+                break
+        i += 1
+    body = src[start:i]
+
+    for m in re.finditer(r"chunkMeshes\s*\[[^\]]+\]\s*=\s*ChunkMesh\(\)", body):
+        line = src.count("\n", 0, start + m.start()) + 1
+        problems.append(
+            f"Backrooms.kt:{line} streamChunks caches an empty ChunkMesh for a "
+            f"chunk the provider missed — that is a permanent decision from a "
+            f"transient answer, and it blanks the level on any device where the "
+            f"GL thread starts before the world is valid. Record the miss in "
+            f"chunkMisses so it is retried")
+    if "?: ChunkMesh()" in body:
+        problems.append(
+            "streamChunks falls back to an empty ChunkMesh when the mesh build "
+            "returns null — same permanent hole, same symptom")
+    if "chunkMisses" not in body:
+        problems.append(
+            "streamChunks no longer consults chunkMisses — a missed chunk is "
+            "either never retried or retried every single frame")
+    return problems
+
+
 def check_top_level_nesting() -> list[str]:
     """
     Every top-level class must actually be top-level.
@@ -351,8 +409,15 @@ def main() -> int:
     if not iso_problems:
         print("   OmniGLRenderer takes everything through providers")
 
+    print("\n── Chunk streaming")
+    miss_problems = check_chunk_miss_is_retried()
+    for p in miss_problems:
+        print("FAIL", p)
+    if not miss_problems:
+        print("   a missed chunk is retried, not written off")
+
     print("\n── Top-level nesting")
-    nest_problems = iso_problems + check_top_level_nesting()
+    nest_problems = iso_problems + miss_problems + check_top_level_nesting()
     for p in nest_problems:
         print("FAIL", p)
 

@@ -106,6 +106,29 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **A chunk the provider missed was written off for the rest of the run.**
+  With the shader and guard faults gone, a Mali-G68 log came back completely
+  clean — programs linked, framebuffer complete, guard `CLEAN` — and the world
+  was still black with the HUD over it. `streamChunks` answered a miss by
+  putting an empty `ChunkMesh()` into the cache, which `containsKey` then
+  skipped forever: a permanent decision made from a transient answer.
+  `fetchChunk` returns null the whole time the world is not valid yet, so on a
+  device where the GL thread gets ahead of the world's creation, all
+  forty-nine chunks in the ring are written off in the first forty-nine frames
+  and the player stands in nothing. It is timing-dependent, which is why it
+  reached three testers and never this machine. Misses now go into a retry map
+  and are asked for again twenty frames later, and `Kotlin_Check.py` states the
+  rule — the renderer needs a GL context and an Android classpath, so no tool
+  here can run a frame of it, and both spellings compile.
+- **The renderer never said whether it had drawn anything.** Three black-screen
+  reports arrived with a complete log and not one of them answered the first
+  question worth asking: did a triangle reach the GPU? A scene with no geometry
+  clears to 0.02 grey, which is a black screen, and everything upstream reports
+  success. It now logs once when the level first draws — chunk count, triangle
+  count, chunks awaiting retry — and once, as a warning, if three seconds pass
+  with none, naming whether the world was valid and whether the chunk provider
+  was even set. "Drew nothing" and "drew something you could not see" are
+  different bugs with nothing in common.
 - **Every one of the twelve programs disagreed with itself across stages.** The
   Galaxy S23 named a uniform; a Galaxy A17 on Mali named the same thing in
   different words — `L0001 The fragment floating-point variable uGrowth does not

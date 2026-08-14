@@ -89,6 +89,29 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **Sağlayıcının kaçırdığı bir chunk, turun geri kalanında ölü sayılıyordu.**
+  Shader ve guard hataları gidince Mali-G68'den tertemiz bir log geldi —
+  programlar link oluyor, framebuffer tam, guard `CLEAN` — ve dünya hâlâ
+  siyahtı, HUD üstünde duruyordu. `streamChunks` bir ıskayı, önbelleğe boş bir
+  `ChunkMesh()` koyarak yanıtlıyordu; `containsKey` de onu sonsuza dek
+  atlıyordu: geçici bir cevaptan alınmış kalıcı bir karar. `fetchChunk`, dünya
+  geçerli olana kadar null döner; yani GL iş parçacığının dünyanın
+  oluşturulmasının önüne geçtiği bir cihazda halkadaki kırk dokuz chunk'ın
+  hepsi ilk kırk dokuz karede ölü sayılıyor ve oyuncu hiçliğin içinde kalıyor.
+  Zamanlamaya bağlı; üç testçiye ulaşıp bu makineye hiç uğramamasının sebebi
+  bu. Iskalar artık bir yeniden deneme haritasına giriyor ve yirmi kare sonra
+  tekrar soruluyor; `Kotlin_Check.py` de kuralı ifade ediyor — renderer bir GL
+  bağlamı ve Android classpath'i istiyor, yani buradaki hiçbir araç onun tek
+  bir karesini çalıştıramıyor, ve iki yazım da derleniyor.
+- **Renderer bir şey çizip çizmediğini hiç söylemiyordu.** Üç siyah ekran
+  raporu tam log'la geldi ve hiçbiri sorulmaya değer ilk soruyu
+  cevaplamıyordu: GPU'ya bir üçgen ulaştı mı? İçinde geometri olmayan bir sahne
+  0.02 griye temizlenir, ki bu siyah ekrandır — ve yukarıdaki her şey başarı
+  bildirir. Artık seviye ilk çizildiğinde bir kez loglanıyor: chunk sayısı,
+  üçgen sayısı, yeniden denemeyi bekleyen chunk'lar. Üç saniye boyunca hiç
+  çizilmezse de bir kez uyarı veriyor ve dünyanın geçerli olup olmadığını,
+  chunk sağlayıcısının atanıp atanmadığını söylüyor. "Hiçbir şey çizmedi" ile
+  "çizdi ama göremedin" ortak hiçbir yanı olmayan iki ayrı hata.
 - **On iki programın hepsi aşamalar arasında kendisiyle çelişiyordu.** Galaxy
   S23 bir uniform'un adını verdi; Mali'li bir Galaxy A17 aynı şeyi başka
   kelimelerle söyledi — `L0001 The fragment floating-point variable uGrowth does
