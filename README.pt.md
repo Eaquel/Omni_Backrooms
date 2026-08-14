@@ -90,6 +90,27 @@ Tools/                           as oito verificações
 ## Correções recentes
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
+- **O mundo ficava mais grosseiro quanto mais nos afastávamos de onde acordámos.** Drei getrennte Mechanismen, alle mit dem Abstand zum Ursprung wachsend, keiner
+  davon etwas, wovor GLSL warnt. Der Fragment-Shader deklariert
+  `precision mediump float;` — er muss, eine Fragment-Stufe hat keinen Standard
+  — und das Weltpositions-Varying ist highp, was das Varying schützt und sonst
+  nichts. `vec3 surfaceFloor(vec3 wp)` nimmt einen *unqualifizierten* Parameter,
+  die Position wurde also beim Aufruf abgeschnitten, vor jeder Arithmetik.
+  mediump ist auf den meisten Mobil-Chips ein Half: bei 500 m ist sein Raster
+  **0,25 m**, und der Teppich wird mit 41 Zyklen pro Meter abgetastet. Das ist
+  die Pixeligkeit, und sie verdoppelt sich mit jeder Verdopplung der Entfernung.
+  Die Taschenlampe zeigte es zuerst, weil `vWorldPos - uTorchPos` zwei große,
+  fast gleiche Zahlen subtrahiert und `uTorchPos` ein mediump-Uniform war — bei
+  500 m rastet der Strahlursprung auf ein Viertelmeter-Gitter, der Kegel landet
+  in Stufen an der Wand. Und unter beidem `fract(sin(dot(p, k)) * 43758.5453)`,
+  der Standard-GLSL-Hash, dessen Argument dort 9e6 erreicht, wo ein
+  darstellbarer Float-Schritt ein **ganzes Radiant** ist, ein Sechstel einer
+  Periode: er hasht nicht mehr, er bildet Bänder. Parameter und
+  Positions-Uniforms sind jetzt highp, beide Hashes sind Integer-Hashes auf dem
+  Gitterpunkt — exakt bei jeder Koordinate, zum selben Preis.
+  `Shaders_Check.py` erzwingt alle drei, bewusst eng: GLSL rechnet mit der
+  höchsten Operandenpräzision, also ist eine lokale Variable unkritisch und nur
+  ein Parameter, ein Uniform oder dieser Hash kann es wirklich verlieren.
 - **Um único ficheiro Kotlin, e nenhum comentário em lado nenhum.** O `Service.kt` e o `Settings.kt` foram fundidos no `Backrooms.kt` — um
   pacote, sem colisões de nomes, 180 importações desduplicadas — e todos os
   comentários do projeto desapareceram: `//` e `/* */` do Kotlin, Gradle KTS,

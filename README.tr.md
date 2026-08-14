@@ -89,6 +89,28 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **Doğduğun yerden uzaklaştıkça dünya karelenmeye başlıyordu.** Üç ayrı
+  mekanizma, üçü de merkezden uzaklıkla büyüyor ve hiçbiri GLSL'in uyaracağı
+  türden değil. Fragment shader `precision mediump float;` diyor — demek
+  zorunda, fragment aşamasının varsayılanı yok — ve dünya konumu varying'i
+  highp, ki bu yalnızca varying'i korur, başka hiçbir şeyi değil.
+  `vec3 surfaceFloor(vec3 wp)` parametresini **niteliksiz** alıyor, yani konum
+  daha hiçbir aritmetik yapılmadan, çağrı anında kırpılıyordu. mediump çoğu
+  mobil parçada yarım hassasiyet: 500 m'de ızgarası **0,25 m**, halı ise metre
+  başına 41 çevrimde örnekleniyor. Pikselleşme bu, ve mesafenin her iki
+  katına çıkışında ikiye katlanıyor. El fenerinde önce görünmesinin sebebi
+  `vWorldPos - uTorchPos`'un büyük ve neredeyse eşit iki sayıyı çıkarması ve
+  `uTorchPos`'un mediump bir uniform olmasıydı — 500 m'de ışığın kaynağı çeyrek
+  metrelik bir ızgaraya oturuyor, koni de duvara basamak basamak düşüyor. İkisinin
+  de altında ise `fract(sin(dot(p, k)) * 43758.5453)` — standart GLSL hash'i —
+  orada 9e6'ya varan bir argüman alıyor; o büyüklükte temsil edilebilir bir
+  float adımı **tam bir radyan**, yani periyodun altıda biri: hash olmayı
+  bırakıp bantlanmaya başlıyor. Parametreler ve konum uniform'ları artık highp,
+  iki hash de kafes noktası üzerinde tamsayı hash'i — her koordinatta kesin ve
+  maliyeti aynı. `Shaders_Check.py` üçünü de zorunlu tutuyor; dar tutarak,
+  çünkü GLSL bir işlemi en yüksek operand hassasiyetinde yürütür, yani yerel
+  değişken sorun değil — yalnızca bir parametre, bir uniform ya da o hash
+  gerçekten kaybettirebilir.
 - **Tek Kotlin dosyası, ve hiçbir yerde yorum yok.** `Service.kt` ile
   `Settings.kt`, `Backrooms.kt` içine birleştirildi — tek paket, isim çakışması
   yok, 180 import tekilleştirildi — ve projedeki bütün yorumlar kaldırıldı:

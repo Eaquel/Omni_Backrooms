@@ -92,6 +92,27 @@ Tools/                           las ocho comprobaciones
 ## Correcciones recientes
 
 Lo más nuevo primero. Esta lista se actualiza con cada corrección.
+- **El mundo se volvía más tosco cuanto más te alejabas de donde despertaste.** Drei getrennte Mechanismen, alle mit dem Abstand zum Ursprung wachsend, keiner
+  davon etwas, wovor GLSL warnt. Der Fragment-Shader deklariert
+  `precision mediump float;` — er muss, eine Fragment-Stufe hat keinen Standard
+  — und das Weltpositions-Varying ist highp, was das Varying schützt und sonst
+  nichts. `vec3 surfaceFloor(vec3 wp)` nimmt einen *unqualifizierten* Parameter,
+  die Position wurde also beim Aufruf abgeschnitten, vor jeder Arithmetik.
+  mediump ist auf den meisten Mobil-Chips ein Half: bei 500 m ist sein Raster
+  **0,25 m**, und der Teppich wird mit 41 Zyklen pro Meter abgetastet. Das ist
+  die Pixeligkeit, und sie verdoppelt sich mit jeder Verdopplung der Entfernung.
+  Die Taschenlampe zeigte es zuerst, weil `vWorldPos - uTorchPos` zwei große,
+  fast gleiche Zahlen subtrahiert und `uTorchPos` ein mediump-Uniform war — bei
+  500 m rastet der Strahlursprung auf ein Viertelmeter-Gitter, der Kegel landet
+  in Stufen an der Wand. Und unter beidem `fract(sin(dot(p, k)) * 43758.5453)`,
+  der Standard-GLSL-Hash, dessen Argument dort 9e6 erreicht, wo ein
+  darstellbarer Float-Schritt ein **ganzes Radiant** ist, ein Sechstel einer
+  Periode: er hasht nicht mehr, er bildet Bänder. Parameter und
+  Positions-Uniforms sind jetzt highp, beide Hashes sind Integer-Hashes auf dem
+  Gitterpunkt — exakt bei jeder Koordinate, zum selben Preis.
+  `Shaders_Check.py` erzwingt alle drei, bewusst eng: GLSL rechnet mit der
+  höchsten Operandenpräzision, also ist eine lokale Variable unkritisch und nur
+  ein Parameter, ein Uniform oder dieser Hash kann es wirklich verlieren.
 - **Un solo archivo Kotlin, y ningún comentario en ninguna parte.** `Service.kt` y `Settings.kt` están fusionados en `Backrooms.kt` — un
   paquete, sin colisiones de nombres, 180 importaciones deduplicadas — y todos
   los comentarios del proyecto han desaparecido: `//` y `/* */` de Kotlin,

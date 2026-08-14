@@ -106,6 +106,27 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **The world got blockier the further you walked from where you woke up.**
+  Three separate mechanisms, all of them scaling with distance from the origin,
+  and none of them anything GLSL will warn about. The fragment shader declares
+  `precision mediump float;` — it has to, a fragment stage has no default — and
+  the world-position varying is highp, which protects the varying and nothing
+  else. `vec3 surfaceFloor(vec3 wp)` takes an *unqualified* parameter, so the
+  position was truncated on the call, before any arithmetic. mediump is a half
+  on most mobile parts: at 500 m its grid is **0.25 m**, and the carpet is
+  sampled at 41 cycles per metre. That is the pixelation, and it doubles with
+  every doubling of distance. The torch showed it first because
+  `vWorldPos - uTorchPos` subtracts two large nearly-equal numbers and
+  `uTorchPos` was a mediump uniform — at 500 m the beam origin snaps to a
+  quarter-metre grid, so the cone lands on a wall in steps. And underneath both,
+  `fract(sin(dot(p, k)) * 43758.5453)` — the standard GLSL hash — takes an
+  argument that reaches 9e6 out there, where one representable float step is a
+  **whole radian**, a sixth of a period: it stops hashing and starts banding.
+  Parameters and position uniforms are highp now, and both hashes are integer
+  hashes on the lattice point, which are exact at any coordinate and cost the
+  same. `Shaders_Check.py` enforces all three — narrowly, because GLSL
+  evaluates at the highest operand precision, so a local is fine and only a
+  parameter, a uniform, or that hash can actually lose it.
 - **One Kotlin file, and no comments anywhere.** `Service.kt` and `Settings.kt`
   are merged into `Backrooms.kt` — one package, no name collisions, 180
   imports deduplicated — and every comment in the project is gone: `//` and

@@ -2336,10 +2336,10 @@ private const val kProbeSide = 24
 private const val OMNI_SCENE_FRAG = """#version 300 es
 precision mediump float;
 in highp vec3 vNormal; in highp vec2 vUV; in highp float vLight; in highp vec3 vWorldPos;
-uniform vec3 uCamPos;
+uniform highp vec3 uCamPos;
 uniform float uFogDensity; uniform vec3 uFogColor; uniform float uFlicker;
 
-uniform vec3 uTorchPos; uniform vec3 uTorchDir; uniform float uTorchOn;
+uniform highp vec3 uTorchPos; uniform highp vec3 uTorchDir; uniform float uTorchOn;
 uniform float uBumpStrength;
 uniform vec3 uLampTint;
 
@@ -2355,14 +2355,20 @@ uniform float uTime;
 
 out vec4 fragColor;
 
-float vhash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float vnoise(vec2 p){
-    vec2 i = floor(p), f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
+float vhash(highp vec2 p){
+    highp uvec2 q = uvec2(ivec2(floor(p + 0.5))) * uvec2(1103515245u, 2654435761u);
+    highp uint n = (q.x ^ (q.y + 0x9E3779B9u)) * 1103515245u;
+    n ^= n >> 15u;
+    return float(n & 0x00FFFFFFu) * (1.0 / 16777216.0);
+}
+float vnoise(highp vec2 p){
+    highp vec2 i = floor(p);
+    highp vec2 f = p - i;
+    highp vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(vhash(i), vhash(i + vec2(1.0, 0.0)), u.x),
                mix(vhash(i + vec2(0.0, 1.0)), vhash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
-float fbm2(vec2 p){ return vnoise(p) * 0.62 + vnoise(p * 2.17 + 4.1) * 0.38; }
+float fbm2(highp vec2 p){ return vnoise(p) * 0.62 + vnoise(p * 2.17 + 4.1) * 0.38; }
 
 const vec3 kWallBase  = vec3(0.470, 0.390, 0.197);
 const vec3 kFloorBase = vec3(0.432, 0.353, 0.178);
@@ -2371,8 +2377,8 @@ const float kWallGrain  = 0.186;
 const float kFloorGrain = 0.190;
 const float kCeilGrain  = 0.086;
 
-vec3 surfaceWall(vec3 wp) {
-    vec2 q = vec2(abs(wp.x) > abs(wp.z) ? wp.z : wp.x, wp.y);
+vec3 surfaceWall(highp vec3 wp) {
+    highp vec2 q = vec2(abs(wp.x) > abs(wp.z) ? wp.z : wp.x, wp.y);
     float mottle = fbm2(q * 3.1) - 0.5;
     float tooth  = fbm2(q * 27.0) - 0.5;
     float streak = (fbm2(vec2(q.x * 22.0, q.y * 0.7)) - 0.5) * 0.6;
@@ -2380,7 +2386,7 @@ vec3 surfaceWall(vec3 wp) {
     return kWallBase * (1.0 + g * kWallGrain * 2.0);
 }
 
-vec3 surfaceFloor(vec3 wp) {
+vec3 surfaceFloor(highp vec3 wp) {
     float blotch = fbm2(wp.xz * 1.9) - 0.5;
     float pile   = fbm2(wp.xz * 41.0) - 0.5;
     float weave  = fbm2(vec2(wp.x * 90.0, wp.z * 12.0)) - 0.5;
@@ -2388,14 +2394,14 @@ vec3 surfaceFloor(vec3 wp) {
     return kFloorBase * (1.0 + g * kFloorGrain * 2.0);
 }
 
-vec3 surfaceCeiling(vec3 wp) {
+vec3 surfaceCeiling(highp vec3 wp) {
     float pin  = fbm2(wp.xz * 64.0) - 0.5;
     float wash = fbm2(wp.xz * 2.6) - 0.5;
     float g = pin * 0.72 + wash * 0.34;
     return kCeilBase * (1.0 + g * kCeilGrain * 2.0);
 }
 
-vec3 surfaceAlbedo(vec3 wp, vec3 nrm) {
+vec3 surfaceAlbedo(highp vec3 wp, vec3 nrm) {
     if (nrm.y < -0.5) return surfaceCeiling(wp);
     if (nrm.y >  0.5) return surfaceFloor(wp);
     return surfaceWall(wp);
@@ -2422,16 +2428,16 @@ void main(){
     }
 
     vec3 albedo = tex.rgb;
-    float dist = length(uCamPos - vWorldPos);
+    highp float dist = length(uCamPos - vWorldPos);
     float detailFade = 1.0 - smoothstep(12.0, 34.0, dist);
 
     if (n.y < -0.5) {
-        vec2 g = fract(vWorldPos.xz / kCeilTile);
-        vec2 d = min(g, 1.0 - g) * kCeilTile;
+        highp vec2 g = fract(vWorldPos.xz / kCeilTile);
+        highp vec2 d = min(g, 1.0 - g) * kCeilTile;
         float rail = 1.0 - smoothstep(kRailWidth * 0.35, kRailWidth, min(d.x, d.y));
         albedo = mix(albedo, albedo * 1.30 + vec3(0.035), rail * detailFade);
-        vec2 tileId = floor(vWorldPos.xz / kCeilTile);
-        float phase = fract(sin(dot(tileId, vec2(41.3, 289.1))) * 43758.5453);
+        highp vec2 tileId = floor(vWorldPos.xz / kCeilTile);
+        float phase = vhash(tileId * 1.7 + 11.0);
         float breathe = 1.0 + 0.35 * sin(uTime * 0.21 + phase * 6.2831);
         float toMid = min(d.x, d.y) / (kCeilTile * 0.5);
         float sag = 1.0 - 0.05 * breathe * (1.0 - toMid * 2.0);
@@ -2442,16 +2448,16 @@ void main(){
         vec3 stainCol = vec3(0.52, 0.44, 0.28);
         albedo = mix(albedo, albedo * stainCol * 1.6, creep * 0.55 * detailFade);
     } else if (n.y > 0.5) {
-        vec2 t = vWorldPos.xz / kCarpetTile;
-        vec2 g = fract(t);
-        vec2 d = min(g, 1.0 - g) * kCarpetTile;
+        highp vec2 t = vWorldPos.xz / kCarpetTile;
+        highp vec2 g = fract(t);
+        highp vec2 d = min(g, 1.0 - g) * kCarpetTile;
         float seam = 1.0 - smoothstep(kSeamWidth * 0.25, kSeamWidth, min(d.x, d.y));
         float weave = mod(floor(t.x) + floor(t.y), 2.0);
         albedo *= mix(1.0, mix(0.985, 1.015, weave), detailFade);
         albedo = mix(albedo, albedo * 0.93, seam * detailFade);
     } else {
-        float u = abs(n.x) > 0.5 ? vWorldPos.z : vWorldPos.x;
-        float g = fract(u / kWallModule);
+        highp float u = abs(n.x) > 0.5 ? vWorldPos.z : vWorldPos.x;
+        highp float g = fract(u / kWallModule);
         float joint = 1.0 - smoothstep(0.0005, 0.0022, min(g, 1.0 - g) * kWallModule);
         albedo = mix(albedo, albedo * 0.94, joint * detailFade);
 
@@ -2478,9 +2484,9 @@ void main(){
     vec3 col = albedo * lit * groundAO * lampMix;
 
     if (uTorchOn > 0.001) {
-        vec3  toFrag = vWorldPos - uTorchPos;
-        float d      = length(toFrag);
-        vec3  L      = toFrag / max(d, 1e-4);
+        highp vec3 toFrag = vWorldPos - uTorchPos;
+        highp float d = length(toFrag);
+        highp vec3 L = toFrag / max(d, 1e-4);
         float cosA   = dot(L, normalize(uTorchDir));
         float cone   = smoothstep(0.72, 0.93, cosA);
         float atten  = 1.0 / (1.0 + 0.14 * d + 0.035 * d * d);
@@ -9827,13 +9833,19 @@ uniform sampler2D uTex;
 uniform float uIsCharacter;
 uniform float uTime;
 
-uniform vec3 uSubject;
+uniform highp vec3 uSubject;
 out vec4 fragColor;
 
-float pHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float pHash(highp vec2 p){
+    highp uvec2 q = uvec2(ivec2(floor(p + 0.5))) * uvec2(1103515245u, 2654435761u);
+    highp uint n = (q.x ^ (q.y + 0x9E3779B9u)) * 1103515245u;
+    n ^= n >> 15u;
+    return float(n & 0x00FFFFFFu) * (1.0 / 16777216.0);
+}
 
-float pNoise(vec2 p){
-    vec2 i = floor(p), f = fract(p);
+float pNoise(highp vec2 p){
+    highp vec2 i = floor(p);
+    highp vec2 f = p - i;
     f = f * f * (3.0 - 2.0 * f);
     return mix(mix(pHash(i), pHash(i + vec2(1.0, 0.0)), f.x),
                mix(pHash(i + vec2(0.0, 1.0)), pHash(i + vec2(1.0, 1.0)), f.x), f.y);

@@ -89,6 +89,27 @@ Tools/                           8つのチェック
 ## 最近の修正
 
 新しい順。この一覧は修正のたびに更新されます。
+- **目覚めた場所から遠ざかるほど、世界は角張っていった。** Drei getrennte Mechanismen, alle mit dem Abstand zum Ursprung wachsend, keiner
+  davon etwas, wovor GLSL warnt. Der Fragment-Shader deklariert
+  `precision mediump float;` — er muss, eine Fragment-Stufe hat keinen Standard
+  — und das Weltpositions-Varying ist highp, was das Varying schützt und sonst
+  nichts. `vec3 surfaceFloor(vec3 wp)` nimmt einen *unqualifizierten* Parameter,
+  die Position wurde also beim Aufruf abgeschnitten, vor jeder Arithmetik.
+  mediump ist auf den meisten Mobil-Chips ein Half: bei 500 m ist sein Raster
+  **0,25 m**, und der Teppich wird mit 41 Zyklen pro Meter abgetastet. Das ist
+  die Pixeligkeit, und sie verdoppelt sich mit jeder Verdopplung der Entfernung.
+  Die Taschenlampe zeigte es zuerst, weil `vWorldPos - uTorchPos` zwei große,
+  fast gleiche Zahlen subtrahiert und `uTorchPos` ein mediump-Uniform war — bei
+  500 m rastet der Strahlursprung auf ein Viertelmeter-Gitter, der Kegel landet
+  in Stufen an der Wand. Und unter beidem `fract(sin(dot(p, k)) * 43758.5453)`,
+  der Standard-GLSL-Hash, dessen Argument dort 9e6 erreicht, wo ein
+  darstellbarer Float-Schritt ein **ganzes Radiant** ist, ein Sechstel einer
+  Periode: er hasht nicht mehr, er bildet Bänder. Parameter und
+  Positions-Uniforms sind jetzt highp, beide Hashes sind Integer-Hashes auf dem
+  Gitterpunkt — exakt bei jeder Koordinate, zum selben Preis.
+  `Shaders_Check.py` erzwingt alle drei, bewusst eng: GLSL rechnet mit der
+  höchsten Operandenpräzision, also ist eine lokale Variable unkritisch und nur
+  ein Parameter, ein Uniform oder dieser Hash kann es wirklich verlieren.
 - **Kotlin はひとつのファイルに、そしてどこにもコメントは無い。** `Service.kt` と `Settings.kt` を `Backrooms.kt` に統合した —— 同一パッケージ、
   名前の衝突なし、import は 180 件に重複排除 —— そしてプロジェクト中のコメントを
   すべて削除した：Kotlin・Gradle KTS・C++、および Kotlin の生文字列に入っている

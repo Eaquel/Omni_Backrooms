@@ -137,6 +137,11 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
             for line in (result.stdout + result.stderr).strip().splitlines():
                 print(f"        {line}")
 
+        if stage == "frag":
+            for leak in precision_leaks(body):
+                failed += 1
+                print(f"  FAIL  {name}: {leak}")
+
         if name not in paired:
             failed += 1
             print(f"  FAIL  {name} is in no linkGlProgram() call — it compiles "
@@ -176,6 +181,137 @@ DECL_RE = re.compile(
     r"^\s*(?:layout\s*\([^)]*\)\s*)?(uniform|in|out)\s+"
     r"(?:(highp|mediump|lowp)\s+)?([A-Za-z0-9_]+)\s+([A-Za-z_]\w*)", re.M)
 DEFAULT_RE = re.compile(r"precision\s+(highp|mediump|lowp)\s+float\s*;")
+
+
+VEC_TYPES = "float|vec2|vec3|vec4"
+FUNC_RE = re.compile(
+    r"\b(?:float|vec2|vec3|vec4)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{")
+CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+CONSTRUCTORS = {"vec2", "vec3", "vec4", "float", "int",
+                "ivec2", "ivec3", "ivec4", "mat2", "mat3", "mat4"}
+
+
+def precision_leaks(body: str) -> list[str]:
+    """
+    Where a world coordinate falls out of highp in a mediump fragment shader.
+
+    A fragment shader has no default float precision, so every one here says
+    `precision mediump float;`, and the varyings carrying world position are
+    declared highp. That protects the varying and nothing else.
+
+    mediump is a half on most mobile parts — ten mantissa bits. At 500 m from
+    the origin its grid is 0.25 m, and the floor's carpet is sampled at 41
+    cycles per metre. That is the blockiness testers reported getting worse the
+    further they walked, and it doubles with every doubling of distance.
+
+    Only two places actually lose it, because GLSL evaluates an operation at
+    the highest precision of its operands — so a local assigned from highp
+    arithmetic is computed correctly whatever the local is declared as:
+
+      * A FUNCTION PARAMETER. `vec3 surfaceFloor(vec3 wp)` called with the
+        highp varying truncates on the call, before any arithmetic happens.
+        That was the bug.
+      * A UNIFORM. `uniform vec3 uTorchPos` holds only mediump to begin with,
+        so `vWorldPos - uTorchPos` is a large subtraction with a quantised
+        operand: at 500 m the torch origin snaps to a 0.25 m grid and the beam
+        lands on a wall in steps. That was the other one.
+
+    Nothing in GLSL warns about either. The shader compiles, links, and looks
+    perfect for the first hundred metres.
+    """
+    if not re.search(r"precision\s+mediump\s+float", body):
+        return []
+    # Every fragment input here is highp — they have to match the vertex stage.
+    # Only the ones carrying a WORLD position matter, and the project names
+    # those `...World...` or `...Pos`; a UV or a growth fraction is bounded and
+    # mediump is right for it. The naming convention is the contract: a world
+    # varying called something else is invisible to this, so keep the name.
+    world = {n for n in re.findall(
+        r"\bin\s+highp\s+(?:" + VEC_TYPES + r")\s+([A-Za-z_]\w*)", body)
+        if re.search(r"World|Pos", n)}
+    if not world:
+        return []
+    problems: list[str] = []
+
+    def mentions(expr: str) -> bool:
+        return any(re.search(r"\b" + re.escape(w) + r"\b", expr) for w in world)
+
+    def carries_magnitude(expr: str) -> bool:
+        """True while the expression is still the coordinate itself: only
+        arithmetic, swizzles and vector constructors, no reducing call."""
+        return all(m.group(1) in CONSTRUCTORS for m in CALL_RE.finditer(expr))
+
+    params: dict[str, list[tuple[str, str]]] = {}
+    for m in FUNC_RE.finditer(body):
+        ps = []
+        for part in m.group(2).split(","):
+            bits = part.strip().split()
+            if len(bits) >= 2:
+                ps.append((bits[0] if bits[0] in ("highp", "mediump", "lowp") else "",
+                           bits[-1]))
+        params[m.group(1)] = ps
+
+    for fname, ps in params.items():
+        for m in re.finditer(r"\b" + re.escape(fname) + r"\s*\(([^);]*)\)", body):
+            for idx, arg in enumerate(a.strip() for a in m.group(1).split(",")):
+                if idx < len(ps) and mentions(arg) and carries_magnitude(arg) \
+                        and ps[idx][0] != "highp":
+                    line = body.count("\n", 0, m.start()) + 1
+                    problems.append(
+                        f"line {line}: {fname}() takes the world position in "
+                        f"argument {idx + 1}, but its parameter `{ps[idx][1]}` is "
+                        f"not highp — the value is truncated on the call, before "
+                        f"any arithmetic")
+
+    # A uniform used in magnitude arithmetic against a world varying is itself a
+    # world position, and must be able to hold one.
+    uniforms = dict(re.findall(
+        r"\buniform\s+(?:(highp|mediump|lowp)\s+)?(?:" + VEC_TYPES +
+        r")\s+([A-Za-z_]\w*)", body))
+    for qual, uname in [(q, n) for q, n in
+                        re.findall(r"\buniform\s+(?:(highp|mediump|lowp)\s+)?(?:"
+                                   + VEC_TYPES + r")\s+([A-Za-z_]\w*)", body)]:
+        if qual == "highp":
+            continue
+        for m in re.finditer(
+                r"[^;\n]*\b" + re.escape(uname) + r"\b[^;\n]*", body):
+            expr = m.group(0)
+            if expr.lstrip().startswith("uniform"):
+                continue
+            if not mentions(expr):
+                continue
+            # A direct binary +/- against the world position, not merely both
+            # names appearing in the same statement: uTime is added inside a
+            # noise argument and is not a position.
+            pair = "|".join(re.escape(w) for w in world)
+            if not re.search(r"(?:" + pair + r")(?:\.\w+)?\s*[-+]\s*"
+                             + re.escape(uname) + r"\b|"
+                             + re.escape(uname) + r"(?:\.\w+)?\s*[-+]\s*(?:"
+                             + pair + r")\b", expr):
+                continue
+            line = body.count("\n", 0, m.start()) + 1
+            msg = (f"line {line}: `{uname}` is added to or subtracted from the "
+                   f"world position but is not a highp uniform — it can only "
+                   f"hold a 0.25 m grid at 500 m, so the difference is quantised")
+            if msg not in problems:
+                problems.append(msg)
+    _ = uniforms
+
+    # The sin-hash. `fract(sin(dot(p, k)) * 43758.5453)` is the standard GLSL
+    # one-liner and it falls apart on large arguments regardless of precision
+    # qualifiers: at 500 m the floor samples it at 41 cycles per metre, so the
+    # argument reaches 9e6, where one representable float step is a whole
+    # radian — sixteen per cent of a period. The hash stops being a hash and
+    # becomes banding. An integer hash on the lattice point is exact at any
+    # coordinate and costs the same.
+    for m in re.finditer(r"fract\s*\(\s*sin\s*\(", body):
+        line = body.count("\n", 0, m.start()) + 1
+        problems.append(
+            f"line {line}: fract(sin(...)) as a hash — its argument grows with "
+            f"the world position and at 500 m one float step is a sixth of a "
+            f"radian, so it bands instead of hashing. Hash the integer lattice "
+            f"point instead")
+    return problems
 
 
 def _precisions(body: str, stage: str) -> dict[str, dict[str, str]]:
