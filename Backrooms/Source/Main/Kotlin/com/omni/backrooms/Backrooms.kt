@@ -9354,7 +9354,14 @@ half4 main(float2 coord) {
 
     // The border itself: a thin, even band that follows the corner radius all
     // the way round instead of pooling where two straight falloffs met.
-    float px    = max(fwidth(d), 1.0);
+    //
+    // The width is a fraction of the button, not fwidth(d). AGSL has no
+    // derivative functions at all — no fwidth, no dFdx, no dFdy — and asking
+    // for one does not degrade, it throws IllegalArgumentException out of the
+    // RuntimeShader constructor during composition and takes the app down on
+    // the lobby. `d` is in pixels here and the geometry is known, so the scale
+    // can simply be stated.
+    float px    = max(min(size.x, size.y) * 0.010, 1.0);
     float rim   = 1.0 - smoothstep(0.0, 2.2 * px, abs(d + 1.5 * px));
     float inner = 1.0 - smoothstep(0.0, min(size.x, size.y) * 0.30, -d);
 
@@ -9432,9 +9439,21 @@ fun PremiumEventButton(
     val tint = if (enabled) accent else TextDim
 
     // GPU shimmer where available. Guarded so API < 33 simply skips it.
+    //
+    // And guarded again on the shader itself. RuntimeShader compiles its source
+    // in the constructor and throws IllegalArgumentException when it will not
+    // build — on the main thread, inside composition, which is an immediate
+    // crash on the lobby rather than a button that looks plainer than intended.
+    // The version guard covered the API; nothing covered the source. A shimmer
+    // is decoration and must not be able to end the app, the same way the vine
+    // layer must not be able to black out a button.
     val shaderModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val shader = remember { android.graphics.RuntimeShader(EVENT_SHIMMER_AGSL) }
-        Modifier.graphicsLayer {
+        val shader = remember {
+            runCatching { android.graphics.RuntimeShader(EVENT_SHIMMER_AGSL) }
+                .onFailure { OmniLog.e("GL", "event shimmer AGSL did not compile", it) }
+                .getOrNull()
+        }
+        if (shader == null) Modifier else Modifier.graphicsLayer {
             shader.setFloatUniform("size", size.width, size.height)
             shader.setFloatUniform("time", clock * 2600f / 1000f)
             shader.setFloatUniform("intensity", (0.18f + pulse * 0.42f) * (if (enabled) 1f else 0.25f))

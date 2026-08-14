@@ -91,6 +91,23 @@ Tools/                           les huit vérifications
 ## Corrections récentes
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
+- **Le seul shader dont l'échec est un plantage était le seul que rien ne vérifiait.** La réécriture de bordure de l'entrée précédente utilisait
+  `fwidth(d)` pour dimensionner sa bande. AGSL n'a aucune fonction de dérivée —
+  ni `fwidth`, ni `dFdx`, ni `dFdy` — et un RuntimeShader compile sa source dans
+  le *constructeur*, sur le fil principal, dans la composition. Il n'a donc pas
+  dégradé vers un bouton plus sobre : il a levé `IllegalArgumentException` à la
+  première image du hall et l'application ne démarrait plus. `Shaders_Check.py`
+  ne l'a jamais vu, car son balayage exigeait une ligne `#version` et AGSL n'en
+  a pas : le seul shader capable d'abattre l'application était exclu par le
+  filtre. Il vérifie désormais l'AGSL — aucun compilateur SkSL sur une machine
+  de build, donc il rejette les builtins GLSL absents d'AGSL et exige que tout
+  identifiant soit déclaré, ce qui est ce qui transforme une mauvaise ligne en
+  les six erreurs de ce plantage. Vérifié en remettant `fwidth`, plus une
+  coquille, `texture()` et `gl_FragCoord` : 4/4.
+- **Et la décoration pouvait encore tuer l'application.** Le scintillement était protégé au niveau de l'API, pas au niveau de la
+  source : un shader qui ne compile pas était donc fatal plutôt qu'absent. Il
+  est désormais enveloppé, et un bouton qui ne peut pas scintiller n'est qu'un
+  bouton — la règle que la couche de lianes suit déjà.
 - **Le rapport d'image : relire les pixels au lieu d'en faire la théorie.**
   `level drawn: 1 chunk(s) resident, 1748 triangles` répondait à la question du
   tour précédent et en ouvrait une autre : la géométrie atteint le GPU et

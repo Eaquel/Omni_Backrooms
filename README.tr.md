@@ -89,6 +89,24 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **Hatası çökme olan tek shader, hiçbir şeyin denetlemediği tek shader'dı.**
+  Bir önceki maddedeki kenar shader'ı, kenar bandının kalınlığını `fwidth(d)`
+  ile hesaplıyordu. AGSL'de türev fonksiyonları **hiç yok** — ne `fwidth`, ne
+  `dFdx`, ne `dFdy` — ve RuntimeShader kaynağını **yapıcısında**, ana iş
+  parçacığında, kompozisyonun içinde derliyor. Yani daha sade bir butona geri
+  çekilmedi; lobinin ilk karesinde `IllegalArgumentException` fırlattı ve
+  uygulama açılmadı. `Shaders_Check.py` bunu hiç görmedi, çünkü shader taraması
+  `#version` satırı şart koşuyordu ve AGSL'de öyle bir satır yok: uygulamayı
+  düşürebilen tek shader, filtrenin dışında kalıyordu. Artık AGSL'i de
+  denetliyor — derleme makinesinde SkSL derleyicisi yok, o yüzden AGSL'de
+  bulunmayan GLSL yerleşiklerini reddediyor ve her tanımlayıcının bildirilmiş
+  olmasını şart koşuyor; tek bir bozuk satırı bu çökmedeki altı hataya çeviren
+  şey buydu. `fwidth`'i geri koyarak, artı bir yazım hatası, `texture()` ve
+  `gl_FragCoord` ile doğrulandı: 4/4.
+- **Ve süs hâlâ uygulamayı bitirebiliyordu.** Parıltı API seviyesinde
+  korunuyordu ama kaynağında korunmuyordu; yani derlenmeyen bir shader eksik
+  değil, ölümcüldü. Artık sarılı, ve parıldayamayan bir buton sadece bir
+  butondur — sarmaşık katmanının zaten uyduğu kuralın aynısı.
 - **Kare raporu: pikseller hakkında teori kurmak yerine onları geri okumak.**
   `level drawn: 1 chunk(s) resident, 1748 triangles` geçen turun sorusunun
   cevabıydı ve yeni bir sorunun başlangıcı — geometri GPU'ya ulaşıyor ve ekran

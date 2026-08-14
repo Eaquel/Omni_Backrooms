@@ -42,6 +42,113 @@ PROGRAM_RE = re.compile(r"linkGlProgram\(\s*(\w+)\s*,\s*(\w+)\s*[,)]")
 
 KOTLIN_ROOT = os.path.join("Backrooms", "Source", "Main", "Kotlin")
 
+# ===========================================================================
+# AGSL
+#
+# A RuntimeShader is a shader in a Kotlin raw string exactly like the GL ones,
+# with one difference that matters more than all the similarities: it is
+# compiled by the RuntimeShader *constructor*, on the main thread, inside
+# composition. A source error is not a black screen, it is
+# IllegalArgumentException on the first frame of the lobby — the app does not
+# start.
+#
+# This tool was written for GLSL and skipped AGSL entirely, because the shader
+# scan required a `#version` line and AGSL has none. So the one shader in the
+# project whose failure mode is a crash was the one shader nothing checked, and
+# `fwidth(d)` shipped. AGSL has no derivative functions at all.
+#
+# There is no SkSL compiler on a build machine, so this cannot compile them. It
+# does the two things that catch the mistakes actually made: it rejects GLSL
+# builtins AGSL does not have, and it requires every identifier to be declared
+# before it is used, which is what turns one bad line into six errors.
+# ===========================================================================
+
+AGSL_ENTRY_RE = re.compile(r"half4\s+main\s*\(")
+
+# GLSL/ES builtins with no AGSL equivalent. Each one is a hard compile error in
+# the RuntimeShader constructor, which is a crash rather than a missing effect.
+AGSL_ABSENT = {
+    "fwidth":    "AGSL has no derivative functions; scale from the `size` uniform instead",
+    "dFdx":      "AGSL has no derivative functions",
+    "dFdy":      "AGSL has no derivative functions",
+    "texture":   "an AGSL shader samples through an `uniform shader` with .eval(coord)",
+    "texture2D": "an AGSL shader samples through an `uniform shader` with .eval(coord)",
+    "textureLod": "AGSL has no explicit-LOD sampling",
+    "discard":   "AGSL has no discard; return a transparent half4 instead",
+    "gl_FragCoord":  "AGSL passes the coordinate into main() as its parameter",
+    "gl_FragColor":  "AGSL returns its colour from main()",
+    "gl_Position":   "AGSL has no vertex stage",
+    "atan2":     "AGSL spells it atan(y, x)",
+}
+
+# Everything AGSL does provide, plus the types, so an unknown name is really
+# unknown rather than merely unlisted.
+AGSL_KNOWN = {
+    # types and constructors
+    "float", "float2", "float3", "float4", "half", "half2", "half3", "half4",
+    "int", "int2", "int3", "int4", "bool", "float2x2", "float3x3", "float4x4",
+    "shader", "colorFilter", "blender", "uniform", "const", "return", "if",
+    "else", "for", "while", "break", "continue", "in", "out", "inout",
+    # builtins
+    "abs", "acos", "all", "any", "asin", "atan", "ceil", "clamp", "cos",
+    "cross", "degrees", "distance", "dot", "eval", "exp", "exp2", "faceforward",
+    "floor", "fract", "inversesqrt", "length", "log", "log2", "max", "min",
+    "mix", "mod", "normalize", "pow", "radians", "reflect", "refract", "sample",
+    "saturate", "sign", "sin", "smoothstep", "sqrt", "step", "tan", "unpremul",
+    "toLinearSrgb", "fromLinearSrgb", "not", "equal", "notEqual", "lessThan",
+    "lessThanEqual", "greaterThan", "greaterThanEqual",
+}
+
+AGSL_DECL_RE = re.compile(
+    r"\b(?:uniform\s+)?(?:const\s+)?"
+    r"(float|float2|float3|float4|half|half2|half3|half4|int|int2|int3|int4|"
+    r"bool|float2x2|float3x3|float4x4|shader|colorFilter|blender)\s+"
+    r"([A-Za-z_]\w*)")
+AGSL_IDENT_RE = re.compile(r"\b([A-Za-z_]\w*)\b")
+
+
+def check_agsl(name: str, body: str) -> list[str]:
+    """Everything about an AGSL shader that can be decided without SkSL."""
+    problems: list[str] = []
+    # Comments out first, and only the text — the newlines stay, so every line
+    # number below is still the line number in the shader. A comment explaining
+    # why fwidth cannot be used is not a use of fwidth, and the first version of
+    # this check reported the explanation.
+    code = re.sub(r"//[^\n]*", "", body)
+    code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), code, flags=re.S)
+
+    for bad, why in AGSL_ABSENT.items():
+        for m in re.finditer(r"\b" + re.escape(bad) + r"\b", code):
+            line = code.count("\n", 0, m.start()) + 1
+            problems.append(f"{name}:{line} uses `{bad}` — {why}")
+
+    # Declared before used. Function parameters and declarations both count;
+    # anything else that is not a builtin, a number or a field access is a name
+    # the compiler will not know either.
+    declared = set(AGSL_KNOWN)
+    for m in re.finditer(r"\(([^)]*)\)\s*\{", code):     # parameter lists
+        for part in m.group(1).split(","):
+            bits = part.strip().split()
+            if len(bits) >= 2:
+                declared.add(bits[-1])
+    for m in AGSL_DECL_RE.finditer(code):
+        declared.add(m.group(2))
+    for m in re.finditer(r"\b(?:half4|float4|float|half|void)\s+([A-Za-z_]\w*)\s*\(", code):
+        declared.add(m.group(1))
+
+    # A field or swizzle follows a dot and is not a free identifier.
+    stripped = re.sub(r"\.\w+", "", code)
+    for m in AGSL_IDENT_RE.finditer(stripped):
+        ident = m.group(1)
+        if ident in declared or ident.isdigit():
+            continue
+        line = stripped.count("\n", 0, m.start()) + 1
+        problems.append(
+            f"{name}:{line} uses `{ident}`, which is not declared and is not an "
+            f"AGSL builtin — RuntimeShader throws on this, in composition, which "
+            f"is a crash and not a missing effect")
+    return problems
+
 
 def stage_of(name: str, body: str, programs: set[tuple[str, str]]) -> str:
     """
@@ -72,6 +179,19 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
     checked = failed = 0
     written: dict[str, str] = {}
     for name, body in SHADER_RE.findall(src):
+        # AGSL: no #version line, compiled at runtime by RuntimeShader, and a
+        # failure there is a crash rather than a black screen.
+        if "#version" not in body and AGSL_ENTRY_RE.search(body):
+            checked += 1
+            agsl = check_agsl(name, body)
+            if not agsl:
+                print(f"  ok    {name} (agsl)")
+            else:
+                failed += len(agsl)
+                print(f"  FAIL  {name} (agsl)")
+                for p in agsl:
+                    print(f"        {p}")
+            continue
         if "#version" not in body:
             continue
         checked += 1

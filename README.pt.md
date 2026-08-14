@@ -90,6 +90,23 @@ Tools/                           as oito verificações
 ## Correções recentes
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
+- **O único shader cuja falha é um estoiro era o único que nada verificava.** A reescrita da borda da entrada anterior usava `fwidth(d)`
+  para dimensionar a sua faixa. O AGSL não tem função de derivada nenhuma — nem
+  `fwidth`, nem `dFdx`, nem `dFdy` — e um RuntimeShader compila a fonte no
+  *construtor*, no fio principal, dentro da composição. Por isso não degradou
+  para um botão mais simples: lançou `IllegalArgumentException` no primeiro
+  fotograma do átrio e a aplicação não arrancava. O `Shaders_Check.py` nunca o
+  viu, porque a varredura exigia uma linha `#version` e o AGSL não tem: o único
+  shader capaz de derrubar a aplicação ficava fora do filtro. Passa a verificar
+  AGSL também — numa máquina de compilação não há compilador SkSL, por isso
+  rejeita os builtins do GLSL que o AGSL não tem e exige que todo o
+  identificador esteja declarado, que é o que transforma uma linha má nos seis
+  erros deste estoiro. Verificado repondo `fwidth`, mais uma gralha,
+  `texture()` e `gl_FragCoord`: 4/4.
+- **E a decoração ainda podia terminar a aplicação.** O brilho estava protegido ao nível da API, não na fonte: um shader que não
+  compila era fatal em vez de ausente. Agora vai embrulhado, e um botão que não
+  consegue brilhar é apenas um botão — a mesma regra que a camada das
+  trepadeiras já segue.
 - **O relatório de fotograma: reler os píxeis em vez de teorizar sobre eles.**
   `level drawn: 1 chunk(s) resident, 1748 triangles` respondia à pergunta da
   ronda anterior e abria outra: a geometria chega à GPU e o ecrã continua

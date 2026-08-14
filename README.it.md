@@ -89,6 +89,24 @@ Tools/                           gli otto controlli
 ## Correzioni recenti
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
+- **L'unico shader il cui fallimento è un crash era l'unico che nulla controllava.** La riscrittura del bordo della voce precedente usava
+  `fwidth(d)` per dimensionare la sua fascia. AGSL non ha alcuna funzione di
+  derivata — né `fwidth`, né `dFdx`, né `dFdy` — e un RuntimeShader compila il
+  sorgente nel *costruttore*, sul thread principale, dentro la composizione.
+  Quindi non è degradato a un pulsante più sobrio: ha sollevato
+  `IllegalArgumentException` al primo fotogramma della lobby e l'app non
+  partiva. `Shaders_Check.py` non l'ha mai visto, perché la sua scansione
+  richiedeva una riga `#version` e AGSL non ne ha: l'unico shader in grado di
+  abbattere l'app era escluso dal filtro. Ora controlla anche l'AGSL — su una
+  macchina di build non esiste un compilatore SkSL, quindi rifiuta i builtin
+  GLSL che AGSL non ha e pretende che ogni identificatore sia dichiarato, che è
+  ciò che trasforma una riga sbagliata nei sei errori di questo crash.
+  Verificato rimettendo `fwidth`, più un refuso, `texture()` e `gl_FragCoord`:
+  4/4.
+- **E la decorazione poteva ancora chiudere l'app.** Il luccichio era protetto a livello di API, non nel sorgente: uno shader
+  che non compila era fatale invece che assente. Ora è avvolto, e un pulsante
+  che non può luccicare è semplicemente un pulsante — la stessa regola che lo
+  strato dei rampicanti segue già.
 - **Il rapporto sul fotogramma: rileggere i pixel invece di teorizzarci sopra.**
   `level drawn: 1 chunk(s) resident, 1748 triangles` rispondeva alla domanda del
   giro precedente e ne apriva un'altra: la geometria arriva alla GPU e lo

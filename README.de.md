@@ -91,6 +91,24 @@ Tools/                           die acht Prüfungen
 ## Zuletzt behoben
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
+- **Der einzige Shader, dessen Fehlschlag ein Absturz ist, war der einzige ungeprüfte.** Die Rand-Umschreibung im vorigen Eintrag nutzte `fwidth(d)`
+  für die Breite ihres Kantenbands. AGSL hat überhaupt keine
+  Ableitungsfunktionen — kein `fwidth`, kein `dFdx`, kein `dFdy` — und ein
+  RuntimeShader kompiliert seine Quelle im *Konstruktor*, auf dem Main-Thread,
+  in der Komposition. Es wurde also nicht zur schlichteren Schaltfläche, es warf
+  `IllegalArgumentException` im ersten Frame der Lobby und die App startete
+  nicht. `Shaders_Check.py` sah das nie, weil der Shader-Scan eine
+  `#version`-Zeile verlangte und AGSL keine hat: der einzige Shader, der die App
+  umbringen kann, fiel durch den Filter. Jetzt wird AGSL mitgeprüft — auf einer
+  Build-Maschine gibt es keinen SkSL-Compiler, also werden die in AGSL fehlenden
+  GLSL-Builtins abgelehnt und jeder Bezeichner muss deklariert sein, was aus
+  einer schlechten Zeile die sechs Fehler dieses Absturzes machte. Geprüft mit
+  zurückgesetztem `fwidth`, einem Tippfehler, `texture()` und `gl_FragCoord`:
+  4/4.
+- **Und Dekoration konnte die App immer noch beenden.** Das Schimmern war auf API-Ebene abgesichert, nicht auf der Quelle — ein
+  Shader, der nicht baut, war also tödlich statt abwesend. Jetzt umschlossen,
+  und eine Schaltfläche, die nicht schimmern kann, ist eben eine Schaltfläche;
+  dieselbe Regel, der die Rankenschicht längst folgt.
 - **Der Frame-Report: die Pixel zurücklesen statt über sie zu spekulieren.**
   `level drawn: 1 chunk(s) resident, 1748 triangles` beantwortete die Frage der
   letzten Runde und stellte eine neue: Geometrie erreicht die GPU, der

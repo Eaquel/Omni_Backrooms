@@ -106,6 +106,24 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **The one shader whose failure is a crash was the one shader nothing
+  checked.** The border rewrite in the previous entry used `fwidth(d)` to size
+  its edge band. AGSL has no derivative functions at all — no `fwidth`, no
+  `dFdx`, no `dFdy` — and a RuntimeShader compiles its source in the
+  *constructor*, on the main thread, inside composition. So it did not degrade
+  to a plainer button; it threw `IllegalArgumentException` on the first frame
+  of the lobby and the app would not start. `Shaders_Check.py` never saw it,
+  because its shader scan required a `#version` line and AGSL has none: the
+  only shader in the project that can take the app down was excluded by the
+  filter. It now checks AGSL too — no SkSL compiler exists on a build machine,
+  so it rejects the GLSL builtins AGSL lacks and requires every identifier to
+  be declared, which is what turns one bad line into the six errors this
+  crashed with. Verified by putting `fwidth` back, plus a typo, `texture()` and
+  `gl_FragCoord`: 4/4.
+- **And decoration could still end the app.** The shimmer was guarded on the
+  API level and not on the source, so a shader that would not build was fatal
+  rather than absent. It is wrapped now, and a button that cannot shimmer is
+  just a button — the same rule the vine layer already follows.
 - **The frame report: reading the pixels back instead of theorising about
   them.** `level drawn: 1 chunk(s) resident, 1748 triangles` was the answer to
   the last round's question and the start of a new one — geometry reaches the
