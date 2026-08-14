@@ -31,37 +31,6 @@ add_library(
     Shield/Unity.cpp
 )
 
-# Map/ holds level generation. Kept out of Engine.cpp because it is the part
-# most likely to be iterated on, and it has no business sharing a translation
-# unit with audio, netcode and the anti-tamper guard.
-#
-# Entity/ holds the creatures. Their behaviour is the least inspectable code
-# in the game and was the only part that could not be built without a device;
-# on its own it compiles against Map/ alone, so Entity_Check.py can put a
-# creature in a corridor and watch what it does.
-#
-# Sound/ holds every generator, because this game ships no audio files at all
-# and a sound you cannot hear is a sound nobody checks. Code_To_Sound.py renders
-# this exact translation unit, so the waveform that is asserted on is the one
-# that plays.
-#
-# Shield/ is everything that defends the build: the root/Frida/debugger/emulator
-# detectors that used to sit in the middle of Engine.cpp, and the Unity costume
-# that used to sit in Disguise/. Splitting them meant neither could be compiled
-# without the NDK and neither had ever been run by a tool; together they build
-# on a host, so Native_Check.py compiles them with warnings as errors like every
-# other module. The one piece that could not move is the signature check, which
-# calls PackageManager over JNI and so stays in Engine.cpp.
-#
-# Ending/ holds the run-over transition. It is a pure function of (kind, time)
-# with no GL and no Android in it, so the curves that decide how a death looks
-# can be sampled and asserted on the host instead of being judged by replaying
-# a death on a phone.
-#
-# Frame/ and Trail/ hold the cosmetics. A frame's silhouette and a trail's
-# ageing rules are content, and content that was previously a switch on a
-# string buried in a Compose file — so the identity of every cosmetic, its
-# English id included, now lives in one table per folder.
 target_include_directories(il2cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_include_directories(il2cpp PRIVATE
@@ -129,13 +98,6 @@ set_target_properties(il2cpp PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON
 )
 
-# libunity.so — the second half of the costume, and the only part of it that is
-# a real artefact rather than a string. libil2cpp.so on its own is a file with a
-# suggestive name; the two side by side in lib/arm64-v8a/ are what every Unity
-# APK on a phone actually looks like, and tools that fingerprint by listing that
-# directory stop at the first match.
-#
-# Nothing in the app loads it. It is packaged and never opened.
 add_library(
     unity
     SHARED
@@ -145,8 +107,6 @@ add_library(
 target_include_directories(unity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(unity PRIVATE ${BASE_FLAGS})
 
-# Deliberately NOT --gc-sections here. Everything in this library is unreachable
-# by definition, so section GC would collect the whole point of it.
 target_link_options(unity PRIVATE
     -Wl,-z,relro
     -Wl,-z,now

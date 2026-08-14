@@ -1,10 +1,6 @@
 name: Omni Backrooms CI
 
 on:
-  # Every branch, not just main. Pushing work somewhere and getting nothing back
-  # until it is merged defeats the point — and with the build gated to main,
-  # a branch push produced no run at all, so there was never anything to
-  # download from it.
   push:
     branches: [ '**' ]
     tags-ignore: [ '**' ]
@@ -24,11 +20,6 @@ env:
 
 jobs:
 
-  # Cheap checks that need neither the Android SDK nor the NDK, so they report
-  # in a minute or two instead of waiting on a full release build. Both cover
-  # things the Gradle build genuinely cannot see: GLSL lives inside Kotlin raw
-  # strings, and the level generator is an infinite pure function with no
-  # authored data to inspect.
   static-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -41,69 +32,29 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq glslang-tools
 
-      # Every check below guards something the Gradle build genuinely cannot
-      # see. GLSL lives inside Kotlin raw strings; the level generator is an
-      # infinite pure function with no authored data to inspect; icons are
-      # hand-written vector XML that aapt2 accepts even when malformed; and the
-      # JNI contract between Kotlin and C++ is resolved by name at runtime, so
-      # nothing at build time notices when the two sides disagree.
 
-      # A shader that fails to compile throws on the GL thread the first time
-      # its screen is opened, and the only symptom is a black screen.
       - name: Shaders
         run: python3 Tools/Shaders_Check.py
 
-      # Drawables, mesher UVs, the inspection camera envelope, the cosmetic
-      # catalogue, asset duplication, Title Case, locale completeness, the Unity
-      # disguise's internal consistency, and the ten READMEs staying one
-      # document.
       - name: Assets
         run: python3 Tools/Assets_Check.py
 
-      # JNI symbols against Kotlin's external fun declarations, the CMake
-      # source list, and a warnings-as-errors host build of the modules that
-      # do not need the NDK.
       - name: Native
         run: python3 Tools/Native_Check.py
 
-      # The dependency/import half only; the compile pass needs a kotlinc this
-      # runner does not have and the tool skips it by itself.
       - name: Kotlin
         run: python3 Tools/Kotlin_Check.py
 
-      # Floods the map from the spawn and proves the exit is actually reachable,
-      # over many seeds. An unreachable exit is unwinnable and silent.
       - name: Level 0
         run: python3 Tools/Level_0_Check.py 40
 
-      # Spawn tuning, the entity model and the entity JNI surface.
       - name: Entities
         run: python3 Tools/Entity_Check.py
 
-      # Every sound is synthesised on device, so there is no waveform to
-      # eyeball. This asserts the generators are finite, deterministic, free of
-      # DC offset and not clipping.
       - name: Sound
         run: python3 Tools/Code_To_Sound.py
 
-  # Runs on every branch and every pull request, not just main.
-  #
-  # It used to be gated to main and release/*, which meant a feature branch got
-  # a green tick and no build to install — the run was there, the job said
-  # "skipped", and the Artifacts section was simply absent. The whole point of
-  # CI on a branch is being able to put the thing on a phone before merging it.
   build-release:
-    # Waits for static-checks rather than racing it.
-    #
-    # This account gets one runner at a time. Started in parallel, build-release
-    # claimed it and static-checks sat in the queue with runner_id 0 and not a
-    # single step recorded until its own 15-minute timeout cancelled it. Three
-    # runs in a row reported failure that way while the APK built perfectly —
-    # the checks had not found anything, they had never run.
-    #
-    # Sequencing also puts them in the right order: the two-minute job that can
-    # say "this shader will not compile" should answer before the fifty-minute
-    # one that links the whole app.
     needs: static-checks
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -171,9 +122,6 @@ jobs:
           kotlin.incremental=true
           EOF
 
-      # Secrets are not readable from a fork's pull request. Rather than fail
-      # there, fall back so the run still produces something installable — a
-      # build you cannot download is no more useful than no build at all.
       - name: Decode keystore
         id: keystore
         env:
@@ -201,15 +149,9 @@ jobs:
           if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
             ./gradlew :Backrooms:assembleRelease :Backrooms:bundleRelease
           else
-            # An unsigned release APK will not install on a device, so without a
-            # keystore the debug variant is the useful thing to hand back.
             ./gradlew :Backrooms:assembleDebug
           fi
 
-      # Both halves of the Unity costume have to be in the packaged libraries.
-      # libil2cpp.so on its own is a file with a suggestive name; the pair is
-      # what a Unity APK actually looks like, and a missing libunity.so is the
-      # kind of silent regression a CMake edit causes without failing anything.
       - name: Verify the native libraries
         run: |
           missing=0
@@ -224,8 +166,6 @@ jobs:
           done
           exit "$missing"
 
-      # Names the branch and the commit, so several runs' downloads stay apart
-      # in the Artifacts list instead of all reading "release-build".
       - name: Name the artifact
         id: naming
         run: |
@@ -236,16 +176,11 @@ jobs:
         with:
           name: ${{ steps.naming.outputs.name }}
           retention-days: 90
-          # Fail loudly on a path that matches nothing. The default is a warning,
-          # which is how a run can go green while quietly uploading no APK at
-          # all — the failure mode looks identical to a skipped job.
           if-no-files-found: error
           path: |
             Backrooms/build/outputs/apk/**/*.apk
             Backrooms/build/outputs/bundle/**/*.aab
 
-      # Puts the download and its checksums on the run's summary page, so the
-      # build is one click from the run rather than something to go hunting for.
       - name: Summarise the build
         if: always()
         run: |

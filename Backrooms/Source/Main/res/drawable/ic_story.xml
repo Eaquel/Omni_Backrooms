@@ -1,22 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Redacted file — story tab
-
-    Was an open book. A bound novel is the wrong object: nothing in here is
-    published, and what the player is reading are documents somebody left
-    behind. A sheet with its lines blacked out says both "there is a record"
-    and "you are not being told all of it", which is the whole premise.
-
-    Tinted at the use site via Compose's ColorFilter, so one asset serves
-    every accent colour.
--->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
-    <!-- Sheet behind, offset, so it reads as a file rather than one page. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFF"
@@ -24,7 +12,6 @@
         android:strokeAlpha="0.45"
         android:strokeLineJoin="round"
         android:pathData="M7.6,2.6 L17.0,2.6 L19.4,5.0 L19.4,18.4 L7.6,18.4 Z" />
-    <!-- Front sheet with a folded corner. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFF"
@@ -37,8 +24,6 @@
         android:strokeWidth="1.2"
         android:strokeLineJoin="round"
         android:pathData="M13.2,5.0 L13.2,8.2 L16.4,8.2" />
-    <!-- Redaction bars. Solid, and of unequal length, so they read as struck
-         out text and not as ruled lines. -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M7.0,11.0 L14.4,11.0 L14.4,12.4 L7.0,12.4 Z

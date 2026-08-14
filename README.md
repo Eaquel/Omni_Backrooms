@@ -89,7 +89,7 @@ A check that has never failed is a check nobody has any reason to trust.
 
 ```
 Backrooms/Source/Main/
-  Kotlin/com/omni/backrooms/     UI, renderer, game loop  (~14k lines)
+  Kotlin/com/omni/backrooms/     UI, renderer, game loop  (one file, ~13k lines)
   Native/                        C++ through the NDK      (~3.9k lines)
     Map/        Level 0 as a pure function of coordinates
     Entity/     creature AI — perception, retreat, return
@@ -106,6 +106,19 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **One Kotlin file, and no comments anywhere.** `Service.kt` and `Settings.kt`
+  are merged into `Backrooms.kt` — one package, no name collisions, 180
+  imports deduplicated — and every comment in the project is gone: `//` and
+  `/* */` from Kotlin, Gradle KTS, C++ and the GLSL and AGSL inside the Kotlin
+  raw strings; `#` from Python, YAML, TOML, CMake, ProGuard and properties;
+  `<!-- -->` from XML. 8059 lines removed. Done with a per-language tokeniser
+  rather than a regex, because a regex eats `https://` inside a string literal
+  and `#` inside a YAML value, and it keeps `#version`, `#include` and shebangs,
+  which are directives and not comments. Three checks hardcoded `Service.kt` by
+  name and broke on the merge — a filename had become part of the contract when
+  what they were testing was a declaration, so they now read whatever Kotlin
+  sources exist. Verified: all eight tools green, every Python file compiles,
+  all 31 XML files parse, all 22 shaders still compile and link.
 - **The one shader whose failure is a crash was the one shader nothing
   checked.** The border rewrite in the previous entry used `fwidth(d)` to size
   its edge band. AGSL has no derivative functions at all — no `fwidth`, no

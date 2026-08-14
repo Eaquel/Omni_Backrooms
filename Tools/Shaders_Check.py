@@ -1,33 +1,4 @@
 #!/usr/bin/env python3
-"""
-Compiles and LINKS every GLSL shader embedded in the Kotlin sources.
-
-A shader that fails to compile throws at runtime, on the GL thread, the first
-time the screen it belongs to is opened — and the only symptom the player gets
-is a black screen. The Kotlin compiler cannot see inside a raw string, so
-nothing else in the build catches it. This does.
-
-Compiling is only half of it. A vertex and a fragment shader can each be
-perfectly valid and still refuse to form a program: uniforms of the same name
-must agree across stages in type AND precision. A vertex shader defaults float
-to highp; a fragment shader has no default at all and every one here declares
-`precision mediump float;`. So a float uniform read by both stages and left
-bare is a precision mismatch by construction. Lenient drivers link it anyway,
-which is why it can ship — a Galaxy S23 running the release build got
-
-    Omni program link failed: Error: Uniform uGrowth precision mismatch with
-    other stage.
-
-and a black rectangle where the lobby's vines belong. Both halves passed this
-tool. So the pairs named in `linkGlProgram(V, F)` are now linked here too.
-
-Requires glslangValidator (Debian/Ubuntu: apt install glslang-tools).
-
-    python3 Tools/check_shaders.py            # whole project
-    python3 Tools/check_shaders.py path.kt    # one file
-
-Exits non-zero if any shader fails, so it can gate a build.
-"""
 
 import os
 import re
@@ -35,38 +6,14 @@ import subprocess
 import sys
 import tempfile
 
-# Any `private const val NAME = """..."""` whose body declares a #version.
 SHADER_RE = re.compile(r'(?:private )?const val (\w+)\s*=\s*"""(.*?)"""', re.S)
-# The programs the game actually builds: linkGlProgram(VERTEX, FRAGMENT).
 PROGRAM_RE = re.compile(r"linkGlProgram\(\s*(\w+)\s*,\s*(\w+)\s*[,)]")
 
 KOTLIN_ROOT = os.path.join("Backrooms", "Source", "Main", "Kotlin")
 
-# ===========================================================================
-# AGSL
-#
-# A RuntimeShader is a shader in a Kotlin raw string exactly like the GL ones,
-# with one difference that matters more than all the similarities: it is
-# compiled by the RuntimeShader *constructor*, on the main thread, inside
-# composition. A source error is not a black screen, it is
-# IllegalArgumentException on the first frame of the lobby — the app does not
-# start.
-#
-# This tool was written for GLSL and skipped AGSL entirely, because the shader
-# scan required a `#version` line and AGSL has none. So the one shader in the
-# project whose failure mode is a crash was the one shader nothing checked, and
-# `fwidth(d)` shipped. AGSL has no derivative functions at all.
-#
-# There is no SkSL compiler on a build machine, so this cannot compile them. It
-# does the two things that catch the mistakes actually made: it rejects GLSL
-# builtins AGSL does not have, and it requires every identifier to be declared
-# before it is used, which is what turns one bad line into six errors.
-# ===========================================================================
 
 AGSL_ENTRY_RE = re.compile(r"half4\s+main\s*\(")
 
-# GLSL/ES builtins with no AGSL equivalent. Each one is a hard compile error in
-# the RuntimeShader constructor, which is a crash rather than a missing effect.
 AGSL_ABSENT = {
     "fwidth":    "AGSL has no derivative functions; scale from the `size` uniform instead",
     "dFdx":      "AGSL has no derivative functions",
@@ -81,15 +28,11 @@ AGSL_ABSENT = {
     "atan2":     "AGSL spells it atan(y, x)",
 }
 
-# Everything AGSL does provide, plus the types, so an unknown name is really
-# unknown rather than merely unlisted.
 AGSL_KNOWN = {
-    # types and constructors
     "float", "float2", "float3", "float4", "half", "half2", "half3", "half4",
     "int", "int2", "int3", "int4", "bool", "float2x2", "float3x3", "float4x4",
     "shader", "colorFilter", "blender", "uniform", "const", "return", "if",
     "else", "for", "while", "break", "continue", "in", "out", "inout",
-    # builtins
     "abs", "acos", "all", "any", "asin", "atan", "ceil", "clamp", "cos",
     "cross", "degrees", "distance", "dot", "eval", "exp", "exp2", "faceforward",
     "floor", "fract", "inversesqrt", "length", "log", "log2", "max", "min",
@@ -108,12 +51,7 @@ AGSL_IDENT_RE = re.compile(r"\b([A-Za-z_]\w*)\b")
 
 
 def check_agsl(name: str, body: str) -> list[str]:
-    """Everything about an AGSL shader that can be decided without SkSL."""
     problems: list[str] = []
-    # Comments out first, and only the text — the newlines stay, so every line
-    # number below is still the line number in the shader. A comment explaining
-    # why fwidth cannot be used is not a use of fwidth, and the first version of
-    # this check reported the explanation.
     code = re.sub(r"//[^\n]*", "", body)
     code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), code, flags=re.S)
 
@@ -122,11 +60,8 @@ def check_agsl(name: str, body: str) -> list[str]:
             line = code.count("\n", 0, m.start()) + 1
             problems.append(f"{name}:{line} uses `{bad}` — {why}")
 
-    # Declared before used. Function parameters and declarations both count;
-    # anything else that is not a builtin, a number or a field access is a name
-    # the compiler will not know either.
     declared = set(AGSL_KNOWN)
-    for m in re.finditer(r"\(([^)]*)\)\s*\{", code):     # parameter lists
+    for m in re.finditer(r"\(([^)]*)\)\s*\{", code):
         for part in m.group(1).split(","):
             bits = part.strip().split()
             if len(bits) >= 2:
@@ -136,7 +71,6 @@ def check_agsl(name: str, body: str) -> list[str]:
     for m in re.finditer(r"\b(?:half4|float4|float|half|void)\s+([A-Za-z_]\w*)\s*\(", code):
         declared.add(m.group(1))
 
-    # A field or swizzle follows a dot and is not a free identifier.
     stripped = re.sub(r"\.\w+", "", code)
     for m in AGSL_IDENT_RE.finditer(stripped):
         ident = m.group(1)
@@ -151,14 +85,6 @@ def check_agsl(name: str, body: str) -> list[str]:
 
 
 def stage_of(name: str, body: str, programs: set[tuple[str, str]]) -> str:
-    """
-    Which stage a shader is.
-
-    How the game uses it beats any guess made from its text: the first argument
-    of linkGlProgram is a vertex shader and the second is a fragment shader, by
-    definition. The heuristic below is the fallback for a shader that is in no
-    program at all — and that is itself worth knowing, so it is reported.
-    """
     for vert, frag in programs:
         if name == vert:
             return "vert"
@@ -179,8 +105,6 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
     checked = failed = 0
     written: dict[str, str] = {}
     for name, body in SHADER_RE.findall(src):
-        # AGSL: no #version line, compiled at runtime by RuntimeShader, and a
-        # failure there is a crash rather than a black screen.
         if "#version" not in body and AGSL_ENTRY_RE.search(body):
             checked += 1
             agsl = check_agsl(name, body)
@@ -213,8 +137,6 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
             for line in (result.stdout + result.stderr).strip().splitlines():
                 print(f"        {line}")
 
-        # A shader in no program is either dead weight in the APK or a program
-        # somebody forgot to build. Neither is visible from the Kotlin side.
         if name not in paired:
             failed += 1
             print(f"  FAIL  {name} is in no linkGlProgram() call — it compiles "
@@ -222,7 +144,6 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
 
     bodies = {n: b for n, b in SHADER_RE.findall(src) if "#version" in b}
 
-    # And now the half that separate compilation cannot see.
     for vert, frag in sorted(programs):
         missing = [n for n in (vert, frag) if n not in written]
         if missing:
@@ -240,7 +161,6 @@ def check_file(path: str, workdir: str) -> tuple[int, int]:
             failed += 1
             print(f"  FAIL  {vert} + {frag} does not link")
             for line in (result.stdout + result.stderr).strip().splitlines():
-                # glslang echoes each input filename; that is not a diagnostic.
                 if line.strip() and not line.strip().endswith((".vert", ".frag")):
                     print(f"        {line.strip()}")
 
@@ -259,11 +179,7 @@ DEFAULT_RE = re.compile(r"precision\s+(highp|mediump|lowp)\s+float\s*;")
 
 
 def _precisions(body: str, stage: str) -> dict[str, dict[str, str]]:
-    """Effective precision of every float-typed declaration in one stage."""
     m = DEFAULT_RE.search(body)
-    # GLSL ES 3.00: the vertex stage defaults float to highp; the fragment
-    # stage has no default at all, which is why every fragment shader must
-    # declare one — and why the two stages disagree unless someone says so.
     default = m.group(1) if m else ("highp" if stage == "vert" else "none")
     out: dict[str, dict[str, str]] = {}
     for storage, explicit, typ, name in DECL_RE.findall(body):
@@ -273,21 +189,6 @@ def _precisions(body: str, stage: str) -> dict[str, dict[str, str]]:
 
 
 def precision_gaps(vert_body: str, frag_body: str) -> list[tuple[str, str, str, str]]:
-    """
-    Cross-stage precision disagreements, for uniforms and for varyings.
-
-    glslang rejects the uniform case and accepts the varying one, which is what
-    the ES 3.00 spec says: uniforms must match, varyings need not. Drivers do
-    not all agree. The two field failures this exists for were
-
-        Error: Uniform uGrowth precision mismatch with other stage.   (Adreno)
-        L0001 The fragment floating-point variable uGrowth does not
-        match the vertex variable uGrowth. The precision does not match. (Mali)
-
-    and the second message does not distinguish a uniform from a varying at
-    all. Matching both costs a keyword per declaration and removes the whole
-    class, so this is stricter than the spec on purpose.
-    """
     vp, fp = _precisions(vert_body, "vert"), _precisions(frag_body, "frag")
     gaps = []
     for name, p in sorted(vp.get("uniform", {}).items()):

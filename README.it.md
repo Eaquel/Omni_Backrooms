@@ -89,6 +89,19 @@ Tools/                           gli otto controlli
 ## Correzioni recenti
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
+- **Un solo file Kotlin, e nessun commento da nessuna parte.** `Service.kt` e `Settings.kt` sono fusi in `Backrooms.kt` — un pacchetto,
+  nessuna collisione di nomi, 180 import deduplicati — e ogni commento del
+  progetto è sparito: `//` e `/* */` da Kotlin, Gradle KTS, C++ e dal GLSL e
+  AGSL dentro le stringhe grezze Kotlin; `#` da Python, YAML, TOML, CMake,
+  ProGuard e properties; `<!-- -->` da XML. 8059 righe rimosse. Fatto con un
+  tokenizzatore per linguaggio e non con un regex, perché un regex si mangia
+  `https://` dentro una stringa e `#` dentro un valore YAML; `#version`,
+  `#include` e gli shebang restano, sono direttive e non commenti. Tre controlli
+  nominavano `Service.kt` e si sono rotti — un nome di file era diventato parte
+  del contratto mentre ciò che verificavano era una dichiarazione; ora leggono
+  i sorgenti Kotlin che ci sono. Verificato: tutti e otto gli strumenti verdi,
+  ogni file Python compila, tutti e 31 gli XML si analizzano, tutti e 22 gli
+  shader compilano e collegano ancora.
 - **L'unico shader il cui fallimento è un crash era l'unico che nulla controllava.** La riscrittura del bordo della voce precedente usava
   `fwidth(d)` per dimensionare la sua fascia. AGSL non ha alcuna funzione di
   derivata — né `fwidth`, né `dFdx`, né `dFdy` — e un RuntimeShader compila il

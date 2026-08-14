@@ -1,36 +1,4 @@
 #!/usr/bin/env python3
-"""
-Entity_Check.py — the creatures.
-
-What a monster does is the part of this game that most needs checking and used
-to be the hardest to check: it is emergent, it only shows itself during a run,
-and a bug in it reads as "the game felt wrong" rather than as a crash. It also
-used to live inside Engine.cpp, which needs jni.h, android/* and aaudio, so
-nothing about it could be built here at all.
-
-The AI now lives in Native/Entity/, which compiles against Map/ and nothing
-else. So this tool does the thing it could not do before: it builds a probe
-against the real headers, puts a creature in the real Level 0, and watches.
-
-Static half:
-
-  * the spawn configuration is coherent — counts, speeds and intervals are
-    ordered by difficulty and none of them is zero or absurd;
-  * Level 0 carries the one creature it is meant to carry;
-  * the entity JNI surface Kotlin declares is actually exported.
-
-Behavioural half, run against the compiled AI:
-
-  * sight is blocked by walls;
-  * hearing scales with how loud the player is, monotonically;
-  * losing sight sends it to the last known position rather than resetting it;
-  * the flashlight slows it, then drives it off;
-  * a creature driven off never dies, and always has a way back — the check
-    that matters most, because "retreat" and "gone forever" look identical for
-    the first thirty seconds and only one of them is what was asked for.
-
-    python3 Tools/Entity_Check.py
-"""
 from __future__ import annotations
 
 import glob
@@ -43,6 +11,14 @@ import tempfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
 KOTLIN = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms")
+
+def kotlin_sources() -> str:
+    import glob as _glob
+    out = []
+    for path in sorted(_glob.glob(os.path.join(KOTLIN, "*.kt"))):
+        out.append(open(path, encoding="utf-8").read())
+    return "\n".join(out)
+
 
 failures: list[str] = []
 
@@ -59,10 +35,6 @@ def section(title: str) -> None:
 def read(path: str) -> str:
     return open(path, encoding="utf-8").read() if os.path.exists(path) else ""
 
-
-# ===========================================================================
-# Static checks
-# ===========================================================================
 
 def check_spawn_config() -> None:
     section("Spawn configuration")
@@ -90,13 +62,9 @@ def check_spawn_config() -> None:
         check(e[1] <= n[1] <= h[1], "speed is not ordered easy <= normal <= hard")
         check(e[2] <= n[2] <= h[2], "sight is not ordered easy <= normal <= hard")
 
-        # Level 0 is meant to hold exactly one creature on every difficulty.
-        # A number here that drifts back up is not a crash, it is the level
-        # quietly becoming a different game.
         for name, row in sorted(rows.items()):
             check(row[0] == 1,
                   f"{name}: Level 0 is meant to carry exactly one creature, not {row[0]}")
-        # And nothing may top it up mid-run.
         longest_plausible_run_ms = 30 * 60 * 1000
         for name, row in sorted(rows.items()):
             check(row[3] >= longest_plausible_run_ms // 2,
@@ -110,19 +78,16 @@ def check_jni_surface() -> None:
         exported.update(re.findall(
             r"Java_com_omni_backrooms_NativeBridge_([A-Za-z0-9_]+)", read(path)))
     declared = set(re.findall(r"external fun\s+([A-Za-z0-9_]+)\s*\(",
-                              read(os.path.join(KOTLIN, "Service.kt"))))
+                              kotlin_sources()))
 
     wanted = {"initEntities", "spawnEntity", "tickEntities", "damageEntity", "destroyEntities"}
     for name in sorted(wanted):
         check(name in declared, f"Kotlin does not declare {name}")
         check(name in exported, f"native does not export {name}")
 
-    # The dissolve is the eleventh float per entity. If native stops writing it
-    # or Kotlin stops reading it, a driven-off creature stays visible and the
-    # retreat looks like a bug rather than a mechanic.
-    service = read(os.path.join(KOTLIN, "Service.kt"))
+    service = kotlin_sources()
     m = re.search(r"const val FLOATS_PER_ENTITY = (\d+)", service)
-    check(m is not None, "FLOATS_PER_ENTITY not found in Service.kt")
+    check(m is not None, "FLOATS_PER_ENTITY not found in any Kotlin source")
     engine = read(os.path.join(NATIVE, "Engine.cpp"))
     n = re.search(r"const int fpn = (\d+);", engine)
     check(n is not None, "the per-entity float count was not found in Engine.cpp")
@@ -131,10 +96,6 @@ def check_jni_surface() -> None:
               f"Kotlin reads {m.group(1)} floats per entity, native writes {n.group(1)}")
         print(f"   {len(wanted)} entity calls bound, {m.group(1)} floats per entity both sides")
 
-
-# ===========================================================================
-# Behavioural checks — compiled against the real AI
-# ===========================================================================
 
 PROBE = r"""
 // Drives the real BehaviorTree through scenarios that are impossible to set up

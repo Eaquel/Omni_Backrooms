@@ -1,32 +1,4 @@
 #!/usr/bin/env python3
-"""
-Code_To_Sound.py — the sound design, as code.
-
-This game ships no audio files. Every sound is synthesised on the device by the
-native audio engine, which keeps the APK small, lets a sound respond
-continuously to game state instead of being a fixed clip, and means a footstep
-on carpet in a dead hall can differ from the same footstep under a working tube
-without anyone authoring two recordings.
-
-The catch is that code you cannot hear is code nobody checks. This tool is the
-other half of that arrangement: the same generators the engine uses, written
-once here, rendered to WAV so they can actually be listened to, and asserted on
-so a bad edit is caught rather than shipped.
-
-The generators below used to be ports of what Engine.cpp does, which left the
-obvious hole: nothing asserted the port and the original agreed. They could
-drift apart indefinitely and this tool would keep reporting that a sound nobody
-had ever heard was fine.
-
-They now live in Native/Sound/Synth.cpp, a module with no Android dependency.
-The Python here is a reference implementation kept for readability and for the
-signal assertions, and every run compiles the real C++ and compares the two
-sample for sample. What is checked is what ships.
-
-    python3 Tools/Code_To_Sound.py                 # check every generator
-    python3 Tools/Code_To_Sound.py --render out/   # write WAVs to listen to
-    python3 Tools/Code_To_Sound.py --list
-"""
 from __future__ import annotations
 
 import argparse
@@ -52,11 +24,6 @@ def check(ok: bool, what: str) -> None:
         failures.append(what)
 
 
-# ===========================================================================
-# Deterministic noise. Nothing here uses random(): the same call must give the
-# same sample on every device and in every run, or a sound cannot be checked.
-# ===========================================================================
-
 def _hash01(n: int) -> float:
     n &= 0xFFFFFFFF
     n = (n ^ 61) ^ (n >> 16)
@@ -72,7 +39,6 @@ def white(i: int) -> float:
 
 
 def _sample_index(t: float) -> int:
-    """Round, never truncate — see the note on sampleIndex() in Synth.cpp."""
     return int(round(t * RATE))
 
 
@@ -81,49 +47,28 @@ def _lerp(a: float, b: float, t: float) -> float:
 
 
 def value_noise(x: float) -> float:
-    """Smooth 1-D noise. Used wherever a parameter should drift rather than
-    jump — tape speed, ballast flicker, the wobble on a monster's voice."""
     i = math.floor(x)
     f = x - i
     f = f * f * (3.0 - 2.0 * f)
     return _lerp(white(int(i)), white(int(i) + 1), f)
 
 
-# ===========================================================================
-# Generators
-# ===========================================================================
-
 def vhs_intro(t: float, duration: float) -> float:
-    """
-    The title sting: a dead tape being played.
-
-    Four things happen at once, which is what stops it sounding like plain
-    noise. The transport spins up, so a low rumble slides in from below pitch.
-    The head makes contact and hiss arrives with it. The tape has dropouts —
-    brief, hard gaps, not fades — because that is what damaged tape does. And
-    underneath it all sits mains hum at 50 Hz plus its third harmonic, which is
-    the sound of equipment that is on rather than merely present.
-    """
     n = _sample_index(t)
     env_in = min(1.0, t / 0.35)
     env_out = min(1.0, max(0.0, (duration - t) / 0.6))
     env = env_in * env_out
 
-    # Transport spinning up: pitch rises and settles.
     spin = 1.0 - math.exp(-t * 3.2)
     rumble = math.sin(2 * math.pi * (22.0 + 26.0 * spin) * t) * 0.45 * spin
 
-    # Head contact hiss, shaped by a slow drift so it breathes.
     hiss = white(n) * (0.16 + 0.10 * value_noise(t * 7.0)) * spin
 
-    # Dropouts: hard gates, irregular, short.
     drop = 1.0 if value_noise(t * 11.0 + 3.1) > -0.55 else 0.12
 
-    # Mains hum — 50 Hz and its third, the way a real earth loop sounds.
     hum = (math.sin(2 * math.pi * 50.0 * t) * 0.09 +
            math.sin(2 * math.pi * 150.0 * t) * 0.035) * spin
 
-    # Tape wow: the whole signal's pitch wavers slightly.
     wow = 1.0 + value_noise(t * 1.7) * 0.012
     body = math.sin(2 * math.pi * 190.0 * t * wow) * 0.08 * spin
 
@@ -131,8 +76,6 @@ def vhs_intro(t: float, duration: float) -> float:
 
 
 def fluorescent_hum(t: float, health: float) -> float:
-    """A tube's own sound. `health` 1 is a good fitting, 0 a failing ballast —
-    which buzzes harder and stutters."""
     fail = 1.0 - max(0.0, min(1.0, health))
     hum = (math.sin(2 * math.pi * 100.0 * t) * 0.10 +
            math.sin(2 * math.pi * 300.0 * t) * 0.05 * (0.3 + fail))
@@ -142,7 +85,6 @@ def fluorescent_hum(t: float, health: float) -> float:
 
 
 def footstep(t: float, pace: float, surface: float, step: float) -> float:
-    """One footfall. See Sound/Synth.cpp for why each term is shaped this way."""
     if t < 0.0 or t > 0.42:
         return 0.0
     n = _sample_index(t)
@@ -174,14 +116,9 @@ def footstep(t: float, pace: float, surface: float, step: float) -> float:
 
 
 def monster_voice(t: float, proximity: float) -> float:
-    """
-    Not a growl. A resonance that should not be there — an inharmonic pair well
-    below speech, amplitude-modulated so it seems to breathe, getting closer to
-    a pitch the ear can hold as `proximity` rises.
-    """
     p = max(0.0, min(1.0, proximity))
     f0 = 41.0 + 14.0 * p
-    f1 = f0 * 1.4983                       # deliberately not a simple ratio
+    f1 = f0 * 1.4983
     breath = 0.55 + 0.45 * math.sin(2 * math.pi * (0.7 + 0.5 * p) * t)
     body = (math.sin(2 * math.pi * f0 * t) * 0.55 +
             math.sin(2 * math.pi * f1 * t) * 0.30)
@@ -190,7 +127,6 @@ def monster_voice(t: float, proximity: float) -> float:
 
 
 def room_tone(t: float, damp: float) -> float:
-    """The empty building. See Sound/Synth.cpp for why each layer is there."""
     n = _sample_index(t)
     d = max(0.0, min(1.0, damp))
     drone = (math.sin(2 * math.pi * 47.0 * t) * 0.055 +
@@ -205,8 +141,6 @@ def room_tone(t: float, damp: float) -> float:
 
 
 def distant_event(t: float) -> float:
-    """Something a long way off. See Sound/Synth.cpp for why each kind is shaped
-    the way it is."""
     PERIOD = 17.3
     idx = math.floor(t / PERIOD)
     u = t - idx * PERIOD
@@ -238,7 +172,6 @@ def distant_event(t: float) -> float:
 
 
 def breath(t: float, exertion: float) -> float:
-    """Her breathing. In and out are different shapes on purpose."""
     e = max(0.0, min(1.0, exertion))
     rate = 0.30 + 0.85 * e
     ph = t * rate - math.floor(t * rate)
@@ -253,7 +186,6 @@ def breath(t: float, exertion: float) -> float:
 
 
 def heartbeat(t: float, fear: float) -> float:
-    """Lub and dub, the second softer and a fifth of a beat behind."""
     f = max(0.0, min(1.0, fear))
     bpm = 58.0 + 62.0 * f
     period = 60.0 / bpm
@@ -269,7 +201,6 @@ def heartbeat(t: float, fear: float) -> float:
 
 
 def torch_click(t: float) -> float:
-    """The switch: a contact transient and a spring ring, over in 40 ms."""
     if t < 0.0 or t > 0.06:
         return 0.0
     n = _sample_index(t)
@@ -299,8 +230,6 @@ GENERATORS = {
 }
 
 
-# ===========================================================================
-
 def render(fn, duration: float) -> list[float]:
     return [fn(i / RATE) for i in range(int(duration * RATE))]
 
@@ -325,27 +254,18 @@ def check_generators() -> None:
         rms = math.sqrt(sum(v * v for v in s) / len(s))
 
         check(all(math.isfinite(v) for v in s), f"{name}: produced a non-finite sample")
-        # Clipping is the one fault that is audible on every device and
-        # inaudible in a waveform screenshot.
         check(peak <= 1.0 + 1e-6, f"{name}: clips at {peak:.3f}")
         check(peak > 0.02, f"{name}: effectively silent (peak {peak:.4f})")
         check(rms > 0.002, f"{name}: no energy (rms {rms:.5f})")
 
-        # Determinism. A sound built from random() cannot be checked, and worse,
-        # differs between two players standing in the same place.
         again = render(fn, min(dur, 0.25))
         check(again == s[:len(again)], f"{name}: not deterministic between runs")
 
-        # A DC offset wastes headroom and thumps when the sound starts.
         dc = sum(s) / len(s)
         check(abs(dc) < 0.08, f"{name}: DC offset {dc:+.3f}")
 
         print(f"   {name:20s} {dur:4.2f}s  peak {peak:5.3f}  rms {rms:5.3f}  dc {dc:+.4f}")
 
-
-# ===========================================================================
-# Parity with the shipped C++
-# ===========================================================================
 
 PARITY_PROBE = r"""
 // Renders the real generators to stdout so the reference above can be compared
@@ -410,25 +330,6 @@ PARITY_ORDER = [
 
 
 def check_footstep_character() -> None:
-    """
-    A footstep has to sound like a foot, not a tick.
-
-    The report was that walking went "dit dit" and was hard to listen to. It
-    did, and the reason was measurable: the old generator put its dominant
-    energy at about 1.1 kHz and was over in 53 ms, which is a click. A real
-    footfall on carpet lives under 200 Hz and lasts 120-180 ms. The unfiltered
-    white noise in its scuff term was what pushed the spectrum an octave and a
-    half above where a step belongs.
-
-    The other half was worse and has nothing to do with spectrum: the synth
-    restarted the generator at t = 0 with the same arguments every time, so
-    every footfall of a walk was the same waveform, on a metronome. Anything
-    both perfectly periodic and perfectly identical reads as a UI beep.
-
-    None of that is visible in the code and none of it is audible in CI, so it
-    is measured here: where the energy sits, how long it lasts, and whether two
-    consecutive steps differ at all.
-    """
     print("\n── Footstep character")
     dur = 0.42
 
@@ -455,7 +356,6 @@ def check_footstep_character() -> None:
               f"the {label} footstep is over in {ms:.0f} ms; under about 85 there "
               f"is no body to it, only the attack")
 
-    # Consecutive footfalls. This measured exactly zero before.
     a = render(lambda t: footstep(t, 0.0, 0.3, 3), dur)
     b = render(lambda t: footstep(t, 0.0, 0.3, 4), dur)
     d = max(abs(x - y) for x, y in zip(a, b))
@@ -466,40 +366,16 @@ def check_footstep_character() -> None:
 
 
 def check_reachable() -> None:
-    """
-    Every generator has to reach a speaker.
-
-    Sound/Synth.h opens with "code you cannot hear is code nobody checks" and
-    "what gets checked is what ships". Neither was true. fluorescentHum,
-    footstep and monsterVoice — three of the four generators, the ones this
-    file renders and compares against a Python reference sample for sample —
-    had no caller anywhere in the engine. Only the title sting reached the
-    speaker. What actually played was a second, cruder set of generators
-    written inline in Engine.cpp: an 800-radian-per-second "click" that is
-    really 127 Hz, a monster whose frequency modulation was applied to an
-    integer sample counter so its phase jumped whenever the pitch moved, and an
-    ambience layer of unfiltered white noise from a std::mt19937 — which is not
-    deterministic, so two players standing in the same place heard different
-    things, the one property the header says the design exists to guarantee.
-
-    So the tool was verifying three sounds nobody had ever heard, while four
-    unchecked ones played. Every generator declared in the header is now
-    required to appear in the engine that feeds the audio callback.
-    """
     print("\n── Reachability")
     header = open(os.path.join(NATIVE, "Sound/Synth.h"), encoding="utf-8").read()
     engine = open(os.path.join(NATIVE, "Engine.cpp"), encoding="utf-8").read()
 
     declared = re.findall(r"^\[\[nodiscard\]\] float (\w+)\(", header, re.M)
-    # hash01/white/valueNoise are the shared primitives every generator is built
-    # from, not sounds in their own right.
     PRIMITIVES = {"hash01", "white", "valueNoise"}
     gens = [g for g in declared if g not in PRIMITIVES]
     check(len(gens) >= 4, "the header declares almost no generators — has it moved?")
 
     for g in gens:
-        # A generator counts as reachable if the engine names it, or if the
-        # header's own OneShot plays it (the engine names OneShot).
         in_engine = re.search(r"\b" + g + r"\s*\(", engine) is not None
         in_oneshot = re.search(r"\b" + g + r"\s*\(", header[header.index("class OneShot"):]) \
             if "class OneShot" in header else None
@@ -509,8 +385,6 @@ def check_reachable() -> None:
         check(ok, f"{g} is synthesised, rendered and checked here, and nothing "
                   f"in the engine ever plays it — it is a sound no player can hear")
 
-    # And the reverse: the engine must not carry a second set of generators of
-    # its own. An oscillator in the audio callback is one this file cannot see.
     callback = engine[engine.index("aaudioDataCallback"):] if "aaudioDataCallback" in engine else ""
     stray = re.findall(r"std::mt19937|uniform_real_distribution", callback[:4000])
     check(not stray,
@@ -520,15 +394,6 @@ def check_reachable() -> None:
 
 
 def check_parity() -> None:
-    """
-    The Python above and the C++ that ships must agree.
-
-    Tolerance is 1e-4 absolute, not exact equality: the C++ computes in float
-    and Python in double, so the last couple of bits legitimately differ. What
-    that tolerance will not absorb is a generator that was edited on one side
-    only — a changed constant, a dropped term, a hash index that wraps
-    differently — which is the whole failure mode this exists to catch.
-    """
     print("\n── Parity with Native/Sound/Synth.cpp")
     src_dir = os.path.join(NATIVE, "Sound")
     if not os.path.exists(os.path.join(src_dir, "Synth.cpp")):

@@ -23,9 +23,6 @@
     <string name="menu_no_save">セーブデータがありません</string>
 
 
-
-
-
     <string name="settings_tab_account">アカウント</string>
     <string name="settings_tab_graphics">グラフィック</string>
     <string name="settings_tab_audio">オーディオ</string>
@@ -74,7 +71,6 @@
     <string name="market_equipped">装備中</string>
     <string name="market_limited">期間限定</string>
     <string name="market_confirm_title">購入</string>
-
 
 
     <string name="player_level_prefix">レベル </string>

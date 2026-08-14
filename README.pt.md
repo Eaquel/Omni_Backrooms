@@ -90,6 +90,19 @@ Tools/                           as oito verificações
 ## Correções recentes
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
+- **Um único ficheiro Kotlin, e nenhum comentário em lado nenhum.** O `Service.kt` e o `Settings.kt` foram fundidos no `Backrooms.kt` — um
+  pacote, sem colisões de nomes, 180 importações desduplicadas — e todos os
+  comentários do projeto desapareceram: `//` e `/* */` do Kotlin, Gradle KTS,
+  C++ e do GLSL e AGSL dentro das strings cruas de Kotlin; `#` de Python, YAML,
+  TOML, CMake, ProGuard e properties; `<!-- -->` do XML. 8059 linhas removidas.
+  Feito com um tokenizador por linguagem e não com um regex, porque um regex
+  come `https://` dentro de uma string e `#` dentro de um valor YAML;
+  `#version`, `#include` e os shebangs ficam, que são diretivas e não
+  comentários. Três verificações nomeavam o `Service.kt` e partiram — um nome de
+  ficheiro tinha passado a fazer parte do contrato quando o que testavam era uma
+  declaração; passam a ler as fontes Kotlin que existirem. Verificado: as oito
+  ferramentas verdes, todos os ficheiros Python compilam, os 31 XML analisam,
+  os 22 shaders continuam a compilar e a ligar.
 - **O único shader cuja falha é um estoiro era o único que nada verificava.** A reescrita da borda da entrada anterior usava `fwidth(d)`
   para dimensionar a sua faixa. O AGSL não tem função de derivada nenhuma — nem
   `fwidth`, nem `dFdx`, nem `dFdy` — e um RuntimeShader compila a fonte no

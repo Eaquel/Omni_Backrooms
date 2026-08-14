@@ -9,19 +9,7 @@
 
 namespace omni::shield {
 
-/**
- * One Android system property.
- *
- * `__system_property_get` is the obvious call and it is the wrong one: it has
- * been deprecated since API 26 and returns nothing at all on recent releases
- * for properties the app is not allowed to read, which is silently the same
- * answer as "this device is clean". The find/read_callback pair is what
- * actually works, and getting this wrong would have disabled emulator
- * detection without failing anything.
- *
- * Off-device this returns empty, which is the right answer: a build machine is
- * not an emulator, and the detectors reading "" simply do not fire.
- */
+
 std::string sysProp(const char* key) noexcept {
 #if defined(__ANDROID__)
     char val[PROP_VALUE_MAX]{};
@@ -53,4 +41,4 @@ void shieldLog(const char* fmt, ...) noexcept {
     va_end(args);
 }
 
-} // namespace omni::shield
+}

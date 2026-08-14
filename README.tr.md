@@ -89,6 +89,21 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **Tek Kotlin dosyası, ve hiçbir yerde yorum yok.** `Service.kt` ile
+  `Settings.kt`, `Backrooms.kt` içine birleştirildi — tek paket, isim çakışması
+  yok, 180 import tekilleştirildi — ve projedeki bütün yorumlar kaldırıldı:
+  Kotlin, Gradle KTS, C++ ve Kotlin raw string'lerinin içindeki GLSL ile
+  AGSL'den `//` ve `/* */`; Python, YAML, TOML, CMake, ProGuard ve properties
+  dosyalarından `#`; XML'den `<!-- -->`. 8059 satır silindi. Regex yerine dile
+  özel bir belirteçleyiciyle yapıldı, çünkü regex bir string'in içindeki
+  `https://` ile bir YAML değerinin içindeki `#` işaretini de yer; `#version`,
+  `#include` ve shebang satırları korundu, onlar yorum değil yönerge. Üç
+  denetim `Service.kt`'yi adıyla arıyordu ve birleştirmede kırıldı — bir dosya
+  adı sözleşmenin parçası hâline gelmişti, oysa denetledikleri şey bir
+  bildirimdi; artık hangi Kotlin kaynakları varsa onları okuyorlar.
+  Doğrulandı: sekiz aracın hepsi yeşil, her Python dosyası derleniyor, 31 XML
+  dosyasının hepsi ayrıştırılıyor, 22 shader'ın hepsi hâlâ derlenip link
+  oluyor.
 - **Hatası çökme olan tek shader, hiçbir şeyin denetlemediği tek shader'dı.**
   Bir önceki maddedeki kenar shader'ı, kenar bandının kalınlığını `fwidth(d)`
   ile hesaplıyordu. AGSL'de türev fonksiyonları **hiç yok** — ne `fwidth`, ne

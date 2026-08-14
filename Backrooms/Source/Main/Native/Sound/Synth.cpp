@@ -12,21 +12,12 @@ constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
 
 float lerp(float a, float b, float t) noexcept { return a + (b - a) * t; }
 
-/**
- * The sample index for a time in seconds.
- *
- * Truncating `t * kSynthRate` is wrong and quietly so. `float(i)/44100*44100`
- * does not always land back on i — it lands a hair under — so a plain cast
- * returned i-1 for 347 of the first 4410 samples. Eight per cent of the noise
- * was a repeat of the previous sample, which correlates it and dulls the hiss
- * in a way that is easy to hear and impossible to see. Rounding recovers the
- * index exactly for any t this game plays.
- */
+
 uint32_t sampleIndex(float t) noexcept {
     return static_cast<uint32_t>(std::lround(t * kSynthRate));
 }
 
-} // namespace
+}
 
 float hash01(uint32_t n) noexcept {
     n = (n ^ 61u) ^ (n >> 16);
@@ -43,9 +34,9 @@ float valueNoise(float x) noexcept {
     const float i = std::floor(x);
     float f = x - i;
     f = f * f * (3.0f - 2.0f * f);
-    // The cast to uint32_t must wrap the same way Python's & 0xFFFFFFFF does,
-    // which is why the index goes through int32 first: a negative time would
-    // otherwise land on a different sample in each language.
+
+
+
     const auto n = static_cast<uint32_t>(static_cast<int32_t>(i));
     return lerp(white(n), white(n + 1u), f);
 }
@@ -56,21 +47,21 @@ float vhsIntro(float t, float duration) noexcept {
     const float envOut = std::min(1.0f, std::max(0.0f, (duration - t) / 0.6f));
     const float env = envIn * envOut;
 
-    // Transport spinning up: pitch rises and settles.
+
     const float spin = 1.0f - std::exp(-t * 3.2f);
     const float rumble = std::sin(kTwoPi * (22.0f + 26.0f * spin) * t) * 0.45f * spin;
 
-    // Head contact hiss, shaped by a slow drift so it breathes.
+
     const float hiss = white(n) * (0.16f + 0.10f * valueNoise(t * 7.0f)) * spin;
 
-    // Dropouts: hard gates, irregular, short.
+
     const float drop = valueNoise(t * 11.0f + 3.1f) > -0.55f ? 1.0f : 0.12f;
 
-    // Mains hum — 50 Hz and its third, the way a real earth loop sounds.
+
     const float hum = (std::sin(kTwoPi * 50.0f * t) * 0.09f +
                        std::sin(kTwoPi * 150.0f * t) * 0.035f) * spin;
 
-    // Tape wow: the whole signal's pitch wavers slightly.
+
     const float wow = 1.0f + valueNoise(t * 1.7f) * 0.012f;
     const float body = std::sin(kTwoPi * 190.0f * t * wow) * 0.08f * spin;
 
@@ -92,48 +83,48 @@ float footstep(float t, float pace, float surface, float step) noexcept {
     const float p = std::clamp(pace, 0.0f, 1.0f);
     const float s = std::clamp(surface, 0.0f, 1.0f);
 
-    // Every footfall used to be byte-identical: the synth restarted this
-    // function at t = 0 with the same three arguments each time, so a walk was
-    // one waveform repeating on a metronome. That is most of why it read as a
-    // tick rather than a step -- a sound that is both perfectly periodic and
-    // perfectly identical is a UI beep, whatever its spectrum.
-    //
-    // `step` is the footfall's index. Three hashes off it move the pitch, the
-    // decay and the level, so no two consecutive steps match while the whole
-    // thing stays a pure function of its arguments.
+
+
+
+
+
+
+
+
+
     const auto si = static_cast<uint32_t>(step);
     const float j0 = hash01(si * 2654435761u);
     const float j1 = hash01(si * 40503u + 17u);
     const float j2 = hash01(si * 2246822519u + 5u);
 
-    // The body. It was 78 Hz with a decay of 34, which is 90% gone in 57 ms and
-    // barely two cycles -- there was no thump to hear, only its attack.
-    // Measured, the old one put its energy at about 1.1 kHz and was over in
-    // 53 ms; a real footfall on carpet is under 200 Hz and lasts 120-180.
+
+
+
+
     const float f0 = (54.0f + 14.0f * s) * (0.90f + 0.20f * j0);
     const float bodyDecay = (13.0f + 9.0f * s) * (0.88f + 0.24f * j1);
     const float bodyEnv = std::exp(-t * bodyDecay) * (1.0f - std::exp(-t * 900.0f));
     const float body = std::sin(kTwoPi * f0 * t * (1.0f - 0.35f * t)) * bodyEnv;
 
-    // Heel then toe. One impact is a knock on a door; two, a few milliseconds
-    // apart and the second softer, is a person putting a foot down.
+
+
     const float tt = t - (0.026f + 0.010f * j2);
     const float toeEnv = tt > 0.0f
                        ? std::exp(-tt * (bodyDecay * 1.9f)) * (1.0f - std::exp(-tt * 1400.0f))
                        : 0.0f;
     const float toe = std::sin(kTwoPi * f0 * 1.6f * tt) * toeEnv * 0.42f;
 
-    // Cloth and pile, low-passed. Unfiltered white noise is what put the old
-    // step's energy an octave and a half above where a footstep lives; a
-    // running mean over eight samples takes the top off it.
+
+
+
     float lp = 0.0f;
     for (uint32_t k = 0; k < 8; ++k) lp += white(n - k + si * 977u);
     lp /= 8.0f;
     const float scuff = lp * std::exp(-t * (26.0f + 14.0f * s)) * (0.22f + 0.30f * s);
 
-    // The click belongs to a hard floor and to nothing else. On carpet it is
-    // the single most artificial thing in the sound, so it scales with the
-    // square of the surface and vanishes entirely on the pile.
+
+
+
     const float click = std::exp(-t * 300.0f) * white(n + 7u + si * 31u) * s * s * 0.55f;
 
     const float gain = (0.62f + 0.45f * p) * (0.86f + 0.28f * j2);
@@ -143,7 +134,7 @@ float footstep(float t, float pace, float surface, float step) noexcept {
 float monsterVoice(float t, float proximity) noexcept {
     const float p = std::clamp(proximity, 0.0f, 1.0f);
     const float f0 = 41.0f + 14.0f * p;
-    const float f1 = f0 * 1.4983f;                  // deliberately not a simple ratio
+    const float f1 = f0 * 1.4983f;
     const float breath = 0.55f + 0.45f * std::sin(kTwoPi * (0.7f + 0.5f * p) * t);
     const float body = std::sin(kTwoPi * f0 * t) * 0.55f +
                        std::sin(kTwoPi * f1 * t) * 0.30f;
@@ -155,26 +146,26 @@ float roomTone(float t, float damp) noexcept {
     const uint32_t n = sampleIndex(t);
     const float d = std::clamp(damp, 0.0f, 1.0f);
 
-    // The building itself. Two very low tones a fifth of a hertz apart, so they
-    // beat against each other over about five seconds and the drone never sits
-    // still — a single sine at this pitch reads as a test tone.
+
+
+
     const float drone = std::sin(kTwoPi * 47.0f * t) * 0.055f +
                         std::sin(kTwoPi * 47.2f * t) * 0.045f;
 
-    // Air handling, three floors away. White noise through a one-pole low pass
-    // done the only way a stateless generator can: average the neighbourhood.
-    // Unfiltered white noise is the single rawest thing you can put in a mix,
-    // and it was what the ambience layer played.
+
+
+
+
     float lp = 0.0f;
     for (uint32_t k = 0; k < 12; ++k) lp += white(n - k);
     lp /= 12.0f;
     const float air = lp * 0.085f;
 
-    // A little high hiss, so the low-passed part does not sound muffled.
+
     const float top = white(n + 991u) * 0.012f;
 
-    // Water, somewhere. Deterministic from the clock: a drip every 3.4 seconds
-    // with a long enough tail to ring, damp deciding how wet the place is.
+
+
     const float cyc = t - 3.4f * std::floor(t / 3.4f);
     const float ring = std::exp(-cyc * 26.0f);
     const float drip = std::sin(kTwoPi * (1180.0f - 260.0f * cyc) * cyc) * ring * 0.16f * d;
@@ -183,24 +174,24 @@ float roomTone(float t, float damp) noexcept {
 }
 
 float distantEvent(float t) noexcept {
-    // Something, a long way off.
-    //
-    // Standing still, the only thing you could hear was the tube overhead: a
-    // continuous tone and nothing else, which is the sound of a room rather
-    // than the sound of a place. An empty floor is not silent between the hums
-    // -- it settles, its pipes knock, a door somewhere shuts, something drags.
-    // You never find out what, and that is the point.
-    //
-    // Deterministic in t, like everything here: every player standing in the
-    // same place at the same moment hears the same thing, and it can be
-    // rendered and checked.
-    constexpr float kPeriod = 17.3f;      // prime-ish, so it never lines up
-                                          // with the room tone's 3.4 s drip
+
+
+
+
+
+
+
+
+
+
+
+    constexpr float kPeriod = 17.3f;
+
     const float idx = std::floor(t / kPeriod);
     const float u   = t - idx * kPeriod;
 
-    // Most of the window is silence. The event itself is short and the wait is
-    // the majority of it -- a noise every four seconds is a soundtrack.
+
+
     const uint32_t e = static_cast<uint32_t>(static_cast<int32_t>(idx));
     const float when = 1.5f + hash01(e * 2654435761u) * 11.0f;
     const float dt   = u - when;
@@ -209,43 +200,43 @@ float distantEvent(float t) noexcept {
     const uint32_t n = sampleIndex(t);
     const int kind = static_cast<int>(hash01(e * 40503u + 11u) * 4.0f) & 3;
 
-    // Distance is the whole effect, and distance is a low-pass and a tail. A
-    // sound this far away has no top left in it and rings for a second in a
-    // floor plate this size.
+
+
+
     float lp = 0.0f;
     for (uint32_t k = 0; k < 24; ++k) lp += white(n - k + e * 7919u);
     lp /= 24.0f;
 
     float sig = 0.0f;
     if (kind == 0) {
-        // A door, somewhere. Two knocks: the latch, then the frame.
+
         const float a = std::exp(-dt * 14.0f) * (1.0f - std::exp(-dt * 700.0f));
         const float b = dt > 0.09f ? std::exp(-(dt - 0.09f) * 9.0f) * 0.55f : 0.0f;
         sig = (std::sin(kTwoPi * 96.0f * dt) * a + std::sin(kTwoPi * 61.0f * dt) * b) * 0.5f
             + lp * (a + b) * 0.30f;
     } else if (kind == 1) {
-        // Pipes. A metallic knock that rings on an inharmonic pair.
+
         const float a = std::exp(-dt * 6.0f) * (1.0f - std::exp(-dt * 900.0f));
         sig = (std::sin(kTwoPi * 214.0f * dt) * 0.6f +
                std::sin(kTwoPi * 337.0f * dt) * 0.3f) * a * 0.42f;
     } else if (kind == 2) {
-        // Something dragged across carpet, and stopping.
+
         const float env = std::sin(std::numbers::pi_v<float> * std::min(dt / 1.4f, 1.0f));
         sig = lp * env * 0.34f;
     } else {
-        // The building settling: a low groan that arrives and goes.
+
         const float env = std::sin(std::numbers::pi_v<float> * std::min(dt / 2.6f, 1.0f));
         sig = (std::sin(kTwoPi * 38.0f * dt) * 0.5f +
                std::sin(kTwoPi * 57.3f * dt) * 0.25f) * env * 0.40f;
     }
-    // Everything arrives through a corridor, so nothing arrives dry.
+
     return sig * 0.55f;
 }
 
 float breath(float t, float exertion) noexcept {
-    // One cycle in and out. Faster and harder the more she is working, and it
-    // is breath rather than noise because the in and the out are not the same
-    // shape: drawing in is longer and quieter than pushing out.
+
+
+
     const float e = std::clamp(exertion, 0.0f, 1.0f);
     const float rate = 0.30f + 0.85f * e;
     const float ph = t * rate - std::floor(t * rate);
@@ -256,8 +247,8 @@ float breath(float t, float exertion) noexcept {
                     : 0.0f;
     const float env = in * 0.55f + out * 1.0f;
 
-    // Breath is noise shaped by a throat, so it needs a formant rather than a
-    // flat spectrum. Two narrow resonances is enough to stop it being wind.
+
+
     const uint32_t n = sampleIndex(t);
     float lp = 0.0f;
     for (uint32_t k = 0; k < 5; ++k) lp += white(n - k);
@@ -269,9 +260,9 @@ float breath(float t, float exertion) noexcept {
 }
 
 float heartbeat(float t, float fear) noexcept {
-    // Two thumps, lub then dub, the second softer and a fifth of a beat later.
-    // Rate rises with fear; so does how much of the beat you feel rather than
-    // hear, which is the low end.
+
+
+
     const float f = std::clamp(fear, 0.0f, 1.0f);
     const float bpm = 58.0f + 62.0f * f;
     const float period = 60.0f / bpm;
@@ -288,8 +279,8 @@ float heartbeat(float t, float fear) noexcept {
 }
 
 float torchClick(float t) noexcept {
-    // A switch, not a beep: a hard contact transient with a tiny spring ring
-    // after it, over in about 40 ms.
+
+
     if (t < 0.0f || t > 0.06f) return 0.0f;
     const uint32_t n = sampleIndex(t);
     const float snap = white(n) * std::exp(-t * 620.0f);
@@ -297,5 +288,5 @@ float torchClick(float t) noexcept {
     return (snap * 0.8f + ring) * 0.5f;
 }
 
-} // namespace sound
-} // namespace omni
+}
+}

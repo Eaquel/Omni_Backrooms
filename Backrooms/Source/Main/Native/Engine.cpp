@@ -1,7 +1,5 @@
-// ============================================================
-//  libil2cpp.so — Omni Engine Runtime
-//  Version: 2023.3.14f1  Build: 57e3c67d7e9f
-// ============================================================
+
+
 
 #include <jni.h>
 #include <android/bitmap.h>
@@ -29,8 +27,7 @@
 #include "Ending/Ending.h"
 #include "Shield/Shield.h"
 
-// Cells per chunk edge. 24 keeps a chunk mesh small enough to build in a frame
-// while large enough that streaming happens rarely.
+
 #define OMNI_CHUNK_CELLS 24
 #include <linux/prctl.h>
 #include <memory>
@@ -83,7 +80,7 @@ struct DecalInfo  { float u,v,rotation; uint8_t type; };
 struct CorridorSegment {
     Vec2f    position;
     float    width,length,height;
-    float    heading=0; // yaw (radians) of travel direction from `position`, world +Z at heading=0
+    float    heading=0;
     RoomType roomType;
     LightState light;
     std::vector<DecalInfo> decals;
@@ -105,8 +102,8 @@ struct CollisionResult { bool hit; Vec3f normal; float penetration; };
 struct CameraState {
     Vec3f pos;
     float yaw=0,pitch=0,fov=70,bobPhase=0,bobAmount=0,rollAngle=0,targetPitch=0,targetYaw=0;
-    /** Eye above the feet, in metres. Crouching drives this down; the camera and
-     *  the ceiling clamp both read it so the two can never disagree. */
+
+
     float eyeHeight=1.7f,targetEyeHeight=1.7f;
 };
 
@@ -143,13 +140,10 @@ private:
 };
 
 
-/** Grid collision. Because cells are axis-aligned there are no seams to slip
- *  through: we resolve each axis independently against the cell the player is
- *  trying to enter, which also gives clean sliding along walls. */
 inline void resolveGridCollision(const omni::map::Level0Field& g,PhysicsBody& body,Vec3f prev,bool skipCeiling=false,float eyeHeight=1.7f) noexcept {
     const float r=body.radius;
 
-    // X axis
+
     {
         float nx=body.pos.x;
         int cz0=g.cellZ(prev.z-r), cz1=g.cellZ(prev.z+r);
@@ -160,7 +154,7 @@ inline void resolveGridCollision(const omni::map::Level0Field& g,PhysicsBody& bo
                 if(g.isSolid(cx,cz)){ blocked=true; break; }
         if(blocked){ body.pos.x=prev.x; body.vel.x=0.0f; }
     }
-    // Z axis
+
     {
         float nz=body.pos.z;
         int cx0=g.cellX(body.pos.x-r), cx1=g.cellX(body.pos.x+r);
@@ -309,8 +303,8 @@ public:
         cam.yaw  +=(cam.targetYaw  -cam.yaw)  *std::min(1.0f,20.0f*dt);
         cam.pitch+=(cam.targetPitch-cam.pitch) *std::min(1.0f,20.0f*dt);
         cam.pitch=std::clamp(cam.pitch,-89.0f,89.0f);
-        // Crouching drops the eye over ~0.2 s rather than snapping, which is
-        // what makes the button feel like a body moving instead of a teleport.
+
+
         cam.eyeHeight+=(cam.targetEyeHeight-cam.eyeHeight)*std::min(1.0f,12.0f*dt);
         float speed=std::hypot(body.vel.x,body.vel.z);
         float targetBob=body.onGround?speed*0.04f:0.0f;
@@ -322,38 +316,23 @@ public:
         float targetRoll=std::sin(cam.bobPhase*0.5f)*cam.bobAmount*0.8f;
         cam.rollAngle+=(targetRoll-cam.rollAngle)*6.0f*dt;
     }
-    /**
-     * Degrees of view per density-independent pixel of drag, at sensitivity 1.
-     *
-     * dx and dy arrive in dp (GameHud converts before calling), and this is
-     * what turns them into an angle. Without it the delta WAS the angle: on a
-     * 1080p phone half a screen of drag came to about 500 degrees of yaw, so
-     * the smallest deliberate movement threw the view across the corridor.
-     *
-     * 0.42 puts a full swipe across a typical 411dp-wide phone at ~173
-     * degrees — just under a half turn, which is the standard this genre has
-     * settled on for a reason: you can find something behind you in one
-     * gesture without overshooting it.
-     */
+
+
+
     static constexpr float kLookDegPerDp = 0.42f;
 
     void look(CameraState& cam,float dx,float dy,float sensitivity) noexcept {
-        // Screen-right is (-cos(yaw),0,sin(yaw)) (gluLookAt side = forward x up),
-        // so increasing yaw swings the view LEFT. Drag-right must decrease yaw.
+
+
         cam.targetYaw  -=dx*sensitivity*kLookDegPerDp;
         cam.targetPitch-=dy*sensitivity*kLookDegPerDp;
         cam.targetPitch=std::clamp(cam.targetPitch,-89.0f,89.0f);
     }
 };
 
-} // namespace omni::core
+}
 
 
-// The detectors, the monitor and the Unity costume moved to Shield/ — see the
-// note at the top of Shield.h. What could not move is below: verifying the APK
-// signature means calling PackageManager through JNI, so there is no version of
-// it that runs without a JVM, and pretending otherwise would have meant a
-// "portable" module with a JNIEnv* in its interface.
 namespace omni::shield {
 
 class SignatureVerifier {
@@ -392,10 +371,8 @@ public:
 private:
     std::string expected_;
 };
-} // namespace omni::shield
+}
 
-// The creatures live in Entity/Entity.h — see the note at the top of that
-// file for why they had to leave this one.
 
 namespace omni::sound {
 
@@ -407,41 +384,15 @@ struct SpatialParams {
     float refDistance=1.0f,maxDistance=30.0f;
 };
 
-// ---------------------------------------------------------------------------
-// Every one of these is a frame counter in front of a generator in Sound/Synth.
-//
-// They used to be generators in their own right, written out here a second
-// time and much more crudely, and THEY were what the speaker actually played.
-// Sound/Synth.h opens by saying "code you cannot hear is code nobody checks"
-// and "what gets checked is what ships" -- and then fluorescentHum, footstep
-// and monsterVoice, the three that Code_To_Sound.py renders and compares
-// against a Python reference sample for sample, had no caller anywhere in the
-// engine. Only the title sting reached the speaker. The tool was verifying
-// three sounds nobody had ever heard while four cruder ones played unchecked.
-//
-// That is the fourth time one rule has existed in two copies here with only one
-// of them checked -- the doorway, the two media3 artifacts, the light fittings,
-// now this -- and the first time the checked copy was the dead one.
-//
-// What played instead: an 800-radian-per-second "click" that is really 127 Hz,
-// a monster whose frequency modulation was applied to an integer sample counter
-// so its phase jumped every time the pitch moved, and an ambience layer that
-// was unfiltered white noise out of a std::mt19937 -- non-deterministic, so two
-// players in the same place heard different things, which is the one property
-// the header says the whole design exists to guarantee.
-// ---------------------------------------------------------------------------
 
-/** A continuous generator sampled by the callback. Holds a phase in seconds so
- *  the generator stays a pure function of time, and a parameter the game moves
- *  underneath it. */
 class Continuous {
 public:
     explicit Continuous(float param) noexcept : param_(param) {}
     void  set(float v)   noexcept { param_.store(std::clamp(v,0.0f,1.0f)); }
     float get()    const noexcept { return param_.load(); }
 protected:
-    /** Seconds since the stream started, wrapped at an hour so a long session
-     *  cannot lose float precision in the low bits of t. */
+
+
     float advance() noexcept {
         const float t = static_cast<float>(frame_) / kSampleRate;
         if (++frame_ >= kSampleRate * 3600) frame_ = 0;
@@ -460,16 +411,14 @@ public:
     }
     void setVolume(float v) noexcept { set(v); }
     float volume() const noexcept    { return get(); }
-    /** 1 a good fitting, 0 a failing ballast. Driven from the cell the player
-     *  is standing in, so the buzz belongs to the tube overhead. */
+
+
     void setHealth(float h) noexcept { health_.store(std::clamp(h,0.0f,1.0f)); }
 private:
     std::atomic<float> health_{1.0f};
 };
 
-/** Footfalls at a fixed interval. Each one restarts the generator's clock, so
- *  what plays is one footstep from t=0 rather than a continuous tone gated by
- *  an envelope. */
+
 class FootstepSynth {
 public:
     void trigger(float bpm,float surface) noexcept {
@@ -483,9 +432,9 @@ public:
     float next() noexcept {
         std::lock_guard lk(mtx_);
         if(!active_) return 0.0f;
-        // A new index every time the interval wraps, not only on trigger: a
-        // held direction retriggers this from inside, and without it every step
-        // of a walk would be the same waveform again.
+
+
+
         if(counter_>=interval_){ counter_=0; ++step_; }
         const float t=static_cast<float>(counter_)/kSampleRate;
         ++counter_;
@@ -509,7 +458,7 @@ public:
         if(!active_) return 0.0f;
         const float t=static_cast<float>(frame_)/kSampleRate;
         if(++frame_>=kSampleRate*3600) frame_=0;
-        // Fade in over a second so a creature does not appear at full voice.
+
         return omni::sound::monsterVoice(t,intensity_)*std::min(1.0f,t);
     }
 private:
@@ -522,8 +471,8 @@ public:
     void setLevel(float l) noexcept { set(l); }
     float next() noexcept {
         const float t = advance();
-        // The room, plus whatever is happening elsewhere in the building. Both
-        // ride the ambience gain: they are the same place.
+
+
         return (omni::sound::roomTone(t, damp_.load())
               + omni::sound::distantEvent(t)) * get();
     }
@@ -532,9 +481,7 @@ private:
     std::atomic<float> damp_{0.35f};
 };
 
-/** Her breathing, and her heart. Both ride the ambience gain rather than a
- *  channel of their own: they are the player's own body, and a player who has
- *  turned the ambience down has said they want the room quiet. */
+
 class BodyLayer : public Continuous {
 public:
     BodyLayer() noexcept : Continuous(1.0f) {}
@@ -543,9 +490,9 @@ public:
     float next() noexcept {
         const float t = advance();
         const float e = exertion_.load(), f = fear_.load();
-        // Neither is audible at rest. You hear your own breath when you have
-        // been running and your own heart when something is close, and at no
-        // other time -- otherwise they are just two more loops.
+
+
+
         return omni::sound::breath(t,e)     * std::min(1.0f,e*1.6f)
              + omni::sound::heartbeat(t,f)  * std::min(1.0f,std::max(0.0f,f-0.25f)*2.0f);
     }
@@ -560,9 +507,9 @@ public:
         float out=hum*humGain.load()+foot*footGain.load()+monster*monsterGain.load()+amb*0.5f;
         return std::clamp(out*masterGain.load(),-1.0f,1.0f);
     }
-    /** The title sting rides on master only. It is not a monster and it is not
-     *  a footstep, so a player who has turned those two down to play at night
-     *  should still hear the tape come up. */
+
+
+
     float mixSting(float game,float sting) const noexcept {
         return std::clamp(game+sting*0.85f*masterGain.load(),-1.0f,1.0f);
     }
@@ -585,7 +532,7 @@ struct SoundEngine {
     std::mutex           mtx;
 };
 
-} // namespace omni::sound
+}
 
 static omni::core::CorridorGen*      gCorridor=nullptr;
 static omni::core::VhsRenderer*      gVhs     =nullptr;
@@ -599,9 +546,8 @@ static int                           gSpawnCx = 0, gSpawnCz = 0;
 static int                           gExitCx  = 0, gExitCz  = 0;
 static omni::core::Vec3f             gPrevPos;
 static omni::shield::GuardState       gGuard;
-// Kept beside gGuard rather than inside it: GuardState is portable and this
-// is not, and a unique_ptr to a JNI-only type is exactly what would have
-// stopped the rest of Shield/ from compiling off-device.
+
+
 static std::unique_ptr<omni::shield::SignatureVerifier> gSigVerifier;
 static omni::entity::EntitySystem    gEntitySys;
 static omni::sound::SoundEngine      gSound;
@@ -616,8 +562,8 @@ static aaudio_data_callback_result_t aaudioDataCallback(
     eng->hum.fill(humBuf);
     for(int i=0;i<numFrames;++i){
         footBuf[i]=eng->foot.next(); monBuf[i]=eng->monster.next();
-        // The room and her own body are one bed: both answer to the ambience
-        // gain, so turning the room down turns the breathing down with it.
+
+
         ambBuf[i]=eng->ambience.next()+eng->body.next()*eng->ambience.get();
         float s=eng->bus.mix(humBuf[i]*eng->hum.volume(),footBuf[i],monBuf[i],ambBuf[i]);
         s=eng->bus.mixSting(s,eng->sting.next()+eng->click.next());
@@ -627,14 +573,7 @@ static aaudio_data_callback_result_t aaudioDataCallback(
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
-/**
- * A monotonic millisecond clock for the game loop.
- *
- * This used to live in the netcode, as the timestamp a ping packet carried, and
- * the loop borrowed it. The netcode is gone; the loop still needs a clock that
- * cannot go backwards when the user changes the time zone, so it is its own
- * function now rather than a leftover of something else.
- */
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_omni_backrooms_NativeBridge_nowMs(JNIEnv*, jobject) {
     using namespace std::chrono;
@@ -643,8 +582,8 @@ Java_com_omni_backrooms_NativeBridge_nowMs(JNIEnv*, jobject) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_setPlayerState(JNIEnv*, jobject, jfloat x, jfloat y, jfloat z, jfloat yaw, jfloat pitch) {
-    // Used when resuming a saved run: generateLevel() always drops the player at
-    // a fresh random cell, so a resume has to put them back afterwards.
+
+
     gPlayerBody.pos = {x, y, z};
     gPlayerBody.vel = {};
     gPlayerBody.onGround = true;
@@ -676,9 +615,9 @@ Java_com_omni_backrooms_NativeBridge_getFlicker(JNIEnv*, jobject, jfloat phase, 
 
 JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_generateLevel(JNIEnv* env, jobject, jint count, jint depth) {
-    // With an infinite field there is nothing to "generate" up front. This now
-    // just resolves spawn/exit and hands back a small header; geometry is
-    // streamed per chunk by generateChunk() as the player moves.
+
+
+
     (void)count; (void)depth;
 
     gField.findSpawn(gSpawnCx, gSpawnCz);
@@ -692,7 +631,7 @@ Java_com_omni_backrooms_NativeBridge_generateLevel(JNIEnv* env, jobject, jint co
     gPrevPos = gPlayerBody.pos;
     gSpawnFalling = true;
 
-    // header: [cellSize, height, spawnX, spawnZ, exitX, exitZ, chunkCells, reserved]
+
     const jsize total = 8;
     auto arr = env->NewFloatArray(total);
     if (!arr) return nullptr;
@@ -713,14 +652,14 @@ Java_com_omni_backrooms_NativeBridge_generateLevel(JNIEnv* env, jobject, jint co
 
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_generateChunk(JNIEnv* env, jobject, jint chunkX, jint chunkZ) {
-    // One chunk of cells, queried straight from the field. Nothing is cached
-    // here: the field is cheap and stateless, and caching on this side would
-    // just duplicate the mesh cache Kotlin already keeps.
-    //
-    // The chunk ships with a one-cell apron on every side. Without it the mesher
-    // has to guess what lies past the edge, and guessing "solid" walled off every
-    // chunk boundary with a wall the collision field knew nothing about — the
-    // walls you could walk straight through where two chunks met.
+
+
+
+
+
+
+
+
     constexpr int N = OMNI_CHUNK_CELLS;
     constexpr int NP = N + 2;
     constexpr int kFloatsPerCell = 5;
@@ -737,8 +676,8 @@ Java_com_omni_backrooms_NativeBridge_generateChunk(JNIEnv* env, jobject, jint ch
     for (int i = 0; i < NP * NP; ++i) {
         const auto& s = samples[i];
         flat.push_back(s.solid ? 1.0f : 0.0f);
-        // Continuous illuminance, not a zone index. The mesher interpolates it
-        // across faces, which is what removed the banding between regions.
+
+
         flat.push_back(s.light);
         flat.push_back(static_cast<float>(s.feature));
         flat.push_back(static_cast<float>(s.fixture));
@@ -750,9 +689,9 @@ Java_com_omni_backrooms_NativeBridge_generateChunk(JNIEnv* env, jobject, jint ch
 
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_relocateExit(JNIEnv* env, jobject, jfloat px, jfloat pz, jfloat maxDistM) {
-    // The world never ends, so an exit fixed at generation time can be walked
-    // away from forever. Once the player is further than [maxDistM] from it the
-    // door is re-anchored ahead of them: still a hike, but always findable.
+
+
+
     const float cell = omni::map::Level0Field::kCell;
     const float exitWx = omni::map::Level0Field::worldX(gExitCx) + cell * 0.5f;
     const float exitWz = omni::map::Level0Field::worldZ(gExitCz) + cell * 0.5f;
@@ -762,7 +701,7 @@ Java_com_omni_backrooms_NativeBridge_relocateExit(JNIEnv* env, jobject, jfloat p
     if (tooFar) {
         const int pcx = omni::map::Level0Field::cellX(px);
         const int pcz = omni::map::Level0Field::cellZ(pz);
-        // Far enough that it is still a run, close enough to be reachable.
+
         gField.findExitNear(pcx, pcz, 46, gExitCx, gExitCz);
         LOGI_C("Exit relocated to (%d,%d)", gExitCx, gExitCz);
     }
@@ -783,13 +722,6 @@ Java_com_omni_backrooms_NativeBridge_setCrouch(JNIEnv*, jobject, jboolean crouch
     gCamState.targetEyeHeight = crouched ? omni::core::kCrouchEye : omni::core::kStandEye;
 }
 
-// ---------------------------------------------------------------------------
-// Cosmetics: frames and trails.
-//
-// The catalogues live in Frame/ and Trail/. These calls are the whole of the
-// UI's access to them, so a cosmetic can be added, renamed or restyled without
-// anything in Kotlin knowing its name.
-// ---------------------------------------------------------------------------
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_omni_backrooms_NativeBridge_frameCount(JNIEnv*, jobject) {
@@ -802,8 +734,7 @@ Java_com_omni_backrooms_NativeBridge_frameId(JNIEnv* env, jobject, jint index) {
     return env->NewStringUTF(spec ? spec->id : "");
 }
 
-/** Palette and material, as 11 floats: base rgb, glow rgb, highlight rgb,
- *  tube ratio, shininess. */
+
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_frameSpec(JNIEnv* env, jobject, jint index) {
     const auto* s = omni::cosmetic::frameAt(index);
@@ -820,7 +751,7 @@ Java_com_omni_backrooms_NativeBridge_frameSpec(JNIEnv* env, jobject, jint index)
     return arr;
 }
 
-/** Static silhouette: [samples] * 2 floats, (radius, thickness) per position. */
+
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_frameProfile(JNIEnv* env, jobject, jint index, jint samples) {
     if (samples <= 0 || samples > 4096) return nullptr;
@@ -833,9 +764,7 @@ Java_com_omni_backrooms_NativeBridge_frameProfile(JNIEnv* env, jobject, jint ind
     return arr;
 }
 
-/** Emission at time [t]: [samples] floats in 0..1. Called once per rendered
- *  frame per visible ring, which is why it fills a caller-sized array in one
- *  crossing rather than being queried per position. */
+
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_frameEmission(JNIEnv* env, jobject, jint index, jint samples, jfloat t) {
     if (samples <= 0 || samples > 4096) return nullptr;
@@ -859,7 +788,7 @@ Java_com_omni_backrooms_NativeBridge_trailId(JNIEnv* env, jobject, jint index) {
     return env->NewStringUTF(spec ? spec->id : "");
 }
 
-/** Tint rgb, lifetime, scale, spread, mark kind — 7 floats. */
+
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_trailSpec(JNIEnv* env, jobject, jint index) {
     const auto* s = omni::cosmetic::trailAt(index);
@@ -875,7 +804,7 @@ Java_com_omni_backrooms_NativeBridge_trailSpec(JNIEnv* env, jobject, jint index)
     return arr;
 }
 
-/** The player's own trail. One per process: there is one local walker. */
+
 static omni::cosmetic::TrailField gTrail;
 
 extern "C" JNIEXPORT void JNICALL
@@ -898,7 +827,7 @@ Java_com_omni_backrooms_NativeBridge_trailClear(JNIEnv*, jobject) {
     gTrail.clear();
 }
 
-/** Live stamps, five floats each: x, z, yaw, age, side. */
+
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_trailCollect(JNIEnv* env, jobject) {
     omni::cosmetic::TrailStamp stamps[omni::cosmetic::TrailField::kCapacity];
@@ -962,14 +891,14 @@ Java_com_omni_backrooms_NativeBridge_physicsTick(JNIEnv*, jobject, jfloat dt) {
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_applyMovement(JNIEnv*, jobject, jfloat fx, jfloat fy, jfloat fz) {
     if(!gPhysics) return;
-    // fx = joystick right/strafe axis, fz = joystick forward axis (input space).
-    // forward = (sin(yaw), cos(yaw)); right = forward x up = (-cos(yaw), sin(yaw)).
+
+
     float yawRad=gCamState.yaw*0.017453293f;
     float s=std::sin(yawRad), c=std::cos(yawRad);
     float wx=-fx*c+fz*s;
     float wz= fx*s+fz*c;
-    // Upward impulses only from the ground: without this the player could jump
-    // again every frame while airborne and climb straight through the ceiling.
+
+
     if(fy>0.0f && !gPlayerBody.onGround) fy=0.0f;
     gPhysics->applyForce(gPlayerBody,{wx,fy,wz});
 }
@@ -981,8 +910,8 @@ Java_com_omni_backrooms_NativeBridge_cameraLook(JNIEnv*, jobject, jfloat dx, jfl
 
 JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_getCameraState(JNIEnv* env, jobject) {
-    // Slot 9 carries the live eye height so the renderer can place the avatar's
-    // feet on the floor; guessing 1.7 there is what left her hovering.
+
+
     auto arr=env->NewFloatArray(10); if(!arr) return nullptr;
     float d[10]={gCamState.pos.x,gCamState.pos.y,gCamState.pos.z,
                  gCamState.yaw,gCamState.pitch,gCamState.rollAngle,
@@ -1004,9 +933,9 @@ Java_com_omni_backrooms_NativeBridge_destroyCore(JNIEnv*, jobject) {
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_initEntities(JNIEnv*, jobject) {
     gEntitySys.entities.clear();
-    // The AI reads the world to decide what it can see. A Level0Field is a pure
-    // function of its seed, so a second one with the same seed is the same
-    // world — no pointer into gField to keep alive, no ordering to get wrong.
+
+
+
     gEntitySys.field.setSeed(gField.seed());
     gEntitySys.sense = omni::entity::WorldSense{};
     LOGI_E("EntitySystem initialized");
@@ -1044,13 +973,13 @@ Java_com_omni_backrooms_NativeBridge_tickEntities(
     gEntitySys.sense.torchOn   = (torchOn == JNI_TRUE);
     gEntitySys.tick(dt);
 
-    // ---- the sound of standing here ------------------------------------
-    //
-    // Set from the tick rather than through JNI setters of their own. Every
-    // one of these is something the engine already knows to the frame -- how
-    // close the creature is, what the mains are doing overhead, how fast she
-    // is going -- and a setter would mean Kotlin keeping a second copy of it
-    // in step. This file has lost four days to rules kept in two places.
+
+
+
+
+
+
+
     {
         float nearest = 1e9f;
         for (const auto& e : gEntitySys.entities) {
@@ -1058,14 +987,14 @@ Java_com_omni_backrooms_NativeBridge_tickEntities(
             const float dx = e.pos.x - px, dz = e.pos.z - pz;
             nearest = std::min(nearest, std::sqrt(dx * dx + dz * dz));
         }
-        // Nothing at 24 m, everything inside 4. Her heart is not a proximity
-        // meter -- it does not start until the thing is close enough to matter.
+
+
         const float fear = std::clamp((24.0f - nearest) / 20.0f, 0.0f, 1.0f);
 
         const float power = gField.powerAt(omni::map::Level0Field::cellX(px),
                                            omni::map::Level0Field::cellZ(pz));
-        // A section whose mains have failed is the section the water got into,
-        // so the tube overhead and the drip are the same fact heard twice.
+
+
         gSound.hum.setHealth(power);
         gSound.ambience.setDamp(1.0f - power);
         gSound.body.setFear(fear);
@@ -1089,22 +1018,14 @@ Java_com_omni_backrooms_NativeBridge_tickEntities(
     return arr;
 }
 
-/**
- * Drives a creature off. Not kills it — nothing in the Backrooms dies.
- *
- * Damage now spends into the same exposure meter the torch fills, so being hurt
- * and being held in the beam are one mechanic with two inputs, and both end the
- * same way: it breaks off, fades out, waits, and comes back. Deactivating the
- * entity, which is what this did before, removed it from the level for good and
- * quietly turned every encounter into a fight the player could finish.
- */
+
 JNIEXPORT void JNICALL
 Java_com_omni_backrooms_NativeBridge_damageEntity(JNIEnv*, jobject, jint id, jfloat amount) {
     if(id<0||id>=static_cast<int>(gEntitySys.entities.size())) return;
     auto& e=gEntitySys.entities[id];
     e.hp=std::max(0.0f,e.hp-amount);
-    // 100 damage is a full meter, so the existing 25-per-hit call takes four
-    // hits — the same number of blows it used to take, with a different ending.
+
+
     e.torchExposure += omni::entity::kRetreatExposure * (amount / 100.0f);
     if(e.hp<=0.0f){
         e.hp = e.maxHp;
@@ -1170,17 +1091,11 @@ JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setHumVolume(JNIEnv*
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setFootstepVolume(JNIEnv*, jobject, jfloat v)  { gSound.bus.footGain.store(std::clamp(v,0.0f,1.0f)); }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setMonsterVolume(JNIEnv*, jobject, jfloat v)   { gSound.bus.monsterGain.store(std::clamp(v,0.0f,1.0f)); }
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_setAmbienceLevel(JNIEnv*, jobject, jfloat v)   { gSound.ambience.setLevel(v); }
-/** Stops the footfalls. They ran on a fixed interval forever once triggered,
- *  so letting go of the stick left her walking on the spot. */
+
+
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopFootstep(JNIEnv*, jobject)                 { gSound.foot.stop(); }
-/**
- * The run-over transition, sampled.
- *
- * Returns the eight parameters the post shader needs for this instant, so the
- * shader does no timing of its own and what Native_Check measures is what the
- * screen shows. Kotlin owns the clock because Kotlin owns the frame loop; the
- * shape of the thing lives in Ending/.
- */
+
+
 JNIEXPORT jfloatArray JNICALL
 Java_com_omni_backrooms_NativeBridge_endingParams(JNIEnv* env, jobject, jint kind, jfloat t) {
     using namespace omni::ending;
@@ -1193,13 +1108,13 @@ Java_com_omni_backrooms_NativeBridge_endingParams(JNIEnv* env, jobject, jint kin
     return arr;
 }
 
-/** How long an ending runs, so Kotlin does not carry its own copy of it. */
+
 JNIEXPORT jfloat JNICALL
 Java_com_omni_backrooms_NativeBridge_endingDuration(JNIEnv*, jobject, jint kind) {
     return omni::ending::duration(static_cast<omni::ending::Kind>(kind));
 }
 
-/** The torch switch. 60 ms, which is the whole sound. */
+
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_playTorchClick(JNIEnv*, jobject) {
     std::lock_guard lk(gSound.mtx); gSound.click.start(0.06f, omni::sound::Shot::TorchClick);
 }
@@ -1212,13 +1127,8 @@ JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_triggerMonster(JNIEn
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_stopMonster(JNIEnv*, jobject) {
     std::lock_guard lk(gSound.mtx); gSound.monster.stop();
 }
-/**
- * The title sting: Eaquel's name over a dead tape spinning up.
- *
- * Synthesised, like everything else here — there is no audio file in this APK.
- * The generator is in Sound/Synth.cpp and Code_To_Sound.py renders that same
- * translation unit, so what is checked is what plays.
- */
+
+
 JNIEXPORT void JNICALL Java_com_omni_backrooms_NativeBridge_playIntroSting(JNIEnv*, jobject, jfloat seconds) {
     std::lock_guard lk(gSound.mtx); gSound.sting.start(seconds, omni::sound::Shot::Sting);
 }
@@ -1315,9 +1225,9 @@ Java_com_omni_backrooms_NativeBridge_getThreatReport(JNIEnv* env, jobject) {
     ap(FLAG_XPOSED,"XPOSED"); ap(FLAG_SUBSTRATE,"SUBSTRATE"); ap(FLAG_SHADOW_MOUNT,"SHADOW_MOUNT");
     ap(FLAG_MAPS_TAMPER,"MAPS_TAMPER"); ap(FLAG_HOOK_INLINE,"INLINE_HOOK"); ap(FLAG_PROC_TAMPER,"PROC_TAMPER");
     if(r.empty()) r="CLEAN";
-    // The line the verdict came from, where a detector kept one. A flag name
-    // says which check fired; only this says what it saw, and a false positive
-    // that cannot be told apart from a true one is not diagnosable at all.
+
+
+
     if(!gGuard.root.why().empty())  r+=" {mount: "+gGuard.root.why()+"}";
     if(!gGuard.frida.why().empty()) r+=" {frida: "+gGuard.frida.why()+"}";
     return env->NewStringUTF(r.c_str());
@@ -1331,4 +1241,4 @@ Java_com_omni_backrooms_NativeBridge_destroyGuard(JNIEnv*, jobject) {
     LOGI_G("Guard destroyed");
 }
 
-} // extern "C"
+}

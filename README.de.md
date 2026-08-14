@@ -91,6 +91,19 @@ Tools/                           die acht Prüfungen
 ## Zuletzt behoben
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
+- **Eine Kotlin-Datei, und nirgendwo Kommentare.** `Service.kt` und `Settings.kt` sind in `Backrooms.kt` zusammengeführt — ein
+  Paket, keine Namenskollisionen, 180 Importe dedupliziert — und jeder Kommentar
+  im Projekt ist weg: `//` und `/* */` aus Kotlin, Gradle KTS, C++ sowie dem
+  GLSL und AGSL in den Kotlin-Rohstrings; `#` aus Python, YAML, TOML, CMake,
+  ProGuard und Properties; `<!-- -->` aus XML. 8059 Zeilen entfernt. Mit einem
+  Tokenizer je Sprache statt mit einem Regex, denn ein Regex frisst `https://`
+  in einem String und `#` in einem YAML-Wert; `#version`, `#include` und
+  Shebangs bleiben, das sind Direktiven und keine Kommentare. Drei Prüfungen
+  hatten `Service.kt` beim Namen und brachen — ein Dateiname war Teil des
+  Vertrags geworden, obwohl sie eine Deklaration prüfen; sie lesen jetzt die
+  vorhandenen Kotlin-Quellen. Geprüft: alle acht Werkzeuge grün, jede
+  Python-Datei kompiliert, alle 31 XML-Dateien parsen, alle 22 Shader
+  kompilieren und linken weiterhin.
 - **Der einzige Shader, dessen Fehlschlag ein Absturz ist, war der einzige ungeprüfte.** Die Rand-Umschreibung im vorigen Eintrag nutzte `fwidth(d)`
   für die Breite ihres Kantenbands. AGSL hat überhaupt keine
   Ableitungsfunktionen — kein `fwidth`, kein `dFdx`, kein `dFdy` — und ein

@@ -1,36 +1,4 @@
 #!/usr/bin/env python3
-"""
-Level_0_Check.py — the level generator probe.
-
-The level is an infinite pure function, which means nothing about it can be
-eyeballed in an editor and a bad seed cannot be spotted until a player is
-already lost in it. This exercises the generator directly on the host, over
-many seeds, and asserts the properties a run actually depends on:
-
-  * the spawn and the exit are on open floor;
-  * the exit is REACHABLE from the spawn — a flood fill gets there;
-  * relocated exits are reachable too, from wherever the player has wandered;
-  * open space is neither so sparse the level is a maze of dead ends nor so
-    dense it is one undifferentiated hall;
-  * every open cell has some light, so nowhere is pitch black;
-  * and, separately, that MOST of the floor can be read without the torch. The
-    pitch-black test above is satisfied by the ambient floor alone and so has
-    never once fired, while the level it was guarding had 54% of its open floor
-    dark enough to render at 9% of albedo and stretches of 192 metres you could
-    not see a step of. A check that passes on a constant is not a check;
-  * the light is not FLAT — there are pools under the fittings and gloom
-    between them. A previous tuning measured 1.00x contrast: a uniformly lit
-    light box with no pools at all, and nothing in the build could see it;
-  * enough of the plan is corridor that it reads as a maze rather than as one
-    continuous open floor;
-  * columns concentrate in the unlit halls, and never seal a corridor.
-
-The probe itself is C++ because the generator is: it is embedded below, written
-to a temporary file and compiled on demand, which keeps Tools/ to the eight
-files it is meant to have.
-
-    python3 Tools/Level_0_Check.py [seed-count]
-"""
 import os
 import re
 import subprocess
@@ -41,13 +9,6 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
 
 def _probe_with_shader_constants() -> str:
-    """
-    The probe, with the scene shader's own lighting coefficients pasted in.
-
-    Reading them rather than restating them is the point: a check that keeps its
-    own copy of the formula it checks against passes or fails on how recently
-    someone remembered to update it.
-    """
     game = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms/Backrooms.kt")
     src = open(game, encoding="utf-8").read()
     m = re.search(r"float lit = ([\d.]+) \+ facing \* vLight \* uFlicker \* ([\d.]+);", src)

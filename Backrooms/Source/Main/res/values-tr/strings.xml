@@ -13,8 +13,6 @@
     <string name="menu_leaderboard">Liderlik</string>
 
 
-
-
     <string name="settings_tab_account">Hesap</string>
     <string name="settings_tab_graphics">Grafikler</string>
     <string name="settings_tab_audio">Ses</string>
@@ -44,7 +42,6 @@
     <string name="editor_btn_flashlight">Fener</string>
 
 
-
     <string name="market_title">Market</string>
     <string name="market_tab_vip">Ayrıcalıklar</string>
     <string name="market_tab_daily">Günlük</string>
@@ -52,7 +49,6 @@
     <string name="market_equipped">Kullanılıyor</string>
     <string name="market_limited">Sınırlı</string>
     <string name="market_confirm_title">Satın Al</string>
-
 
 
     <string name="player_level_prefix">Seviye </string>

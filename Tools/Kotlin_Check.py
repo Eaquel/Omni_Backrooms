@@ -1,28 +1,4 @@
 #!/usr/bin/env python3
-"""
-Catches Kotlin compile errors introduced by the working tree, without an
-Android SDK.
-
-Why this exists
----------------
-A full type-check needs `android.jar`, which is only distributed through
-dl.google.com. Running kotlinc without it produces thousands of errors — every
-Android and Compose symbol is unresolved — so the output is useless as a
-pass/fail signal, and filtering it by hand hides real errors among the noise.
-That is exactly how an `Unresolved reference 'floorDiv'` reached CI.
-
-The trick is that the noise is IDENTICAL on both sides of a change. Compile the
-baseline (a ref that is known to build) and the working tree with the same
-compiler and the same missing classpath, reduce each diagnostic to its message
-text, and diff the two multisets. Whatever is new is the change's own fault.
-
-Usage
------
-    python3 Tools/check_kotlin.py [--baseline origin/main] [--kotlinc PATH]
-
-Set OMNI_KOTLINC to point at a kotlinc binary, or pass --kotlinc. Exits non-zero
-when the working tree introduces diagnostics the baseline did not have.
-"""
 
 import argparse
 import collections
@@ -36,11 +12,6 @@ import tempfile
 
 SOURCE_GLOB = "Backrooms/Source/Main/Kotlin/com/omni/backrooms"
 
-# Two shapes, because the compiler reports differently depending on how it is
-# driven. Gradle's build-tools API emits
-#     e: file:///abs/File.kt:120:31 Unresolved reference 'floorDiv'.
-# while the standalone CLI emits
-#     path/File.kt:120:31: error: unresolved reference 'floorDiv'.
 DIAGNOSTIC_RES = (
     re.compile(r"^e: file://(?P<path>.+?\.kts?):(?P<line>\d+):(?P<col>\d+) (?P<msg>.*)$"),
     re.compile(r"^(?P<path>.+?\.kts?):(?P<line>\d+):(?P<col>\d+): error: (?P<msg>.*)$"),
@@ -51,14 +22,9 @@ def parse_diagnostic(line: str):
     for pattern in DIAGNOSTIC_RES:
         match = pattern.match(line)
         if match:
-            # Case differs between the two front ends ("Unresolved" vs
-            # "unresolved"), so normalise before the two sides are compared.
             return match.group("msg").strip().lower()
     return None
 
-# Diagnostics that are purely a consequence of the missing Android classpath.
-# They appear in equal numbers on both sides, so the diff already cancels them —
-# these are dropped only to keep a failure report readable.
 CASCADE_PATTERNS = (
     "overrides nothing",
     "should be called only from a coroutine",
@@ -69,19 +35,11 @@ CASCADE_PATTERNS = (
 )
 
 
-# Names written with an explicit `kotlin.` or `java.` qualifier. Those packages
-# ARE on the classpath even without the Android SDK, so if the compiler cannot
-# resolve one of them the symbol genuinely does not exist — no amount of missing
-# Android jars explains it. This is the precise discriminator that separates a
-# real mistake from classpath noise, and the one that would have caught
-# `kotlin.math.floorDiv` (an extension, never a two-argument function) before it
-# reached CI.
 STDLIB_REF_RE = re.compile(r"\b(?:kotlin|java)(?:\.[a-z][A-Za-z0-9_]*)+\.([A-Za-z_][A-Za-z0-9_]*)")
 UNRESOLVED_RE = re.compile(r"unresolved reference '([^']+)'")
 
 
 def stdlib_leaf_names(root: str) -> set:
-    """Leaf identifiers used through a fully-qualified kotlin./java. path."""
     names = set()
     src = os.path.join(root, SOURCE_GLOB)
     if not os.path.isdir(src):
@@ -92,8 +50,6 @@ def stdlib_leaf_names(root: str) -> set:
         with open(os.path.join(src, entry), encoding="utf-8") as fh:
             for line in fh:
                 stripped = line.lstrip()
-                # Imports name the package, not a call — an unresolved import is
-                # the Android classpath talking, not a missing stdlib symbol.
                 if stripped.startswith("import ") or stripped.startswith("package "):
                     continue
                 for match in STDLIB_REF_RE.finditer(line):
@@ -101,9 +57,6 @@ def stdlib_leaf_names(root: str) -> set:
     return names
 
 
-# Top-level (and member) declarations this project makes. Used to tell a
-# cascading extension-on-an-Android-receiver apart from a name that simply is
-# not there any more.
 DECL_RE = re.compile(
     r"^\s*(?:@\w+\s+)*(?:private |internal |public |protected )?"
     r"(?:inline |suspend |external |override |operator )*"
@@ -137,7 +90,6 @@ def find_kotlinc(explicit: str | None) -> str:
 
 
 def compile_tree(kotlinc: str, root: str, outdir: str) -> collections.Counter:
-    """Runs kotlinc over one tree and returns a multiset of diagnostic messages."""
     src = os.path.join(root, SOURCE_GLOB)
     if not os.path.isdir(src):
         print(f"no Kotlin sources under {src}", file=sys.stderr)
@@ -157,23 +109,12 @@ def compile_tree(kotlinc: str, root: str, outdir: str) -> collections.Counter:
     return messages
 
 
-# ===========================================================================
-# Gradle dependencies against what the source actually imports
-# ===========================================================================
-
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KT_GLOB = os.path.join(REPO_ROOT, "Backrooms/Source/Main/Kotlin/**/*.kt")
 APP_GRADLE = os.path.join(REPO_ROOT, "Backrooms/build.gradle.kts")
 CATALOG = os.path.join(REPO_ROOT, "Gradle/libs.versions.toml")
 GAME = os.path.join(REPO_ROOT, "Backrooms/Source/Main/Kotlin/com/omni/backrooms/Backrooms.kt")
 
-# Library alias -> the import prefix its classes arrive under. Only libraries
-# whose absence is invisible until link time need to be here; anything the
-# Kotlin compiler resolves inside this module does not.
-# Library alias -> the import prefixes that library, and only that library,
-# provides. Per artifact rather than per top-level package: androidx.media3.ui
-# and androidx.media3.exoplayer are two separate dependencies, and a check keyed
-# on "androidx.media3" lets one of them vanish behind the other.
 LIB_PREFIXES = {
     "androidx-media3-exoplayer": ("androidx.media3.exoplayer", "androidx.media3.common"),
     "androidx-media3-ui":        ("androidx.media3.ui",),
@@ -193,21 +134,6 @@ LIB_PREFIXES = {
 
 
 def check_dependency_imports() -> list[str]:
-    """
-    Every import must have a dependency behind it, and the other way round.
-
-    This exists because removing Firebase took androidx.media3 out with it. The
-    grep that was supposed to prove media3 was unused had `-E` with `\\|`
-    alternation, which under extended regex is a literal pipe, so it searched
-    for the string "media3|ExoPlayer" and found nothing. Five imports were
-    deleted out from under a composable that was still on screen, and the whole
-    thing only surfaced in a Gradle build a minute and a half in.
-
-    The Kotlin compiler cannot catch this here, because this tool runs without
-    the Android classpath: an import of a library that is genuinely gone is
-    indistinguishable from one whose jar simply is not on the path. Comparing
-    the two lists is text, needs nothing installed, and is exact.
-    """
     problems: list[str] = []
     gradle = open(APP_GRADLE, encoding="utf-8").read()
 
@@ -240,26 +166,6 @@ def check_dependency_imports() -> list[str]:
 
 
 def check_renderer_isolation() -> list[str]:
-    """
-    The GL renderer does not reach into the view model.
-
-    OmniGLRenderer holds a Context and nothing else. Everything it needs from
-    the game — chunks, the trail, and now the run-over parameters — arrives as a
-    provider lambda assigned from the composable, because the renderer runs on
-    its own GL thread and the view model runs on the main one. Writing
-    `bridge.something()` inside it does not merely break that arrangement; it
-    does not compile, since there is no `bridge` in scope.
-
-    That is worth its own rule because the compile pass in this file cannot see
-    it. Without the Android classpath, OmniGLRenderer extends an unresolvable
-    GLSurfaceView.Renderer, so `bridge` lands in the same bucket as `x`, `y` and
-    `build` — unresolved because a jar is missing, not because the code is
-    wrong. Tested: putting the fault back produces no signal this file can
-    distinguish from noise, and it cost a red build to find out.
-
-    So this checks the architecture instead of the symbol. A renderer that
-    reaches for the bridge is wrong even on the days it happens to compile.
-    """
     problems: list[str] = []
     src = open(GAME, encoding="utf-8").read()
     start = src.find("class OmniGLRenderer")
@@ -267,7 +173,6 @@ def check_renderer_isolation() -> list[str]:
         return ["OmniGLRenderer is gone — this rule needs rewriting for whatever "
                 "replaced it"]
 
-    # Walk to the class's closing brace.
     depth, i, opened = 0, src.index("{", start), False
     while i < len(src):
         if src[i] == "{":
@@ -291,26 +196,6 @@ def check_renderer_isolation() -> list[str]:
 
 
 def check_chunk_miss_is_retried() -> list[str]:
-    """
-    A chunk the provider missed must be asked for again.
-
-    `streamChunks` used to answer a miss by writing an empty ChunkMesh into the
-    cache, which `containsKey` then skipped forever. That turns a transient
-    answer into a permanent hole: the provider returns null the whole time the
-    world is not valid yet, so on a device where the GL thread gets ahead of the
-    world's creation, every chunk in the ring is written off in the first
-    forty-nine frames and the player stands in an empty level with the HUD drawn
-    over the top. It reports as "the screen is black", it is silent, and it is
-    timing-dependent — which is why it reached three testers and never the
-    author's own phone.
-
-    Nothing else can catch this. The renderer needs a GL context and an Android
-    classpath, so no tool in here runs a frame of it; the compile pass cannot
-    see it because both spellings compile. So the rule is stated instead, the
-    way check_renderer_isolation states one: inside streamChunks, a bare
-    `ChunkMesh()` assigned into the cache is the bug, by construction. A miss
-    belongs in the retry map.
-    """
     problems: list[str] = []
     src = open(GAME, encoding="utf-8").read()
     start = src.find("private fun streamChunks")
@@ -349,29 +234,11 @@ def check_chunk_miss_is_retried() -> list[str]:
 
 
 def check_top_level_nesting() -> list[str]:
-    """
-    Every top-level class must actually be top-level.
-
-    A deletion that takes a closing brace with it does not produce a syntax
-    error: Kotlin simply reads everything after it as nested inside whatever
-    was left open. The file parses, the compile pass here reports nothing new,
-    and the damage only surfaces in KSP on a real build as
-    "com.omni.backrooms.GuardManager.GuardVM.LobbyVM could not be resolved" --
-    three top-level classes reported as one path.
-
-    That is exactly what happened removing dead code: a helper walked backwards
-    over blank lines before a declaration and ate the previous function's
-    closing braces, twice, in two files. Both passed every check here.
-
-    So this counts braces. A declaration written at column zero has to sit at
-    depth zero; anything else means a brace went missing above it.
-    """
     problems: list[str] = []
     decl = re.compile(r'^(?:@\w+\s*)?(?:internal |private |public )?'
                       r'(?:data |enum |sealed )?(?:class|object|interface)\s+(\w+)')
     for path in sorted(glob.glob(KT_GLOB, recursive=True)):
         src = open(path, encoding="utf-8").read()
-        # Braces inside strings and comments are not structure.
         for pat, rep in ((r'"""(?:.|\n)*?"""', '""'),
                          (r'"(?:\\.|[^"\\\n])*"', '""'),
                          (r"'(?:\\.|[^'\\\n])'", "''"),
@@ -427,9 +294,6 @@ def main() -> int:
         print("FAIL", p)
 
     if args.kotlinc is None and not os.environ.get("OMNI_KOTLINC") and shutil.which("kotlinc") is None:
-        # The text check above needs nothing installed, so a missing compiler
-        # must not skip it. CI has no kotlinc and this is the half that runs
-        # there.
         print("\nkotlinc not found — skipping the compile pass.")
         return 1 if dep_problems else 0
 
@@ -444,10 +308,6 @@ def main() -> int:
             capture_output=True, check=False,
         )
         if archive.returncode != 0:
-            # CI checks out shallow, so origin/main is usually not there. The
-            # compile pass is a comparison against a known-good tree and cannot
-            # run without one; the dependency half above needs no baseline and
-            # has already run. Skipping beats failing on a missing ref.
             print(f"cannot export {args.baseline} "
                   f"({archive.stderr.decode().strip()}) — skipping the compile pass.")
             return 1 if dep_problems else 0
@@ -464,7 +324,6 @@ def main() -> int:
     def is_cascade(msg: str) -> bool:
         return any(p in msg for p in CASCADE_PATTERNS)
 
-    # A stdlib symbol that will not resolve is a real error, full stop.
     stdlib_names = stdlib_leaf_names(".")
     proven = {}
     for msg, count in after.items():
@@ -472,10 +331,6 @@ def main() -> int:
         if match and match.group(1).lower() in stdlib_names:
             proven[msg] = count
 
-    # Unresolved names that ARE declared somewhere in this project get their own
-    # bucket. Most are extensions on an Android receiver the compiler could not
-    # resolve, so they cascade — but a renamed or mis-called project function
-    # lands here too, and that one is real. Worth eyeballing every time.
     declared = declared_names(".")
     project = {}
     for msg, count in introduced.items():

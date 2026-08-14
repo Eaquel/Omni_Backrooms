@@ -1,35 +1,4 @@
 #!/usr/bin/env python3
-"""
-Fbx_To_Omesh.py — the model pipeline.
-
-Reads a binary FBX and writes the engine's .omesh, and can inspect or verify
-either end of that conversion. It is one file because the three used to be
-three, and two of them existed only to import the first.
-
-.omesh layout (little-endian):
-    magic   : 4 bytes  "OMSH"
-    version : u16 major, u16 minor
-    counts  : u32 vertex_count, u32 index_count
-    vertices: vertex_count * 8 floats  (px py pz  nx ny nz  u v)
-    indices : index_count * (u16 if vertex_count <= 65535 else u32)
-
-Two things this handles that a naive exporter does not:
-
-1. Corrupt Model transforms. Blender/FBX round-trips sometimes emit a scale of
-   tens of thousands on an object whose geometry is already correctly placed.
-   Applying that transform throws the mesh kilometres away. So each mesh is
-   tried with its transform, and if the result is implausible next to the rest
-   of the model, it is retried with identity. Only if both fail is the mesh
-   dropped, which correctly discards genuine strays like a leftover scene cube.
-
-2. Axis conversion. Blender is Z-up, the engine is Y-up, so positions and
-   normals are remapped (x, y, z) -> (x, z, -y).
-
-Usage:
-    python3 Tools/Fbx_To_Omesh.py convert in.fbx out.omesh [--scale-mode height|raw]
-    python3 Tools/Fbx_To_Omesh.py inspect in.fbx
-    python3 Tools/Fbx_To_Omesh.py verify  out.omesh
-"""
 
 import math
 import struct
@@ -37,12 +6,7 @@ import sys
 import zlib
 
 
-# ===========================================================================
-# FBX reading
-# ===========================================================================
-
 class _Reader:
-    """Cursor over the raw file bytes."""
 
     def __init__(self, data):
         self.d = data
@@ -70,7 +34,6 @@ class _Reader:
 
 
 def _read_prop(r):
-    """One typed property. Array types may be zlib-deflated."""
     t = chr(r.u8())
     if t == "Y":
         v = struct.unpack_from("<h", r.d, r.p)[0]
@@ -109,7 +72,6 @@ def _read_prop(r):
 
 
 def _read_node(r, version):
-    # Record headers widened to 64-bit in FBX 7500.
     if version >= 7500:
         end, nprops, _plen = r.u64(), r.u64(), r.u64()
     else:
@@ -117,7 +79,6 @@ def _read_node(r, version):
     name_len = r.u8()
     name = r.raw(name_len).decode("utf-8", "replace")
 
-    # A zeroed header is the null record that terminates a child list.
     if end == 0:
         return None
 
@@ -133,7 +94,6 @@ def _read_node(r, version):
 
 
 def parse(path):
-    """Returns (version, [root nodes])."""
     data = open(path, "rb").read()
     if data[:20] != b"Kaydara FBX Binary  ":
         raise ValueError("not a binary FBX file: %s" % path)
@@ -141,7 +101,6 @@ def parse(path):
     r = _Reader(data)
     r.p = 27
     roots = []
-    # The trailing ~160 bytes are footer padding, not nodes.
     while r.p < len(data) - 160:
         node = _read_node(r, version)
         if node is None:
@@ -151,7 +110,6 @@ def parse(path):
 
 
 def walk(nodes, want=None, out=None):
-    """Depth-first collect of nodes whose name is in `want`."""
     for n in nodes:
         if want is None or n["name"] in want:
             if out is not None:
@@ -161,14 +119,12 @@ def walk(nodes, want=None, out=None):
 
 
 def _clean(name):
-    """FBX object names are 'Name\\x00\\x01Class'; keep the readable part."""
     if isinstance(name, bytes):
         name = name.decode("utf-8", "replace")
     return name.split("\x00")[0]
 
 
 def geometries(path):
-    """Every Geometry node with its vertices, polygon indices, UVs and normals."""
     _version, roots = parse(path)
     objs = walk(roots, want={"Objects"}, out=[])
     if not objs:
@@ -205,7 +161,6 @@ def geometries(path):
 
 
 def models_and_connections(path):
-    """Model transforms keyed by id, plus a child-id -> parent-id map."""
     _version, roots = parse(path)
     objs = walk(roots, want={"Objects"}, out=[])
     cons = walk(roots, want={"Connections"}, out=[])
@@ -252,7 +207,6 @@ def models_and_connections(path):
 
 
 def animation_summary(path):
-    """Counts animation nodes. Useful for answering 'does this file animate?'."""
     _version, roots = parse(path)
     objs = walk(roots, want={"Objects"}, out=[])
     counts = {}
@@ -269,12 +223,7 @@ def animation_summary(path):
         "Model": counts.get("Model", 0),
     }
 
-# ===========================================================================
-# FBX -> .omesh conversion
-# ===========================================================================
 
-# A mesh whose largest dimension exceeds this, while the character is ~2 units,
-# is considered mis-transformed rather than merely large.
 IMPLAUSIBLE_SPAN = 10.0
 
 
@@ -310,7 +259,6 @@ def _span(points):
 
 
 def _resolve_transform(geo, model, verbose):
-    """Pick a usable transform for one mesh, or None to drop it."""
     verts = geo["v"]
     raw = [(verts[i], verts[i + 1], verts[i + 2]) for i in range(0, len(verts), 3)]
 
@@ -327,7 +275,6 @@ def _resolve_transform(geo, model, verbose):
             print("    transform rejected (span %.0f); retrying with identity"
                   % _span(transformed))
 
-    # Fall back to the raw local geometry.
     if _span(raw) <= IMPLAUSIBLE_SPAN:
         if verbose:
             print("    identity accepted (local geometry already positioned)")
@@ -383,7 +330,6 @@ def convert(fbx_path, out_path, scale_mode="height", verbose=True):
             if not is_last:
                 continue
 
-            # Fan-triangulate the polygon.
             for t in range(1, len(polygon) - 1):
                 for vidx, pv in (polygon[0], polygon[t], polygon[t + 1]):
                     px, py, pz = positions[vidx]
@@ -405,10 +351,8 @@ def convert(fbx_path, out_path, scale_mode="height", verbose=True):
                     else:
                         u = v = 0.0
 
-                    # Z-up (Blender) -> Y-up (engine).
                     pos = (px, pz, -py)
                     nrm = (nx, nz, -ny)
-                    # V is flipped for GL's texture origin.
                     key = (
                         round(pos[0], 5), round(pos[1], 5), round(pos[2], 5),
                         round(nrm[0], 4), round(nrm[1], 4), round(nrm[2], 4),
@@ -458,9 +402,6 @@ def convert(fbx_path, out_path, scale_mode="height", verbose=True):
               % (out_path, len(vertices), len(indices) // 3, len(blob), 32 if wide else 16))
     return len(vertices), len(indices) // 3
 
-# ===========================================================================
-# Inspection and verification
-# ===========================================================================
 
 def cmd_inspect(path):
     anim = animation_summary(path)
@@ -533,7 +474,6 @@ def cmd_verify(path):
     print("bounds   X[%.3f, %.3f]  Y[%.3f, %.3f]  Z[%.3f, %.3f]"
           % (min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)))
 
-    # Indices must be in range or the GPU will read garbage.
     fmt = "<I" if wide else "<H"
     step = 4 if wide else 2
     base = 16 + vcount * 32
@@ -545,8 +485,6 @@ def cmd_verify(path):
     print("indices  %s" % ("all in range" if bad == 0 else "%d OUT OF RANGE" % bad))
     if bad:
         raise SystemExit(1)
-
-
 
 
 def main():

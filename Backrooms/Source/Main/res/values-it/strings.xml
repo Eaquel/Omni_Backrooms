@@ -23,9 +23,6 @@
     <string name="menu_no_save">Non hai partite salvate</string>
 
 
-
-
-
     <string name="settings_tab_account">Account</string>
     <string name="settings_tab_graphics">Grafica</string>
     <string name="settings_tab_audio">Audio</string>
@@ -74,7 +71,6 @@
     <string name="market_equipped">Equipaggiato</string>
     <string name="market_limited">Limitato</string>
     <string name="market_confirm_title">Acquisto</string>
-
 
 
     <string name="player_level_prefix">Livello </string>

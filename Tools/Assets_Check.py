@@ -1,38 +1,4 @@
 #!/usr/bin/env python3
-"""
-Assets_Check.py — everything that guards the game's authored content.
-
-Four things live here because they answer the same question from different
-angles: is what we ship actually what we meant to ship?
-
-  * VECTOR DRAWABLES — every icon is hand-written XML and a typo in a path does
-    not fail the build. aapt2 accepts it and the icon renders garbled, or not
-    at all.
-  * MESH UVs — Level 0's textures are world-anchored, so a vertex's UV must
-    equal its own world position. The ceiling silently violated that for a long
-    time: the emitter handed coordinates out in a fixed corner order, which is
-    only right for a quad wound in that order, and the ceiling is wound the
-    other way so it faces down. Every tile came out mirrored across its own
-    diagonal and no two neighbours could line up.
-  * INSPECTION CAMERA — the market's orbit/dolly envelope. A shot that runs off
-    the end of the backdrop, or a camera that sinks under the floor, is pure
-    geometry and there is no reason to find it on a phone.
-  * COSMETIC CATALOGUE — the frame and trail tables in Native/. Includes the
-    rule that no frame's tube may close in over the portrait it surrounds,
-    which is the fault that got the ring deleted from the avatar entirely.
-  * CHARACTER RIG — the bones against the mesh they are supposed to drive. The
-    character shipped with four arms, because the model wore a T-posed dress
-    over a body whose arms hang at its sides and the bones went on the sleeves.
-    Every structural thing about that file was correct, so the check binds the
-    mesh the way the game does, animates it, and measures whether the surface
-    survives.
-
-Plus an inventory pass: duplicate assets, unreferenced assets, and Title Case.
-
-    python3 Tools/Assets_Check.py                 # check everything
-    python3 Tools/Assets_Check.py --optimise      # losslessly shrink PNGs
-    python3 Tools/Assets_Check.py --optimise --dry-run
-"""
 from __future__ import annotations
 
 import argparse
@@ -55,6 +21,14 @@ ASSETS = os.path.join(REPO, "Backrooms/Source/Main/Assets")
 NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
 KOTLIN = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms")
 
+def kotlin_sources() -> str:
+    import glob as _glob
+    out = []
+    for path in sorted(_glob.glob(os.path.join(KOTLIN, "*.kt"))):
+        out.append(open(path, encoding="utf-8").read())
+    return "\n".join(out)
+
+
 NS = "{http://schemas.android.com/apk/res/android}"
 
 failures: list[str] = []
@@ -69,13 +43,6 @@ def section(title: str) -> None:
     print(f"\n── {title}")
 
 
-# ===========================================================================
-# 1. Vector drawables
-# ===========================================================================
-
-# Lowercase is relative; A/a is an arc, whose numbers are radii and flags rather
-# than positions. Treating either as a coordinate produces false positives — a
-# first cut of this check flagged eight perfectly good icons that way.
 RELATIVE_OR_ARC = re.compile(r"[mlcsqtvhaz]|A")
 NUM = re.compile(r"-?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
@@ -127,10 +94,6 @@ def check_drawables() -> None:
     print(f"   {vectors} vectors, {paths_checked} paths verified against the viewport")
 
 
-# ===========================================================================
-# 2. Mesh UVs
-# ===========================================================================
-
 CELL = 3.2
 SRC_KT = os.path.join(KOTLIN, "Backrooms.kt")
 
@@ -141,8 +104,6 @@ def _floor_quad(x0, z0):
 
 
 def _roof_quad(x0, z0, fixed=True):
-    """`fixed=False` reproduces the fixed-corner-order assignment quad() makes,
-    which is what the ceiling used to get."""
     x1, z1 = x0 + CELL, z0 + CELL
     pts = [(x0, z0), (x0, z1), (x1, z1), (x1, z0)]
     uvs = pts[:] if fixed else [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]
@@ -167,7 +128,6 @@ def check_mesh_uvs() -> None:
         check(bad == 0, f"{name}: {bad} corners whose UV does not match their world position")
         print(f"   {name:8s} {'ok' if bad == 0 else f'{bad} mismatched corners'}")
 
-    # The check must be able to fail, or it is decoration.
     regressed = _mismatches(_roof_quad, fixed=False)
     check(regressed > 0, "the UV check cannot detect the original ceiling ordering")
     print(f"   pre-fix ceiling ordering rejected ({regressed} mismatched corners)")
@@ -179,18 +139,12 @@ def check_mesh_uvs() -> None:
         if m:
             check(m.group(1) == "quadUv",
                   "the ceiling is emitted through quad(), which cannot express its winding")
-        # Skipping either surface on a feature leaves a one-cell hole with
-        # nothing behind it, which the player reads as a corrupted tile.
         for surface, pattern in (("floor", r"if \(feature != 4\)"),
                                  ("ceiling", r"if \(feature != 1\)")):
             check(re.search(pattern, text) is None,
                   f"{surface} is skipped on a feature, leaving a one-cell hole")
         print("   floor and ceiling emitted for every open cell")
 
-
-# ===========================================================================
-# 3. Inspection camera envelope
-# ===========================================================================
 
 MIN_DIST, MAX_DIST = 1.7, 5.2
 MIN_PITCH, MAX_PITCH = -10.0, 38.0
@@ -239,13 +193,13 @@ def _edge_hits_cove(eye, tgt, aspect, sx, sy):
     d = [f[i] + s[i]*sx*hh + u[i]*sy*hv for i in range(3)]
     n = math.sqrt(sum(c*c for c in d))
     d = [c / n for c in d]
-    if d[2] < -1e-6:                                  # back wall
+    if d[2] < -1e-6:
         t = (-COVE - eye[2]) / d[2]
         if t > 0:
             hx, hy = eye[0]+d[0]*t, eye[1]+d[1]*t
             if abs(hx) <= COVE and 0 <= hy <= COVE:
                 return True, t
-    if d[1] < -1e-6:                                  # floor
+    if d[1] < -1e-6:
         t = (0.0 - eye[1]) / d[1]
         if t > 0:
             hx, hz = eye[0]+d[0]*t, eye[2]+d[2]*t
@@ -284,10 +238,6 @@ def check_camera() -> None:
 
     print(f"   {states} camera states, all framing invariants hold")
 
-
-# ===========================================================================
-# 4. Cosmetic catalogue (Native/Frame, Native/Trail)
-# ===========================================================================
 
 COSMETIC_PROBE = r"""
 #include "Frame/Frame.h"
@@ -444,10 +394,6 @@ def check_cosmetics() -> None:
             failures.append("cosmetic catalogue probe reported failures")
 
 
-# ===========================================================================
-# 5. Inventory: duplicates, orphans, Title Case
-# ===========================================================================
-
 def check_inventory() -> None:
     section("Asset inventory")
     files = sorted(
@@ -468,18 +414,13 @@ def check_inventory() -> None:
         failures.append(
             f"byte-identical assets shipped twice ({size//1024} KB wasted): {', '.join(ps)}")
 
-    # Anything under Assets/ that no source ever opens is dead weight in the APK.
     referenced = set()
     for kt in glob.glob(os.path.join(KOTLIN, "*.kt")):
         text = open(kt, encoding="utf-8").read()
         referenced.update(re.findall(r'"((?:Level_0|Models|Story)/[^"]+)"', text))
-    # Story files are chosen by language tag at runtime.
     langs = {os.path.basename(p) for p in glob.glob(os.path.join(ASSETS, "Story/*.json"))}
     referenced.update(f"Story/{n}" for n in langs)
 
-    # The Unity decoys under bin/Data are unreferenced by design — nothing in
-    # the app opens them, which is the whole point. check_disguise() below is
-    # what holds them to account instead.
     orphans = [os.path.relpath(f, ASSETS) for f in files
                if os.path.relpath(f, ASSETS).replace(os.sep, "/") not in referenced
                and not os.path.relpath(f, ASSETS).replace(os.sep, "/").startswith("bin/Data/")]
@@ -490,10 +431,6 @@ def check_inventory() -> None:
           f"{len(dupes)} duplicate group(s), {len(orphans)} orphan(s)")
 
 
-# Acronyms the game legitimately writes in capitals. In English they sit inside
-# a mixed-case sentence and pass on their own, but a Japanese or Chinese label
-# like "FPS上限" has no lowercase letter anywhere to prove it is not shouting —
-# so the acronym is removed before the test rather than special-cased after it.
 ACRONYMS = ("VIP", "FPS", "VHS", "HUD", "APK", "SFX", "UI", "HP", "PV", "OK",
             "ID", "XP", "MS")
 
@@ -504,10 +441,6 @@ def check_title_case() -> None:
     for p in sorted(glob.glob(os.path.join(RES, "values*/strings.xml"))):
         text = open(p, encoding="utf-8").read()
         for key, val in re.findall(r'<string name="([A-Za-z_0-9]+)">([^<]*)</string>', text):
-            # `val == val.upper()` is trivially true for a script that has no
-            # case at all, so Chinese and Japanese would report every single
-            # line as shouting. Only judge a string that actually contains a
-            # letter with two cases to choose between.
             body = val
             for a in ACRONYMS:
                 body = body.replace(a, "")
@@ -515,13 +448,10 @@ def check_title_case() -> None:
             if len(val) > 2 and cased and body == body.upper():
                 failures.append(f"{os.path.basename(os.path.dirname(p))}/{key} is ALL CAPS: {val}")
                 bad += 1
-    # Kotlin must not force it back on at the call site.
     for kt in glob.glob(os.path.join(KOTLIN, "*.kt")):
         text = open(kt, encoding="utf-8").read()
         for m in re.finditer(r"^.*\.uppercase\(\).*$", text, re.M):
             line = m.group(0).strip()
-            # A language code and a single-letter avatar initial are legitimately
-            # upper case; a label is not.
             if "language" in line or "lang.tag" in line or "take(1)" in line:
                 continue
             failures.append(f"{os.path.basename(kt)}: forced uppercase on a label: {line[:90]}")
@@ -529,9 +459,6 @@ def check_title_case() -> None:
     print(f"   {'ok' if bad == 0 else f'{bad} violation(s)'}")
 
 
-# The costume's budget. Everything in it is dead weight in the APK by
-# definition, so it has to stay small enough that the trade is obviously worth
-# making. Fifty kilobytes is roughly one texture's worth of nothing.
 DISGUISE_BUDGET_BYTES = 50 * 1024
 
 
@@ -556,26 +483,6 @@ README_LANGS = [
 
 
 def check_story() -> None:
-    """
-    Every story file that exists must be the same story.
-
-    The loader merges per chapter against English, so a translation missing a
-    chapter does not crash — it silently serves that one chapter in English in
-    the middle of a Japanese read-through, which is the kind of thing nobody
-    reports because it looks deliberate.
-
-    `meta` is deliberately not compared: StoryFileMono declares only `version`
-    and `chapters`, and the parser ignores unknown keys, so nothing in the game
-    ever reads it. Three of these files have never had one and it has never
-    mattered — asserting on it would be inventing work.
-
-    A language with no file used to be tolerated here, because four of them
-    legitimately had none and the per-chapter fallback covered it. All ten now
-    exist, so that allowance has outlived its reason: a deleted file would be a
-    regression, and the check that was written to keep the gap visible would
-    have quietly welcomed it back. The story ships in the same ten languages the
-    interface does, and that is now asserted.
-    """
     section("Story")
     story = os.path.join(ASSETS, "Story")
     base_path = os.path.join(story, "en.json")
@@ -625,21 +532,6 @@ def check_story() -> None:
 
 
 def check_readmes() -> None:
-    """
-    Ten READMEs that have to stay one document.
-
-    GitHub renders README.md and nothing else — no content negotiation, no way
-    to branch on Accept-Language — so a link bar is the only honest way to offer
-    a translated page. (The game itself does detect the device language. That
-    distinction is worth keeping straight and the English README states it.)
-
-    The failure mode of a link bar is quiet and total: one file gets a new
-    section, the other nine do not, and a reader in Japanese is looking at last
-    month's project without any way to know. So the bar is checked to be
-    complete and correctly self-marked in every file, and the section headings
-    are checked to match, which is the cheapest proxy for "these are still the
-    same document" that does not require reading the prose.
-    """
     section("READMEs")
     names = [n for n, _ in README_LANGS]
     heads: dict[str, list[str]] = {}
@@ -651,7 +543,6 @@ def check_readmes() -> None:
             continue
         text = open(path, encoding="utf-8").read()
 
-        # Every other language must be one click away.
         for other, other_endonym in README_LANGS:
             if other == name:
                 check(f"**{other_endonym}**" in text,
@@ -691,25 +582,12 @@ def check_readmes() -> None:
         print(f"   {len(fixes)} fix lists, {counts.pop()} entries each")
 
 
-# ===========================================================================
-# 7. The character rig
-# ===========================================================================
-
 CHAR_MESH = os.path.join(ASSETS, "Models/Anime_Character.omesh")
 
-# A vertex may move this far away from a neighbour it is joined to before the
-# surface has visibly come apart. Measured, not chosen: the shipped rig's worst
-# case across idle, walk and run is 2.9cm on a model one unit tall, and the
-# four-armed rig this check was written for managed 11.2cm.
 MAX_TEAR = 0.05
 
 
 def _read_bone_table() -> tuple[list, list, list]:
-    """Pull head/tail/radius straight out of Backrooms.kt.
-
-    Parsed rather than copied so the check cannot drift away from the rig it is
-    checking. A duplicated table would agree with itself forever.
-    """
     src = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
     obj = src[src.index("internal object Skeleton {"):]
     obj = obj[:obj.index("\ninternal class PoseBuilder")]
@@ -771,32 +649,11 @@ def _components(nodes, tris):
 
 
 def _check_dress_fit(nodes, comps) -> None:
-    """
-    Is the body actually inside the dress?
-
-    "The character does not sit in the dress properly" is not a structural
-    fault. The file parses, the shells are closed, the rig survives its poses —
-    and the body still comes through the fabric, because nothing anywhere
-    compares the two surfaces to each other. The shipped mesh had skin outside
-    the garment in 13 of 39 sampled directions round the trunk, the worst by
-    16 mm on a figure one unit tall, and carried its own moulded skirt flaring
-    to 109 mm below a hem that is 107 — a second skirt hanging out from under
-    the first.
-
-    Both surfaces are star-shaped about the vertical axis over the dress's
-    height, so the honest test is a direct one: at the same height and the same
-    angle, is the skin further from the axis than the cloth? The arms are
-    excluded by their distance from the shipped arm bone chain, since a hand
-    outside a sleeve is a hand, and the garment's own sleeves are excluded from
-    the field they define, since a sleeve sitting far out at the same angle
-    would license a bulge in the chest.
-    """
     if len(comps) < 2:
         return
     ranked = sorted(comps, key=len, reverse=True)
     body, dress = set(ranked[0]), set(ranked[1])
 
-    # Shoulder -> elbow -> hand, the chain the game rigs the arm with.
     chain = (((0.075, 0.780, 0.0), (0.115, 0.615, 0.0)),
              ((0.115, 0.615, 0.0), (0.168, 0.452, 0.0)))
 
@@ -853,8 +710,6 @@ def _check_dress_fit(nodes, comps) -> None:
           f"the body comes through the dress in {outside} of {sampled} sampled "
           f"directions, the worst by {worst * 1000:.0f} mm")
 
-    # A skirt hem is the widest the silhouette gets. Anything under it that is
-    # wider is the body's own moulded skirt showing below the real one.
     hem_r = max(r for (iy, _), r in gd.items() if iy == 0) if gd else 0.0
     under = [p for p in torso if hem - 0.09 <= p[1] < hem]
     if under and hem_r > 0:
@@ -865,16 +720,6 @@ def _check_dress_fit(nodes, comps) -> None:
               f"the body is {widest * 1000:.0f} mm wide under a {hem_r * 1000:.0f} mm "
               f"hem — it hangs out below the skirt")
 
-    # --- the lower leg has to have a calf ---------------------------------
-    #
-    # The shipped legs were a straight taper from knee to ankle. One leg's
-    # widest cross-section measured 68 mm at calf height against 63 at the
-    # ankle: a ratio of 1.08, where a real lower leg is nearer 1.6 because the
-    # calf belly is the widest part of it. That, far more than triangle count,
-    # is what made the legs read as sticks.
-    #
-    # Measured on one leg only, off the midline, below the hem — there is
-    # nothing down there but leg, so no mask can be wrong about it.
     def span(y0: float, y1: float) -> float:
         pts = [p for p in nodes if y0 <= p[1] < y1 and p[0] > 0.008]
         if len(pts) < 4:
@@ -893,22 +738,6 @@ def _check_dress_fit(nodes, comps) -> None:
 
 
 def check_character() -> None:
-    """
-    The rig, proved by animating it and looking for the seams.
-
-    This exists because the character shipped with four arms and no tool could
-    see it. The mesh held two of them: a body whose arms hang at its sides, and
-    a dress whose sleeves stuck straight out in a T-pose. The bones had been
-    laid along the sleeves, so the rig swung empty cloth while the arms the
-    player sees stayed welded to the hips.
-
-    Nothing structural was wrong — the file parsed, the bone count was right,
-    the weights summed to one — so the only way to catch it is to do what the
-    game does and then measure the result. Bind the mesh, run the skeleton
-    through the poses the game actually uses, and check whether the surface
-    comes apart. A rig whose bones are on the wrong geometry cannot survive
-    that, and neither can a mesh that changes under a bone table nobody moved.
-    """
     section("Character rig")
     if not os.path.exists(CHAR_MESH):
         failures.append("Anime_Character.omesh is missing")
@@ -924,7 +753,6 @@ def check_character() -> None:
     pos, idx = _load_omesh(CHAR_MESH)
     tris = [tuple(idx[i:i + 3]) for i in range(0, len(idx), 3)]
 
-    # --- weld, exactly as bindMesh does -----------------------------------
     node_of, nodes, by_key = [], [], {}
     for p in pos:
         key = (round(p[0] * 10000), round(p[1] * 10000), round(p[2] * 10000))
@@ -936,9 +764,6 @@ def check_character() -> None:
         node_of.append(n)
     wtris = [(node_of[a], node_of[b], node_of[c]) for a, b, c in tris]
 
-    # --- duplicate shells --------------------------------------------------
-    # Two shells of the same size a rigid millimetre apart are one shell
-    # authored twice. They z-fight, and they cost real vertices to do it.
     comps = _components(nodes, wtris)
     dup = 0
     for i in range(len(comps)):
@@ -958,7 +783,6 @@ def check_character() -> None:
 
     _check_dress_fit(nodes, comps)
 
-    # --- geodesic bind, as the game does it -------------------------------
     adj: list[list[tuple[int, float]]] = [[] for _ in nodes]
     seen = set()
     for a, b, c in wtris:
@@ -998,12 +822,6 @@ def check_character() -> None:
                     heapq.heappush(h, (nd, v))
         geo.append(dist)
 
-    # A shell no bone's influence can crawl onto is bound rigidly to whichever
-    # bone is nearest. For an eye or an eyelash sitting on the skull that is
-    # exactly right. For anything further from its bone than that bone is wide
-    # it is not: the geometry will swing about a pivot it does not belong to,
-    # and it is the shape of the bug this check was written for — a sleeve
-    # 29cm out on the X axis, rigidly attached to a chest bone 13cm wide.
     stranded = []
     for comp in comps:
         if all(any(geo[b][n] < INF for b in range(bones)) for n in comp):
@@ -1042,12 +860,6 @@ def check_character() -> None:
             overreach.append(
                 (_dist_to_capsule(nodes[n], head[owner], tail[owner]) / radius[owner], n, owner))
 
-    # A bone that has to reach more than twice its own radius through the air to
-    # claim a vertex is not that vertex's bone. This is the test that sees a
-    # limb the rig is not driving: when the dress's sleeves stood out in a
-    # T-pose, 160 of their vertices were owned by a chest bone 13cm wide from
-    # 29cm away, and nothing else about the file was wrong. Every vertex of a
-    # rig whose bones sit on their own geometry stays under 1.4.
     overreach.sort(reverse=True)
     bad = [o for o in overreach if o[0] > 2.0]
     if bad:
@@ -1059,7 +871,6 @@ def check_character() -> None:
             f"actually cover will sit still while the rest of the body moves")
     print(f"   furthest vertex from its own bone: {overreach[0][0]:.2f}x that bone's radius")
 
-    # --- animate, and look for the seams ----------------------------------
     worst, worst_at, torn = 0.0, None, 0
     for label, mats in _rig_poses(head, radius, bones):
         moved = []
@@ -1088,11 +899,6 @@ def check_character() -> None:
 
 
 def _rig_poses(head, radius, bones):
-    """The poses the game drives, reduced to bone matrices.
-
-    Only the arms and legs move here. That is deliberate: a rig fails at the
-    joints, and a pose that does not bend anything proves nothing.
-    """
     HIPS, SPINE, CHEST, HEAD = 0, 1, 2, 3
     LIMB = ((4, 5), (6, 7), (8, 9), (10, 11))
     parent = [-1, HIPS, SPINE, CHEST, CHEST, 4, CHEST, 6, HIPS, 8, HIPS, 10]
@@ -1150,22 +956,9 @@ def _rig_poses(head, radius, bones):
 
 
 def check_entity_silhouettes() -> None:
-    """
-    One creature, and the code that drew eight is actually gone.
-
-    The roster was eight lore creatures cycled by the spawner, all drawing the
-    same face and separated only by a tint the shader multiplies by 0.055. They
-    were given eight silhouettes; then the call was made that Level 0 should
-    hold one thing you never get a good look at, so seven were deleted outright.
-
-    Deleted, not disabled — a roster with dead entries is a roster somebody
-    re-enables by accident, and the per-type plumbing left behind (uType, an
-    eight-arm tint table, a spawner indexing EntityType.entries) is exactly the
-    kind of thing that quietly comes back. So this asserts the absence.
-    """
     section("Entity")
     src = open(SRC_KT, encoding="utf-8").read()
-    svc = open(os.path.join(KOTLIN, "Service.kt"), encoding="utf-8").read()
+    svc = kotlin_sources()
 
     roster = re.search(r"enum class EntityType\((.*?)\n\}", src, re.S)
     check(roster is not None, "EntityType roster not found")
@@ -1187,7 +980,6 @@ def check_entity_silhouettes() -> None:
     check(not re.search(r"EntityType\.entries", svc + src),
           "something still indexes EntityType.entries as if the roster were a list")
 
-    # The smoke is the creature now, so the field that makes it has to be there.
     for token, why in (("fbm(", "no fractal noise, so the smoke is a single octave"),
                        ("curl", "no curl, so the smoke drifts in a straight line"),
                        ("density", "the body is coverage rather than density, which "
@@ -1197,22 +989,6 @@ def check_entity_silhouettes() -> None:
 
 
 def check_look_sensitivity() -> None:
-    """
-    How far one swipe turns the view, simulated over the slider's whole range.
-
-    The look delta used to go into cameraLook as raw PIXELS and come out as
-    degrees: `targetYaw -= dx * sensitivity`. On a 1080p phone that made half a
-    screen of drag about 500 degrees of yaw at sensitivity 1.0 — the view span
-    round twice before the thumb reached the edge — and the same gesture turned
-    twice as far on a denser screen, because nothing in the chain knew about
-    density.
-
-    Nothing could see it. It is three lines of arithmetic with no wrong answer
-    to compute; it is only wrong against a hand, and a hand is the one thing a
-    check cannot have. So this does the next best thing: it takes the real
-    constant out of Engine.cpp and the real slider bounds out of Settings.kt,
-    and works out what a full-width swipe actually does at each end.
-    """
     section("Look sensitivity")
     eng = open(os.path.join(NATIVE, "Engine.cpp"), encoding="utf-8").read()
     m = re.search(r"kLookDegPerDp\s*=\s*([\d.]+)f", eng)
@@ -1222,12 +998,7 @@ def check_look_sensitivity() -> None:
         return
     deg_per_dp = float(m.group(1))
 
-    # The same value has two sliders — one in the settings screen, one in the
-    # pause menu — and they disagreed: 0.1..3 in one, 0.1..4 in the other. The
-    # pause slider could therefore set a sensitivity the settings slider had no
-    # position for, and moving the settings slider afterwards would snap it
-    # down. Both are read here, and they have to say the same thing.
-    settings = open(os.path.join(KOTLIN, "Settings.kt"), encoding="utf-8").read()
+    settings = kotlin_sources()
     b = re.search(r"controls_camera_sensitivity\)[^)]*?,\s*([\d.]+)f\s*\.\.\s*([\d.]+)f", settings)
     check(b is not None, "the sensitivity slider's range could not be read")
     if not b:
@@ -1245,8 +1016,6 @@ def check_look_sensitivity() -> None:
               f"settings screen's runs {lo}..{hi}; one of them can reach a value "
               f"the other cannot show")
 
-    # A typical phone is ~411dp wide in portrait; a full-width swipe is the
-    # biggest gesture a thumb makes without repositioning.
     SWIPE_DP = 411.0
     for label, sens in (("min", lo), ("default", 1.0), ("max", hi)):
         deg = SWIPE_DP * deg_per_dp * sens
@@ -1265,28 +1034,6 @@ def check_look_sensitivity() -> None:
 
 
 def check_architectural_scale() -> None:
-    """
-    The level's fittings measured against the building they imitate.
-
-    Level 0 is an office interior, and an office interior is made of parts with
-    catalogue dimensions: a suspended ceiling is a 600 mm module, carpet tile is
-    500 mm, lining paper hangs in 800 mm drops, a 2x4 troffer is 610 by 1220,
-    and a T8 tube is 26 mm across because the 8 is its diameter in eighths of an
-    inch. None of these are matters of taste and all of them were wrong — every
-    one about twice the size of the real article, and three of them written as a
-    fraction of the 3.2 m cell so they would have silently rescaled if the cell
-    ever changed.
-
-    The room's own dimensions were never the problem. 3.2 m cells and a 2.6 m
-    ceiling are ordinary office numbers. But a correctly sized room dressed at
-    double scale reads as a room built for something larger than a person, which
-    is the whole of "the ceilings do not feel like the Backrooms": the grid
-    overhead is the strongest cue the eye has for the size of a space, and it
-    was counting five tiles across a corridor that should show eight.
-
-    A shader cannot be asked whether it looks like a real ceiling. It can be
-    asked what number it divides world position by, which is what this does.
-    """
     section("Architectural scale")
     src = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
 
@@ -1294,7 +1041,6 @@ def check_architectural_scale() -> None:
         m = re.search(r"const float " + name + r"\s*=\s*([\d.]+)\s*;", src)
         return float(m.group(1)) if m else None
 
-    # name -> (real dimension in metres, tolerance, what it is)
     REAL = {
         "kCeilTile":   (0.600, 0.001, "a metric suspended-ceiling module"),
         "kCarpetTile": (0.500, 0.001, "a carpet tile"),
@@ -1312,10 +1058,6 @@ def check_architectural_scale() -> None:
         check(abs(got - want) <= tol,
               f"{name} is {got * 1000:.0f} mm where {what} is {want * 1000:.0f} mm")
 
-    # The ceiling module exists twice: the shader draws the tiles with it and
-    # the mesher snaps the light fittings to it. Two copies of one dimension is
-    # the shape of bug that has cost this repository three rounds, so they are
-    # compared rather than trusted.
     m = re.search(r"kCeilTileM\s*=\s*([\d.]+)f", src)
     check(m is not None, "the mesher has no kCeilTileM to snap fittings to")
     tile = const("kCeilTile")
@@ -1326,7 +1068,6 @@ def check_architectural_scale() -> None:
               f"while the shader draws the tiles at {tile * 1000:.0f} mm — every "
               f"fitting lies across a tee")
 
-    # The troffer, which named itself 2x4 in a comment and was built at 4x8.
     def kot(name: str) -> float | None:
         m = re.search(r"val " + name + r"\s*=\s*([\d.]+)f", src)
         return float(m.group(1)) if m else None
@@ -1349,7 +1090,6 @@ def check_architectural_scale() -> None:
         check(abs(tube * 2 - 0.026) <= 0.010,
               f"the fluorescent tubes are {tube * 2000:.0f} mm across; a T8 is 26")
 
-    # A corridor is one cell wide. How many ceiling tiles does it show?
     cell = None
     lvl = open(os.path.join(NATIVE, "Map/Level_0.h"), encoding="utf-8").read()
     mc = re.search(r"kCell\s*=\s*([\d.]+)f", lvl)
@@ -1366,31 +1106,6 @@ def check_architectural_scale() -> None:
 
 
 def check_surface_palette() -> None:
-    """
-    The building is generated, and it is generated to a measurement.
-
-    There are no wall, floor or ceiling images in this project. Three PNGs came
-    to 4.6 MB of a small APK and what they held was a flat colour with grain on
-    it, so the scene fragment shader makes them instead — which costs nothing,
-    never repeats, and cannot be seen to tile.
-
-    A generated surface has a failure mode an image does not: the numbers can be
-    edited to anything and the result still compiles and still renders. So the
-    bases are held against two measurements taken before the files were deleted.
-
-    Brightness comes from the files themselves, sampled at 128x128:
-
-        Wall   mean sRGB (0.470, 0.423, 0.158)   luma 0.407, grain sd 0.076
-        Floor  mean sRGB (0.432, 0.375, 0.107)   luma 0.361, grain sd 0.069
-        Roof   mean sRGB (0.827, 0.827, 0.827)   luma 0.827, grain sd 0.072
-
-    Hue comes from the lobby background clip, which is what this level is meant
-    to look like: over 60 frames its lit third averages (0.165, 0.132, 0.069), a
-    ratio of (1.00, 0.80, 0.42). The walls were at (1.00, 0.90, 0.34), which is
-    greener and reads wrong beside it.
-
-    Neither number is a matter of taste, and neither is visible in a diff.
-    """
     section("Surface palette")
     src = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
 
@@ -1402,9 +1117,6 @@ def check_surface_palette() -> None:
         m = re.search(r"const float " + name + r"\s*=\s*([\d.]+)\s*;", src)
         return float(m.group(1)) if m else None
 
-    # The clip's warmth, and how far each surface may sit from it. The ceiling
-    # is exempt: an acoustic tile is neutral and takes its warmth from the tube
-    # over it, which is uLampTint's job, not the albedo's.
     CLIP = (1.00, 0.80, 0.42)
     WANT = {
         "kWallBase":  (0.407, 0.045, True,  "the wall"),
@@ -1449,7 +1161,6 @@ def check_surface_palette() -> None:
     print(f"   grain  wall {scalar('kWallGrain')}  floor {scalar('kFloorGrain')}  "
           f"ceiling {scalar('kCeilGrain')}")
 
-    # And the thing this whole section exists to protect: the images stay gone.
     for gone in ("Level_0/Floor.png", "Level_0/Wall.png", "Level_0/Roof.png"):
         check(not os.path.exists(os.path.join(ASSETS, gone)),
               f"{gone} is back — the surfaces are generated now, and an image "
@@ -1457,30 +1168,12 @@ def check_surface_palette() -> None:
 
 
 def check_exit_reach() -> None:
-    """
-    The leash must not eat the run.
-
-    findExit puts the door 110-170 cells from the spawn. EXIT_LEASH_M says how
-    far the player may drift from it before it is re-anchored 46 cells ahead of
-    them. Two numbers, in two languages, in two files, describing one thing --
-    and they contradicted each other: the leash was 320 m while the shortest
-    opening placement is 110 * 3.2 = 352 m. Measured over 40 seeds, the door was
-    born outside the leash on 40 of them, so the first two-second check pulled
-    it in to 46 cells before the player had taken a step. The authored run
-    length was never played on any seed; every run was the fallback.
-
-    Nothing could see it. Both numbers are reasonable on their own, both files
-    compile, and the level probe measures the exit findExit placed rather than
-    the one the player actually walks to.
-    """
     section("Exit reach")
     lvl = open(os.path.join(NATIVE, "Map/Level_0.h"), encoding="utf-8").read()
     src = open(os.path.join(NATIVE, "Map/Level_0.cpp"), encoding="utf-8").read()
     game = open(os.path.join(KOTLIN, "Backrooms.kt"), encoding="utf-8").read()
 
     mc = re.search(r"kCell\s*=\s*([\d.]+)f", lvl)
-    # Non-greedy across the line break: the hash call has its own nested
-    # parentheses, so a [^)]* between them stops at the first inner one.
     md = re.search(r"const int distance = (\d+) \+ static_cast<int>\("
                    r".*?\*\s*([\d.]+)f\)", src, re.S)
     ml = re.search(r"EXIT_LEASH_M = ([\d.]+)f", game)
@@ -1498,27 +1191,12 @@ def check_exit_reach() -> None:
           f"the leash is {leash:.0f} m and the exit is placed up to {hi:.0f} m "
           f"away, so on some seeds it is re-anchored before the player moves and "
           f"the authored run length is never played")
-    # And it should not be so slack that it never fires either.
     check(leash < hi * 3.0,
           f"a {leash:.0f} m leash around a {hi:.0f} m placement will never fire; "
           f"a player who walks the wrong way can leave the door behind forever")
 
 
 def check_texture_sizes() -> None:
-    """
-    Every texture power-of-two and no larger than 1024.
-
-    Not house style: a texture whose sides are not powers of two cannot carry a
-    full mipmap chain, and without mipmaps a wall seen at a glancing angle
-    aliases into a shimmer that no amount of filtering fixes. It also blocks
-    every block-compressed GPU format. Floor.png was 1536x1024 and Wall.png
-    1448x1086, which is 5.2MB of an APK spent on two textures that could not be
-    mipmapped.
-
-    1024 is the cap because nothing in this game is ever seen closer than that
-    resolution can serve: the character is at most ~500px tall on screen, and
-    the level textures tile every 3.2 metres.
-    """
     section("Texture sizes")
     limit = 1024
     for path in sorted(glob.glob(os.path.join(ASSETS, "**/*.png"), recursive=True)):
@@ -1527,10 +1205,6 @@ def check_texture_sizes() -> None:
         if head[:8] != b"\x89PNG\r\n\x1a\n":
             failures.append(f"{os.path.relpath(path, REPO)} is not a PNG")
             continue
-        # A file can carry the signature and still be short — a truncated
-        # download, a half-written export. Unpacking past the end of it threw a
-        # struct.error and took the whole tool down, which reports nothing at
-        # all rather than reporting the broken file.
         if len(head) < 24:
             failures.append(f"{os.path.relpath(path, REPO)} is truncated: "
                             f"{len(head)} bytes, too short to hold an IHDR")
@@ -1548,23 +1222,6 @@ def check_texture_sizes() -> None:
 
 
 def check_shield() -> None:
-    """
-    Everything visible from outside must tell the same story.
-
-    A disguise is worth nothing the moment it contradicts itself. A binary
-    claiming Unity 2022.3.21f1 next to a boot.config claiming 2021.3.4f1, or a
-    global-metadata.dat whose magic number is wrong, is louder than no disguise
-    at all: it says somebody tried, which is an invitation.
-
-    So: one version string, defined once in Shield/Unity.h, and asserted to
-    appear byte for byte in every decoy. Plus the structural things a
-    fingerprinting tool actually reads — the IL2CPP sanity magic, the presence
-    of both libraries in the CMake build, the il2cpp_* export surface.
-
-    None of this is protection and the note at the top of Shield/Unity.cpp
-    says so. The detectors that ARE protection live beside it in Shield/.
-    It is a filter on the front door, and a filter with a hole in it is a door.
-    """
     section("Shield — Unity costume")
     header = os.path.join(NATIVE, "Shield/Unity.h")
     if not os.path.exists(header):
@@ -1590,8 +1247,6 @@ def check_shield() -> None:
         print(f"   bin/Data/{rel:44s} {len(blob):5d} B")
 
         if rel == "il2cpp_data/Metadata/global-metadata.dat":
-            # The first eight bytes are the only part of this file anything
-            # ever checks, and they are the part that has to be right.
             sanity, ver = struct.unpack("<Ii", blob[:8])
             check(sanity == 0xFAB11BAF,
                   f"global-metadata.dat sanity is 0x{sanity:08X}, IL2CPP writes 0xFAB11BAF")
@@ -1601,8 +1256,6 @@ def check_shield() -> None:
             check(version in blob,
                   f"bin/Data/{rel} does not carry {version.decode()} — the decoys disagree")
 
-    # The C++ side has to claim it too, or `strings` on the binary contradicts
-    # the files sitting next to it.
     unity_cpp = open(os.path.join(NATIVE, "Shield/Unity.cpp"), encoding="utf-8").read()
     check(version.decode() in unity_cpp,
           "Shield/Unity.cpp does not embed the version from Unity.h")
@@ -1623,21 +1276,6 @@ def check_shield() -> None:
 
 
 def check_locales() -> None:
-    """
-    Every language must be whole.
-
-    A half-translated locale is worse than no locale: Android falls back to the
-    default per *string*, so a missing key shows English in the middle of a
-    Japanese menu with nothing to warn you. Nobody notices until a player does.
-
-    The format specifiers matter just as much. `getString` on a string with a
-    stray %d and no argument throws, and it throws only in the language nobody
-    on the team reads — which is exactly how the Turkish room-size label sat
-    there rendering a literal "%d".
-
-    The count of languages is asserted too, so silently dropping one is a
-    failure rather than a quiet regression.
-    """
     section("Locales")
     default = os.path.join(RES, "values/strings.xml")
     root = ET.parse(default).getroot()
@@ -1645,18 +1283,16 @@ def check_locales() -> None:
     translatable = {e.get("name") for e in root.findall("string")
                     if e.get("translatable") != "false"}
 
-    # AppLanguage is what the picker offers; the resources are what it can
-    # actually resolve. They have to agree or a chip switches to nothing.
-    service = open(os.path.join(KOTLIN, "Service.kt"), encoding="utf-8").read()
+    service = kotlin_sources()
     enum = re.search(r"enum class AppLanguage\b.*?;", service, re.S)
     offered = re.findall(r'\(\s*"([a-z]{2})"\s*,', enum.group(0)) if enum else []
 
     spec = re.compile(r"%(?:\d+\$)?[a-zA-Z]")
-    present = {"en"}                       # values/ is the English default
+    present = {"en"}
     for path in sorted(glob.glob(os.path.join(RES, "values-*/strings.xml"))):
         tag = os.path.basename(os.path.dirname(path)).split("-", 1)[1]
         if not re.fullmatch(r"[a-z]{2}", tag):
-            continue                       # values-night and friends
+            continue
         present.add(tag)
         try:
             loc = {e.get("name"): (e.text or "")
@@ -1686,10 +1322,6 @@ def check_locales() -> None:
     check(len(present) == 10, f"the game is meant to ship 10 languages, found {len(present)}")
     print(f"   {len(present)} languages, {len(translatable)} translatable strings each")
 
-
-# ===========================================================================
-# 6. PNG optimiser (lossless)
-# ===========================================================================
 
 BPP = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
 
@@ -1747,10 +1379,6 @@ def _unfilter(ihdr: bytes, idat: bytes):
 
 
 def _refilter(rows, bpp, stride, filt):
-    """Applies one filter type to every row. Trying a handful of whole-image
-    filters and keeping the smallest beats per-row heuristics often enough, and
-    it is the difference between a tool that runs in seconds and one that runs
-    in minutes of pure-Python byte loops."""
     out = bytearray()
     prev = bytearray(stride)
     for line in rows:
@@ -1808,7 +1436,6 @@ def optimise_png(path: str, dry_run: bool) -> tuple[int, int]:
                 best = comp
     out = _emit(ihdr, best)
 
-    # Never ship a "smaller" file that is not the same picture.
     _, ridat, _ = _png_parse(out)
     _, _, _, _, rrows = _unfilter(ihdr, ridat)
     if rrows != rows:
@@ -1837,8 +1464,6 @@ def run_optimise(dry_run: bool) -> None:
         print(f"   {'TOTAL':28s} {before/1024:8.0f} KB -> {after/1024:8.0f} KB  "
               f"({100*(1-after/before):4.1f}%, {(before-after)/1024:.0f} KB saved)")
 
-
-# ===========================================================================
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,

@@ -23,9 +23,6 @@
     <string name="menu_no_save">Aucune partie sauvegardée</string>
 
 
-
-
-
     <string name="settings_tab_account">Compte</string>
     <string name="settings_tab_graphics">Graphismes</string>
     <string name="settings_tab_audio">Audio</string>
@@ -74,7 +71,6 @@
     <string name="market_equipped">Équipé</string>
     <string name="market_limited">Limité</string>
     <string name="market_confirm_title">Achat</string>
-
 
 
     <string name="player_level_prefix">Niveau </string>

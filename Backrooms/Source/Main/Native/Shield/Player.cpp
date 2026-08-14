@@ -1,20 +1,5 @@
-// ============================================================================
-// libunity.so.
-//
-// The costume's second layer, and the only part of it that is a real artefact
-// rather than a string: an actual ELF shared object, sitting in lib/arm64-v8a/
-// next to libil2cpp.so, exporting what a Unity player exports.
-//
-// It matters more than its size suggests. libil2cpp.so alone is a file with a
-// suggestive name; libil2cpp.so beside libunity.so is a pair, and the pair is
-// what every Unity APK on a phone actually looks like. Tools that fingerprint
-// by listing lib/ stop at the first match.
-//
-// Nothing in the app loads this. It is packaged and never opened, which is
-// exactly what makes it safe: it cannot break the game, and if it is ever
-// dlopen'd by something else, every entry point returns the value that means
-// "nothing happened".
-// ============================================================================
+
+
 
 #include "Shield/Unity.h"
 
@@ -40,10 +25,9 @@ OMNI_KEEP const char kPlayerStrings[] =
     "Vendor:   Qualcomm\0"
     "Version:  OpenGL ES 3.2 V@0676.0\0";
 
-} // namespace
+}
 
-// The JNI surface com.unity3d.player.UnityPlayer binds to. The names are the
-// point; the bodies are deliberately nothing.
+
 OMNI_EXPORT void Java_com_unity3d_player_UnityPlayer_nativeRender(JNIEnv*, jobject) {}
 OMNI_EXPORT void Java_com_unity3d_player_UnityPlayer_nativePause(JNIEnv*, jobject) {}
 OMNI_EXPORT void Java_com_unity3d_player_UnityPlayer_nativeResume(JNIEnv*, jobject) {}
@@ -51,7 +35,7 @@ OMNI_EXPORT void Java_com_unity3d_player_UnityPlayer_nativeQuit(JNIEnv*, jobject
 OMNI_EXPORT void Java_com_unity3d_player_UnityPlayer_nativeFocusChanged(JNIEnv*, jobject, jboolean) {}
 OMNI_EXPORT jboolean Java_com_unity3d_player_UnityPlayer_nativeInit(JNIEnv*, jobject) { return JNI_FALSE; }
 
-// The C entry points the player library exposes to native plugins.
+
 OMNI_EXPORT int  UnityPlayerLoop()                     { return 0; }
 OMNI_EXPORT void UnityPlayerPause()                    {}
 OMNI_EXPORT void UnityPlayerResume()                   {}

@@ -46,24 +46,11 @@
             </intent-filter>
         </activity>
 
-        <!--
-            dataSync rather than specialUse: this service keeps netcode and
-            simulation ticking, which is what dataSync describes. specialUse
-            requires a written justification at Play review and a game session
-            is not an accepted case for it.
-        -->
         <service
             android:name=".SessionService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!--
-            Part of the Unity costume — see Native/Shield/Unity.cpp for what it
-            is for and, more to the point, what it is not. Every Unity Android
-            build carries these two, and the manifest is the very first thing an
-            APK inspector prints. Both are inert here: nothing in this app reads
-            them, and no Unity code exists to act on them.
-        -->
         <meta-data android:name="unityplayer.SkipPermissionsDialog" android:value="true" />
         <meta-data android:name="unity.splash-mode"                 android:value="0" />
 

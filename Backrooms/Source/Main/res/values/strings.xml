@@ -23,9 +23,6 @@
     <string name="menu_no_save">You have no saved game</string>
 
 
-
-
-
     <string name="settings_tab_account">Account</string>
     <string name="settings_tab_graphics">Graphics</string>
     <string name="settings_tab_audio">Audio</string>
@@ -74,7 +71,6 @@
     <string name="market_equipped">Equipped</string>
     <string name="market_limited">Limited</string>
     <string name="market_confirm_title">Purchase</string>
-
 
 
     <string name="player_level_prefix">Level </string>

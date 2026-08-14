@@ -1,26 +1,4 @@
 #!/usr/bin/env python3
-"""
-Native_Check.py — the C++ side, and its contract with Kotlin.
-
-Three things this catches that nothing else does:
-
-1. THE JNI CONTRACT. A Kotlin `external fun foo()` is bound to a C++
-   `Java_com_omni_backrooms_NativeBridge_foo` by NAME, at the moment it is
-   first called. Nothing checks that the two agree — not the Kotlin compiler,
-   not the C++ compiler, not the linker. A typo, a rename on one side only, or
-   an `external fun` nobody ever implemented all build perfectly and then throw
-   UnsatisfiedLinkError on a player's device, usually deep into a run.
-
-2. THE CMAKE SOURCE LIST. A .cpp under Native/ that is not in CMakeLists.txt
-   compiles nowhere and its symbols are simply absent — which lands as the same
-   runtime failure as (1), from a different direction.
-
-3. WARNINGS. The host-compilable modules are built with -Wall -Wextra
-   -Wpedantic as errors. Engine.cpp itself needs the NDK (jni.h, android/*,
-   aaudio) so it cannot be built here; its JNI surface is still parsed.
-
-    python3 Tools/Native_Check.py
-"""
 from __future__ import annotations
 
 import glob
@@ -34,7 +12,14 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NATIVE = os.path.join(REPO, "Backrooms/Source/Main/Native")
 KOTLIN = os.path.join(REPO, "Backrooms/Source/Main/Kotlin/com/omni/backrooms")
 
-# Modules with no Android dependency, so they can be compiled on the host.
+def kotlin_sources() -> str:
+    import glob as _glob
+    out = []
+    for path in sorted(_glob.glob(os.path.join(KOTLIN, "*.kt"))):
+        out.append(open(path, encoding="utf-8").read())
+    return "\n".join(out)
+
+
 HOST_MODULES = ["Map/Level_0.cpp", "Frame/Frame.cpp", "Trail/Trail.cpp",
                 "Entity/Entity.cpp", "Sound/Synth.cpp", "Ending/Ending.cpp",
                 "Shield/Unity.cpp", "Shield/Shield.cpp"]
@@ -54,7 +39,6 @@ def section(title: str) -> None:
 
 
 def jni_exports() -> set[str]:
-    """Method names exported from the native side."""
     names = set()
     for path in glob.glob(os.path.join(NATIVE, "**/*.cpp"), recursive=True):
         text = open(path, encoding="utf-8").read()
@@ -64,18 +48,14 @@ def jni_exports() -> set[str]:
 
 
 def kotlin_externals() -> set[str]:
-    """`external fun` declarations on NativeBridge."""
-    src = os.path.join(KOTLIN, "Service.kt")
-    if not os.path.exists(src):
-        failures.append("Service.kt not found; cannot read the JNI declarations")
+    text = kotlin_sources()
+    if not text:
+        failures.append("no Kotlin sources; cannot read the JNI declarations")
         return set()
-    text = open(src, encoding="utf-8").read()
     m = re.search(r"class NativeBridge[^{]*\{", text)
     check(m is not None, "no NativeBridge class found")
     if not m:
         return set()
-    # Walk to the matching close brace so declarations in other classes are not
-    # swept up.
     i, depth = m.end() - 1, 0
     while i < len(text):
         if text[i] == "{":
@@ -89,8 +69,6 @@ def kotlin_externals() -> set[str]:
     return set(re.findall(r"external fun\s+([A-Za-z0-9_]+)\s*\(", body))
 
 
-# Kotlin type -> the JNI type it arrives as. Only the types this bridge
-# actually uses; anything else is reported rather than silently accepted.
 KOTLIN_TO_JNI = {
     "Int": "jint", "Long": "jlong", "Float": "jfloat", "Double": "jdouble",
     "Boolean": "jboolean", "Byte": "jbyte", "Short": "jshort", "Char": "jchar",
@@ -98,13 +76,11 @@ KOTLIN_TO_JNI = {
     "FloatArray": "jfloatArray", "FloatArray?": "jfloatArray",
     "IntArray": "jintArray", "IntArray?": "jintArray",
     "ByteArray": "jbyteArray", "ByteArray?": "jbyteArray",
-    # Anything that crosses as a plain object reference.
     "Bitmap": "jobject", "Any": "jobject", "Any?": "jobject", "Object": "jobject",
 }
 
 
 def _split_params(text: str) -> list[str]:
-    """Top-level comma split, so a generic or a default value cannot break it."""
     out, depth, cur = [], 0, ""
     for ch in text:
         if ch in "(<[":
@@ -121,7 +97,6 @@ def _split_params(text: str) -> list[str]:
 
 
 def kotlin_signatures(body: str) -> dict[str, list[str]]:
-    """Parameter types of each `external fun`, in order."""
     sigs = {}
     for m in re.finditer(r"external fun\s+([A-Za-z0-9_]+)\s*\(", body):
         i, depth = m.end() - 1, 0
@@ -139,7 +114,6 @@ def kotlin_signatures(body: str) -> dict[str, list[str]]:
 
 
 def native_signatures() -> dict[str, list[str]]:
-    """Parameter types of each JNI definition, after JNIEnv* and jobject."""
     sigs = {}
     for path in glob.glob(os.path.join(NATIVE, "**/*.cpp"), recursive=True):
         text = open(path, encoding="utf-8").read()
@@ -154,35 +128,20 @@ def native_signatures() -> dict[str, list[str]]:
                         break
                 i += 1
             params = _split_params(text[m.end():i])
-            # Drop the two the JVM always supplies.
             params = params[2:]
             types = []
             for p in params:
                 p = p.strip()
-                # "jfloat x" -> jfloat; a bare "jfloat" (unnamed) -> jfloat
                 types.append(p.split()[0] if p.split() else p)
             sigs[m.group(1)] = types
     return sigs
 
 
 def check_jni_signatures() -> None:
-    """
-    Arity and types, not just names.
-
-    JNI resolves by name alone when a method is not overloaded, so a native
-    function that takes four floats will happily bind to a Kotlin declaration
-    that passes eight. Nothing errors. The extra arguments are read off the
-    stack as whatever happened to be there, and the symptom is a creature that
-    behaves strangely on some devices and correctly on others.
-
-    This is the one contract in the project with no compiler behind it at all,
-    which is exactly why it is worth spelling out here.
-    """
     section("JNI signatures")
-    src = os.path.join(KOTLIN, "Service.kt")
-    if not os.path.exists(src):
+    text = kotlin_sources()
+    if not text:
         return
-    text = open(src, encoding="utf-8").read()
     m = re.search(r"class NativeBridge[^{]*\{", text)
     if not m:
         return
@@ -201,7 +160,7 @@ def check_jni_signatures() -> None:
     checked = 0
     for name, kparams in sorted(kt.items()):
         if name not in cpp:
-            continue                        # already reported by the name check
+            continue
         nparams = cpp[name]
         if len(kparams) != len(nparams):
             failures.append(
@@ -232,8 +191,6 @@ def check_jni_contract() -> None:
             f"external fun {name}() has no {JNI_PREFIX}{name} on the native side "
             f"— this throws UnsatisfiedLinkError the first time it is called")
 
-    # The reverse is not an error: native may legitimately export more than the
-    # current Kotlin uses. Report it so a dead export gets noticed.
     unused = sorted(exported - declared)
 
     print(f"   {len(declared)} external fun, {len(exported)} JNI exports, "
@@ -310,20 +267,6 @@ int main() {
 
 
 def check_ending() -> None:
-    """
-    The run-over transition, measured.
-
-    The end of a run used to be a Compose card on a black scrim: the level you
-    had just been standing in painted over at 88% black, with a rounded
-    rectangle on top of it. That reads as a dialog, and a dialog is what you
-    dismiss. It is also the one piece of the game that is hardest to look at —
-    you have to die to see it — so it is exactly the piece that needs a check
-    rather than an opinion.
-
-    Ending::evaluate is a pure function of (kind, seconds), which is what makes
-    that possible at all. Everything below is a property the transition has to
-    have for it to read as one event rather than a set of effects switching on.
-    """
     section("Ending")
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, "ending_probe.cpp")
@@ -359,14 +302,11 @@ def check_ending() -> None:
         if len(rows) != 101:
             continue
         dur = durations[kind]
-        # Long enough to register, short enough not to be a wait.
         check(1.2 <= dur <= 3.5,
               f"the {label} transition runs {dur:.2f}s — under 1.2 it is a cut "
               f"and over 3.5 it is a delay between the player and their score")
 
         first = rows[0][1:]
-        # The first frame of an ending must be the frame before it. Anything
-        # non-zero here is a state the eye reads as a cut.
         for i, name in enumerate(NAMES):
             want = 1.0 if name == "exposure" else 0.0
             check(abs(first[i] - want) < 1e-6,
@@ -378,9 +318,6 @@ def check_ending() -> None:
               f"the {label} panel does not rise monotonically — it appears, "
               f"retreats and comes back")
         check(panel[-1] > 0.999, f"the {label} panel never fully arrives")
-        # The picture has to fail before the stats cover it. If the panel is up
-        # while the frame is still intact, the transition is happening behind a
-        # card and nobody sees it.
         half = next(i for i, v in enumerate(panel) if v > 0.5)
         check(half >= 55,
               f"the {label} panel is half up {half}% into the transition, before "
@@ -400,14 +337,11 @@ def check_ending() -> None:
               f"sampling past the end of the {label} transition does not hold "
               f"the settled state")
 
-    # The two endings must not be the same effect with a different tint. This is
-    # the failure mode a card on a scrim has by construction, and the one thing
-    # a reader of the code would not notice.
     d, s = curves[1], curves[2]
     if len(d) == 101 and len(s) == 101:
         diff = max(abs(a[i + 1] - b[i + 1]) for a, b in zip(d, s) for i in range(8))
-        peak_d = max(r[7] for r in d)      # death exposure never lifts
-        peak_s = max(r[7] for r in s)      # escape exposure does
+        peak_d = max(r[7] for r in d)
+        peak_s = max(r[7] for r in s)
         print(f"   death vs escape: largest divergence {diff:.2f}, "
               f"peak exposure {peak_d:.2f} vs {peak_s:.2f}")
         check(diff > 0.4, "the two endings are the same curve — one of them is "
@@ -576,33 +510,6 @@ int main(int argc, char** argv) {
 
 
 def check_shield() -> None:
-    """
-    The guard's detectors, run against inputs instead of against opinion.
-
-    A player photographed the in-game security dialog: `reason: root,
-    flags=0x40200`. Decoded, that is FLAG_PTRACE_TRACED and FLAG_SHADOW_MOUNT
-    with every genuine root bit — ROOT_BINARY, ROOT_PROPS, ROOT_PATHS, MAGISK,
-    ZYGISK, KSU, SELINUX_OFF — clear. It was not a rooted device. It was two of
-    our own checks, and a third one sitting next to them that was worse:
-
-      * SHADOW_MOUNT asked `containsCI(m,"overlay") && containsCI(m,"/system")`
-        over the whole mount table. Two independent searches, so an overlay
-        over /vendor/overlay and the /system_ext line — both present on stock
-        retail hardware — combined into "root", which is HIGH, which is the
-        dialog.
-
-      * PTRACE_TRACED called PTRACE_TRACEME and tried to undo it with
-        PTRACE_DETACH on pid 0, which cannot work. The process stayed traced,
-        so every scan after the first reported a debugger.
-
-      * FRIDA_PORT searched /proc/net/tcp for the literals "6D58", "71D4",
-        "2717" and "5039" — not Frida's ports, and matched as substrings
-        against a file that is nothing but hex. Frida is CRITICAL, and CRITICAL
-        calls killProcess. That one was a coin toss on ending a player's run.
-
-    Everything here is a property those checks must have. The Shield module
-    compiles on a host, which is what makes asking possible at all.
-    """
     section("Shield")
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, "shield_probe.cpp")
@@ -617,8 +524,6 @@ def check_shield() -> None:
             failures.append("the shield probe did not compile:\n" + build.stderr[:2000])
             return
         stdout = ""
-        # Two runs, because the stability check needs a process nothing has
-        # scanned in yet — see the comment above stability() in the probe.
         for mode in ("staged", "stable"):
             run = subprocess.run([exe, mode, os.path.join(tmp, "stage")],
                                  capture_output=True, text=True)
@@ -631,7 +536,6 @@ def check_shield() -> None:
     def flag(key: str) -> bool:
         return out.get(key, "").split()[0] == "1"
 
-    # Mount tables. The first of these is the bug a player photographed.
     check(not flag("MOUNT_STOCK"),
           "a stock mount table with a /vendor/overlay RRO mount is read as root "
           "— this is the SHADOW_MOUNT false positive that put 'root' in front of "
@@ -651,7 +555,6 @@ def check_shield() -> None:
           "evidence from an earlier scan survives into a clean one, so the "
           "report names a mount the device no longer has")
 
-    # Socket tables.
     check(not flag("TCP_CLEAN"),
           "a socket table containing 69A2 inside an inode number and inside a "
           "remote address is read as Frida — and Frida is CRITICAL, which kills "
@@ -663,7 +566,6 @@ def check_shield() -> None:
           "an established connection on port 27042 is read as Frida listening; "
           "only a socket in state 0A (LISTEN) means a server is running here")
 
-    # The debugger flags, and the fact that they mean two different things.
     check(not flag("DBG_CLEAN_TRACED") and not flag("DBG_CLEAN_WAIT"),
           "an untraced process with TracerPid 0 is reported as debugged")
     check(flag("DBG_TRACED"),
@@ -675,7 +577,6 @@ def check_shield() -> None:
     check(flag("DBG_HELD"),
           "a process parked in tracing-stop is not detected")
 
-    # The one that has to hold on this machine rather than on staged text.
     stable = out.get("STABLE", "0 0x0").split()
     print(f"   detectors stable across 5 scans: {stable[0] == '1'} (debug flags {stable[1]})")
     check(stable[0] == "1",
