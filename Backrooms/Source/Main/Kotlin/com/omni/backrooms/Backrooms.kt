@@ -140,7 +140,9 @@ import android.opengl.Matrix
 import android.opengl.GLUtils
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.opengles.GL10
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -2436,6 +2438,11 @@ void main(){
  */
 private const val kCeilTileM = 0.60f
 
+/** Side of the square patch the frame report reads back, in pixels. Small on
+ *  purpose: this is a diagnostic, not a screenshot, and glReadPixels stalls
+ *  the pipeline. 24x24 is 576 samples, enough for a stable mean. */
+private const val kProbeSide = 24
+
 private const val OMNI_SCENE_FRAG = """#version 300 es
 precision mediump float;
 in highp vec3 vNormal; in highp vec2 vUV; in highp float vLight; in highp vec3 vWorldPos;
@@ -4126,10 +4133,14 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             }
         }
 
+        // What is actually in the scene buffer, before anything composites it.
+        val sceneLuma = if (probeThisFrame()) probeLuma("scene") else null
+
         // Nothing below this point applies when the scene was drawn straight to
         // the screen: there is no offscreen texture to extract bloom from and
         // nothing to composite. The picture is already on the display.
         if (!fboUsable) {
+            if (sceneLuma != null) reportFrame(state, rs, resScale, sceneLuma, sceneLuma)
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             return
         }
@@ -4171,6 +4182,101 @@ class OmniGLRenderer(private val appContext: Context) : GLSurfaceView.Renderer {
             bloomStrength = if (bloomPasses > 0) 0.85f else 0f,
             ending = endingParams
         )
+
+        // And what reached the display. Read after the composite and before the
+        // swap, so this is the frame the player is about to see.
+        if (sceneLuma != null) {
+            reportFrame(state, rs, resScale, sceneLuma, probeLuma("screen"))
+        }
+    }
+
+    // =======================================================================
+    // The frame report
+    //
+    // "The screen is black" has now come back four times, each time with a
+    // complete log in which every stage reported success: the programs link,
+    // the framebuffer is complete, the guard is clean, the level draws its
+    // triangles. Every one of those was worth adding and none of them found
+    // this, because they all measure whether a step *ran*, and the question is
+    // what the step *produced*.
+    //
+    // So this reads the pixels back. Two 24x24 patches — one from the scene
+    // target before anything composites it, one from the default framebuffer
+    // after — reduced to min/mean/max luminance, printed alongside the camera,
+    // the geometry and every setting that can darken a frame. It fires three
+    // times (about 2, 5 and 10 seconds in) and then never again, so the cost is
+    // three small readbacks for the life of a run.
+    //
+    // The two numbers answer the only question left, and they answer it
+    // without a theory:
+    //
+    //   scene bright, screen dark  -> the composite is eating the picture
+    //   scene dark, screen dark    -> the world is drawn but unlit, or the
+    //                                 camera is not looking at it
+    // =======================================================================
+
+    /** Frames at which to take a reading: roughly 2s, 5s and 10s at 60Hz. */
+    private val probeFrames = intArrayOf(120, 300, 600)
+    private val probeBuf =
+        ByteBuffer.allocateDirect(kProbeSide * kProbeSide * 4).order(ByteOrder.nativeOrder())
+
+    private fun probeThisFrame(): Boolean = probeFrames.any { it == frameCounter }
+
+    /** min, mean, max luminance of a small patch at the centre of whatever
+     *  framebuffer is bound, each 0..1. */
+    private fun probeLuma(what: String): FloatArray {
+        val w = if (what == "scene") renderW else surfaceW
+        val h = if (what == "scene") renderH else surfaceH
+        val x = ((w - kProbeSide) / 2).coerceAtLeast(0)
+        val y = ((h - kProbeSide) / 2).coerceAtLeast(0)
+        probeBuf.position(0)
+        GLES30.glReadPixels(x, y, kProbeSide, kProbeSide,
+                            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, probeBuf)
+        probeBuf.position(0)
+        var lo = 1f; var hi = 0f; var sum = 0f
+        val n = kProbeSide * kProbeSide
+        for (i in 0 until n) {
+            val r = (probeBuf.get().toInt() and 0xFF) / 255f
+            val g = (probeBuf.get().toInt() and 0xFF) / 255f
+            val b = (probeBuf.get().toInt() and 0xFF) / 255f
+            probeBuf.get()  // alpha
+            val luma = 0.2126f * r + 0.7152f * g + 0.0722f * b
+            if (luma < lo) lo = luma
+            if (luma > hi) hi = luma
+            sum += luma
+        }
+        probeBuf.position(0)
+        return floatArrayOf(lo, sum / n, hi)
+    }
+
+    private fun reportFrame(
+        state: GameState, rs: RenderSettings, resScale: Float,
+        scene: FloatArray, screen: FloatArray
+    ) {
+        var tris = 0
+        for (m in chunkMeshes.values) tris += (m.floorCount + m.roofCount + m.wallCount) / 3
+        val cam = state.camera
+        val verdict = when {
+            screen[2] > 0.02f                 -> "picture on screen"
+            scene[2] > 0.02f                  -> "SCENE HAS IMAGE BUT SCREEN IS BLACK — the composite is losing it"
+            tris == 0                         -> "NO GEOMETRY — nothing was submitted"
+            else                              -> "GEOMETRY DRAWN BUT SCENE IS BLACK — unlit, or the camera is not on it"
+        }
+        OmniLog.i("GL",
+            "frame $frameCounter: $verdict | " +
+            "scene luma min=${"%.4f".format(scene[0])} mean=${"%.4f".format(scene[1])} " +
+            "max=${"%.4f".format(scene[2])} | " +
+            "screen luma min=${"%.4f".format(screen[0])} mean=${"%.4f".format(screen[1])} " +
+            "max=${"%.4f".format(screen[2])} | " +
+            "chunks=${chunkMeshes.size} tris=$tris misses=${chunkMisses.size} | " +
+            "target=${renderW}x$renderH surface=${surfaceW}x$surfaceH scale=$resScale | " +
+            "fbo=$fboUsable bloom=$bloomUsable quality=${rs.quality} " +
+            "fog=${rs.fogEnabled} vhs=${rs.vhsEnabled} | " +
+            "cam=" + (if (cam == null) "NULL" else
+                "(${"%.1f".format(cam.posX)},${"%.1f".format(cam.posY)}," +
+                "${"%.1f".format(cam.posZ)}) yaw=${"%.0f".format(cam.yaw)} " +
+                "pitch=${"%.0f".format(cam.pitch)}") +
+            " torch=${state.flashlightOn} flicker=${"%.2f".format(state.flickerIntensity)}")
     }
 
     /**
@@ -9230,16 +9336,43 @@ uniform float time;
 uniform float intensity;
 uniform float3 accent;
 
+// A rounded-rectangle distance field, in pixels. Everything below keys off
+// this rather than off min(uv.x, 1-uv.x, ...), which is a *square* falloff and
+// is what made the glow bunch into the corners and read as four straight
+// bands — the frame looking blocky when the plate under it is round.
+float roundedBox(float2 p, float2 half_, float r) {
+    float2 q = abs(p) - half_ + r;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
 half4 main(float2 coord) {
     half4 src = content.eval(coord);
     float2 uv = coord / size;
-    // Diagonal energy bands drifting across the face.
-    float band = sin((uv.x * 3.2 + uv.y * 1.4 - time * 0.55) * 6.2831);
-    band = pow(max(band, 0.0), 6.0);
-    // Edge emphasis so the glow hugs the border like light through a gap.
-    float edge = 1.0 - smoothstep(0.0, 0.34, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
-    float glow = (band * 0.55 + edge * 0.45) * intensity;
-    half3 lit = src.rgb + half3(accent) * glow * src.a;
+    float2 p  = coord - size * 0.5;
+    float radius = min(size.x, size.y) * 0.28;
+    float d = roundedBox(p, size * 0.5, radius);   // <0 inside, 0 on the border
+
+    // The border itself: a thin, even band that follows the corner radius all
+    // the way round instead of pooling where two straight falloffs met.
+    float px    = max(fwidth(d), 1.0);
+    float rim   = 1.0 - smoothstep(0.0, 2.2 * px, abs(d + 1.5 * px));
+    float inner = 1.0 - smoothstep(0.0, min(size.x, size.y) * 0.30, -d);
+
+    // Two counter-drifting diagonal bands rather than one. A single band on a
+    // loop reads as a repeating wipe; two at different rates never line up the
+    // same way twice, which is what makes it look alive instead of on a timer.
+    float b1 = sin((uv.x * 3.2 + uv.y * 1.4 - time * 0.55) * 6.2831);
+    float b2 = sin((uv.x * 1.7 - uv.y * 2.6 + time * 0.31) * 6.2831 + 1.9);
+    float band = pow(max(b1, 0.0), 6.0) * 0.7 + pow(max(b2, 0.0), 9.0) * 0.4;
+
+    // A travelling specular sweep along the rim: the highlight a real bevel
+    // throws as the light moves across it.
+    float ang   = atan(p.y, p.x);
+    float sweep = pow(max(sin(ang * 0.5 - time * 0.9), 0.0), 16.0);
+
+    float glow = (band * 0.42 + inner * 0.30 + rim * (0.55 + sweep * 0.9)) * intensity;
+    half3 tint = mix(half3(accent), half3(1.0), half(sweep * 0.45));
+    half3 lit  = src.rgb + tint * half(glow) * src.a;
     return half4(lit, src.a);
 }
 """
@@ -9282,6 +9415,15 @@ fun PremiumEventButton(
     )
 
     val pulse = heartbeat(clock)
+    // A slow lean, a full cycle every eleven seconds and out of step with both
+    // the pulse and the sweep. Three motions on coprime periods never repeat
+    // the same combination, which is what stops a looping idle from reading as
+    // a loop.
+    val sweepTilt by inf.animateFloat(
+        -1f, 1f,
+        infiniteRepeatable(tween(11_000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        "eventTilt"
+    )
     val pressDepth by animateFloatAsState(
         if (pressed) 1f else 0f,
         spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow),
@@ -9309,10 +9451,26 @@ fun PremiumEventButton(
             .graphicsLayer {
                 // Depth: the face sinks and shrinks very slightly under the
                 // finger, and lifts with a soft shadow at rest.
-                val s = 1f - pressDepth * 0.045f
-                scaleX = s; scaleY = s
-                translationY = pressDepth * 4f
-                shadowElevation = (10f - pressDepth * 7f) * density
+                //
+                // At rest it also breathes. A button that is perfectly still
+                // until touched is the thing that reads as a flat rectangle no
+                // matter how well it is shaded, and the plate underneath was
+                // already animating without the plate's own body joining in.
+                // The idle motion is deliberately tiny — under half a percent
+                // of scale and a fraction of a degree — because at this size
+                // anything larger stops looking like presence and starts
+                // looking like a wobble.
+                val breathe = (1f - pressDepth) * pulse
+                val s = (1f - pressDepth * 0.045f) * (1f + breathe * 0.004f)
+                scaleX = s
+                // A hair more vertically than horizontally, so it reads as
+                // rising rather than as zooming.
+                scaleY = s * (1f + breathe * 0.003f)
+                translationY = pressDepth * 4f - breathe * 0.9f * density
+                rotationZ = (1f - pressDepth) * sweepTilt * 0.22f
+                // The shadow lifts with the breath, which is most of what sells
+                // the rise — a shadow that stays put pins the face to the page.
+                shadowElevation = (10f - pressDepth * 7f + breathe * 2.6f) * density
                 spotShadowColor = tint.copy(0.55f)
                 ambientShadowColor = tint.copy(0.35f)
                 shape = RoundedCornerShape(18.dp)
@@ -10150,19 +10308,49 @@ void main(){
     vec3 tip  = uAccent * (1.0 + uPulse * 0.6);
     vec3 base = mix(deep, tip, vGrow);
 
-    float rim = pow(1.0 - max(dot(n, view), 0.0), 3.0) * 0.5 * (0.4 + uPulse);
-    vec3 col = base * (0.22 + kd * 0.85 + fd) + vec3(spec) * uAccent + uAccent * rim;
+    // Fibre running along the stem, and a coarser mottle across it. Without
+    // these a swept tube reads as extruded plastic: one flat colour, one
+    // highlight, no surface. The frequencies are keyed to vGrow (along the
+    // spine) and to the angle around it, so the detail follows the geometry
+    // instead of swimming over it.
+    float around = atan(vLocal.y, vLocal.x);
+    float fibre  = sin(vGrow * 190.0 + around * 2.0) * 0.5 + 0.5;
+    float mottle = sin(vGrow * 41.0 + 1.7) * sin(around * 5.0 + vGrow * 12.0);
+    float grain  = 1.0 + (fibre - 0.5) * 0.13 + mottle * 0.07;
 
-    // The growing front glows hotter.
+    // Anisotropic sheen: a stem catches light in a band along its length, not
+    // in a round dot. Widening the highlight across the fibre direction and
+    // tightening it along the stem is what separates it from a lit cylinder.
+    vec3 along = normalize(vec3(-n.y, n.x, 0.0));
+    float aniso = 1.0 - abs(dot(along, h)) * 0.75;
+    float sheen = pow(max(dot(n, h), 0.0), 42.0) * aniso * 0.55;
+
+    float rim = pow(1.0 - max(dot(n, view), 0.0), 3.0) * 0.5 * (0.4 + uPulse);
+    vec3 col = base * grain * (0.22 + kd * 0.85 + fd)
+             + vec3(spec * 0.55 + sheen) * mix(uAccent, vec3(1.0), 0.35)
+             + uAccent * rim;
+
+    // The growing front glows hotter, and light bleeds through the thin tip
+    // the way it does through a real one held up to a lamp.
     float front = smoothstep(uGrowth - 0.09, uGrowth, vGrow);
     col += uAccent * front * (0.55 + uPulse * 0.9);
+    col += uAccent * pow(vGrow, 3.0) * 0.22 * (0.6 + uPulse * 0.5);
 
-    fragColor = vec4(col, 1.0);
+    // Feather the silhouette. Multisampling fixes the polygon edge; this fixes
+    // the remaining hardness where a near-tangent face meets the plate, which
+    // is what still reads as a staircase on a tube only a few pixels wide.
+    float edge = smoothstep(0.02, 0.30, abs(dot(n, view)));
+    fragColor = vec4(col, 0.35 + 0.65 * edge);
 }
 """
 
 /** Builds swept-tube geometry for one vine: interleaved pos3 + normal3 + grow1. */
-private fun buildVineMesh(spec: VineSpec, segments: Int = 26, sides: Int = 7):
+// Twelve sides, not seven. A seven-sided tube has a visibly straight-edged
+// silhouette at the width these are drawn — the flat facets read as blockiness
+// no amount of multisampling can soften, because the geometry really is that
+// shape. Twelve is where the outline stops reading as a polygon; the whole
+// lobby is six of these at 35 rings, which is 2520 vertices in total.
+private fun buildVineMesh(spec: VineSpec, segments: Int = 34, sides: Int = 12):
         Pair<FloatArray, ShortArray> {
 
     val verts = ArrayList<Float>((segments + 1) * sides * 7)
@@ -10257,6 +10445,57 @@ private fun buildVineMesh(spec: VineSpec, segments: Int = 26, sides: Int = 7):
 }
 
 
+/**
+ * Picks a multisampled EGL config, and falls back rather than throwing.
+ *
+ * GLSurfaceView's own chooser has no notion of MSAA, and its "simple" variant
+ * throws IllegalArgumentException when it cannot find an exact match — on a GL
+ * thread, which takes the surface down and leaves a black rectangle where the
+ * button was. So this asks for [samples], settles for 2, and settles again for
+ * none, in that order. A device that cannot multisample gets what it got
+ * before; nothing gets an exception.
+ */
+private class MultisampleConfigChooser(
+    private val samples: Int = 4
+) : GLSurfaceView.EGLConfigChooser {
+
+    override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig {
+        for (want in intArrayOf(samples, 2, 0)) {
+            pick(egl, display, want)?.let { return it }
+        }
+        // Nothing at all matched, which should be impossible on an ES3 device.
+        // Ask for the barest thing that can exist and let EGL decide.
+        return pick(egl, display, 0, depth = 0)
+            ?: throw IllegalArgumentException("no EGL config on this device")
+    }
+
+    private fun pick(
+        egl: EGL10, display: EGLDisplay, want: Int, depth: Int = 16
+    ): EGLConfig? {
+        val spec = mutableListOf(
+            EGL10.EGL_RED_SIZE, 8,
+            EGL10.EGL_GREEN_SIZE, 8,
+            EGL10.EGL_BLUE_SIZE, 8,
+            EGL10.EGL_ALPHA_SIZE, 8,
+            EGL10.EGL_DEPTH_SIZE, depth,
+            EGL10.EGL_RENDERABLE_TYPE, 0x0040   // EGL_OPENGL_ES3_BIT_KHR
+        )
+        if (want > 0) {
+            spec += listOf(EGL10.EGL_SAMPLE_BUFFERS, 1, EGL10.EGL_SAMPLES, want)
+        }
+        spec += EGL10.EGL_NONE
+        val attrs = spec.toIntArray()
+
+        val count = IntArray(1)
+        if (!egl.eglChooseConfig(display, attrs, null, 0, count) || count[0] <= 0) return null
+        val configs = arrayOfNulls<EGLConfig>(count[0])
+        if (!egl.eglChooseConfig(display, attrs, configs, count[0], count)) return null
+        // The first match is EGL's own preference order, which already favours
+        // the smallest buffers that satisfy the request.
+        return configs.firstOrNull()
+    }
+}
+
 /** Renders the 3D vines for one button. A small dedicated GLSurfaceView sits
  *  behind the button's content with a transparent background, so genuine lit
  *  geometry composites over the UI. */
@@ -10278,6 +10517,12 @@ class VineRenderer(private val onFailed: () -> Unit = {}) : GLSurfaceView.Render
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        // The fragment shader feathers the silhouette, which needs somewhere
+        // to blend into. Premultiplied-style source alpha over a transparent
+        // clear, so the soft edge composites onto the button plate instead of
+        // onto black.
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         runCatching {
             program = linkGlProgram(OMNI_VINE_VERT, OMNI_VINE_FRAG, "vine")
             uMVP = GLES30.glGetUniformLocation(program, "uMVP")
@@ -10372,8 +10617,16 @@ fun VineLayer(accent: Color, modifier: Modifier = Modifier) {
     val glView = remember {
         GLSurfaceView(ctx).apply {
             setEGLContextClientVersion(3)
-            // Transparent surface so the vines composite over the button art.
-            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+            // Transparent surface so the vines composite over the button art,
+            // and multisampled so its edges are not a staircase.
+            //
+            // This used to be setEGLConfigChooser(8,8,8,8,16,0), which asks for
+            // no multisampling at all. A vine is a swept tube a few pixels wide
+            // against a flat plate — the shape most punished by aliasing — and
+            // it sits on its own surface, so the window's own antialiasing does
+            // nothing for it. Every edge in the lobby was a hard pixel
+            // staircase, and that is the blockiness.
+            setEGLConfigChooser(MultisampleConfigChooser(samples = 4))
             holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
             setZOrderOnTop(true)
             preserveEGLContextOnPause = true

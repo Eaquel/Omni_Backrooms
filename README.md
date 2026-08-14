@@ -106,6 +106,42 @@ Tools/                           the eight checks
 ## Recent fixes
 
 Newest first. This list is updated with every fix.
+- **The frame report: reading the pixels back instead of theorising about
+  them.** `level drawn: 1 chunk(s) resident, 1748 triangles` was the answer to
+  the last round's question and the start of a new one — geometry reaches the
+  GPU and the screen is still black, which is a different bug entirely. Every
+  diagnostic so far measured whether a *step ran*; none measured what it
+  *produced*. So the renderer now reads back a 24x24 patch from the scene
+  target before anything composites it, and another from the default
+  framebuffer after, and prints min/mean/max luminance for both alongside the
+  camera, the triangle count, the target sizes and every setting that can
+  darken a frame. It fires at roughly 2, 5 and 10 seconds and then never again.
+  Two numbers decide it without a theory: scene bright and screen dark means
+  the composite is eating the picture; both dark means the world is drawn but
+  unlit or off-camera.
+- **The lobby vines were a heptagon.** `buildVineMesh` swept seven sides, and
+  at the width these are drawn a seven-sided tube has a visibly straight-edged
+  silhouette — flat facets no amount of antialiasing can soften, because the
+  geometry really is that shape. Twelve sides and 34 rings now, 2520 vertices
+  for the whole lobby. The surface got a material to go with it: fibre running
+  along the stem, a coarser mottle across it, an anisotropic sheen that catches
+  light in a band the way a stem does rather than in a round dot, and light
+  bleeding through the thin tip.
+- **And nothing in the lobby was multisampled.** The vine surface asked for
+  `setEGLConfigChooser(8, 8, 8, 8, 16, 0)` — no multisampling at all — and it
+  is a separate surface, so the window's own antialiasing never reached it.
+  Every edge was a hard pixel staircase. It now picks a 4x config, falls back
+  to 2x, then to none, and never throws: GLSurfaceView's simple chooser raises
+  IllegalArgumentException on a GL thread when it cannot match, which takes the
+  surface down and leaves the black rectangle this whole round started with.
+- **The button never moved until you touched it.** The plate underneath was
+  animating and the body it sits in was not, which is what reads as a flat
+  rectangle however well it is shaded. It now breathes — under half a percent
+  of scale, a fraction of a degree of lean, and a shadow that lifts with it,
+  on three coprime periods so the loop never repeats the same combination. The
+  border shader was rebuilt on a rounded-rectangle distance field: the old one
+  used `min(uv.x, 1-uv.x, ...)`, a square falloff on a round plate, which
+  pooled the glow into the corners as four straight bands.
 - **A chunk the provider missed was written off for the rest of the run.**
   With the shader and guard faults gone, a Mali-G68 log came back completely
   clean — programs linked, framebuffer complete, guard `CLEAN` — and the world

@@ -89,6 +89,42 @@ Tools/                           gli otto controlli
 ## Correzioni recenti
 
 Le più recenti per prime. Questo elenco si aggiorna a ogni correzione.
+- **Il rapporto sul fotogramma: rileggere i pixel invece di teorizzarci sopra.**
+  `level drawn: 1 chunk(s) resident, 1748 triangles` rispondeva alla domanda del
+  giro precedente e ne apriva un'altra: la geometria arriva alla GPU e lo
+  schermo resta nero, che è tutt'altro bug. Ogni diagnostica finora misurava se
+  un *passo fosse stato eseguito*, nessuna cosa *producesse*. Ora il renderer
+  rilegge un riquadro 24x24 dal bersaglio di scena prima di qualunque
+  composizione, e un altro dal framebuffer predefinito dopo, e stampa per
+  entrambi la luminanza min/media/max insieme alla camera, al numero di
+  triangoli, alle dimensioni dei bersagli e a ogni impostazione capace di
+  scurire un fotogramma. Verso i 2, 5 e 10 secondi, poi mai più. Due numeri
+  decidono senza teoria: scena chiara e schermo scuro, la composizione si
+  mangia l'immagine; entrambi scuri, il mondo è disegnato ma non illuminato o
+  fuori camera.
+- **I rampicanti della lobby erano un ettagono.** `buildVineMesh` estrudeva
+  sette lati, e a questo spessore un tubo a sette lati ha una sagoma
+  visibilmente spezzata — facce piatte che nessun antialiasing addolcisce,
+  perché la geometria è davvero così. Ora dodici lati e 34 anelli, 2520 vertici
+  per tutta la lobby. Con un materiale all'altezza: fibra lungo lo stelo, una
+  chiazzatura più grossa di traverso, un riflesso anisotropo che prende la luce
+  a fascia invece che a punto tondo, e luce che filtra dalla punta sottile.
+- **E nella lobby nulla era multicampionato.** La superficie dei rampicanti
+  chiedeva `setEGLConfigChooser(8, 8, 8, 8, 16, 0)` — nessun multicampionamento
+  — ed è una superficie a sé, che l'antialiasing della finestra non raggiungeva
+  mai. Ogni bordo era una scala di pixel. Ora sceglie 4x, ripiega su 2x e poi su
+  niente, e non solleva mai eccezioni: il chooser semplice di GLSurfaceView
+  solleva IllegalArgumentException sul thread GL quando non trova
+  corrispondenza, il che abbatte la superficie e lascia il rettangolo nero da
+  cui questo giro è partito.
+- **Il pulsante non si muoveva finché non lo toccavi.** La placca sotto era
+  animata e il corpo che la contiene no, ed è questo che si legge come un
+  rettangolo piatto per quanto bene sia ombreggiato. Ora respira: meno di mezzo
+  per cento di scala, una frazione di grado di inclinazione e un'ombra che sale
+  con lui, su tre periodi coprimi perché il ciclo non ripeta mai la stessa
+  combinazione. Lo shader del bordo è stato rifatto su un campo di distanza a
+  rettangolo arrotondato: il precedente usava `min(uv.x, 1-uv.x, ...)`, una
+  caduta quadrata su una placca tonda, che ammassava il bagliore negli angoli.
 - **Un chunk che il provider non ha dato restava cancellato per il resto della
   partita.** Tolti i guasti di shader e di guardia, un log da Mali-G68 è
   tornato del tutto pulito — programmi collegati, framebuffer completo, guardia

@@ -91,6 +91,42 @@ Tools/                           die acht Prüfungen
 ## Zuletzt behoben
 
 Neuestes zuerst. Diese Liste wird bei jeder Korrektur ergänzt.
+- **Der Frame-Report: die Pixel zurücklesen statt über sie zu spekulieren.**
+  `level drawn: 1 chunk(s) resident, 1748 triangles` beantwortete die Frage der
+  letzten Runde und stellte eine neue: Geometrie erreicht die GPU, der
+  Bildschirm bleibt schwarz — ein völlig anderer Fehler. Alle bisherigen
+  Diagnosen maßen, ob ein *Schritt lief*, keine, was er *erzeugte*. Jetzt liest
+  der Renderer ein 24x24-Feld aus dem Szenenziel, bevor irgendetwas
+  komponiert, und eines aus dem Standard-Framebuffer danach, und druckt für
+  beide min/mittel/max Luminanz samt Kamera, Dreieckszahl, Zielgrößen und jeder
+  Einstellung, die ein Bild verdunkeln kann. Nach etwa 2, 5 und 10 Sekunden,
+  dann nie wieder. Zwei Zahlen entscheiden ohne Theorie: Szene hell und Schirm
+  dunkel heißt, die Komposition frisst das Bild; beides dunkel heißt, die Welt
+  ist gezeichnet, aber unbeleuchtet oder außerhalb der Kamera.
+- **Die Ranken der Lobby waren ein Siebeneck.** `buildVineMesh` zog sieben
+  Seiten, und bei dieser Breite hat ein siebenseitiges Rohr eine sichtbar
+  geradlinige Silhouette — flache Facetten, gegen die keine Kantenglättung
+  hilft, weil die Geometrie wirklich so ist. Jetzt zwölf Seiten und 34 Ringe,
+  2520 Vertices für die ganze Lobby. Dazu ein Material: Fasern längs des
+  Stängels, ein gröberes Sprenkel quer dazu, ein anisotroper Schimmer, der das
+  Licht als Band statt als runden Punkt fängt, und Licht, das durch die dünne
+  Spitze dringt.
+- **Und in der Lobby wurde nichts multisampled.** Die Rankenfläche forderte
+  `setEGLConfigChooser(8, 8, 8, 8, 16, 0)` — gar kein Multisampling — und sie
+  ist eine eigene Surface, die Kantenglättung des Fensters erreichte sie nie.
+  Jede Kante war eine harte Pixeltreppe. Jetzt wird 4x gewählt, sonst 2x, sonst
+  keins, und nie geworfen: GLSurfaceViews einfacher Chooser wirft ohne Treffer
+  eine IllegalArgumentException auf dem GL-Thread, was die Surface abräumt und
+  genau das schwarze Rechteck hinterlässt, mit dem diese Runde begann.
+- **Die Schaltfläche bewegte sich nicht, bis man sie berührte.** Die Platte
+  darunter war animiert, der Körper darum nicht — das liest sich als flaches
+  Rechteck, wie gut es auch schattiert ist. Jetzt atmet sie: unter einem halben
+  Prozent Skalierung, ein Bruchteil eines Grades Neigung und ein Schatten, der
+  mitgeht, auf drei teilerfremden Perioden, damit die Schleife nie dieselbe
+  Kombination wiederholt. Der Rand-Shader wurde auf ein Distanzfeld für
+  abgerundete Rechtecke umgestellt: der alte nutzte `min(uv.x, 1-uv.x, ...)`,
+  einen quadratischen Abfall auf runder Platte, der das Leuchten in die Ecken
+  staute.
 - **Ein Chunk, den der Provider verpasste, blieb für den Rest des Laufs
   abgeschrieben.** Nachdem Shader- und Guard-Fehler weg waren, kam ein
   Mali-G68-Log völlig sauber zurück — Programme gelinkt, Framebuffer

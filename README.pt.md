@@ -90,6 +90,41 @@ Tools/                           as oito verificações
 ## Correções recentes
 
 Mais recentes primeiro. Esta lista é atualizada a cada correção.
+- **O relatório de fotograma: reler os píxeis em vez de teorizar sobre eles.**
+  `level drawn: 1 chunk(s) resident, 1748 triangles` respondia à pergunta da
+  ronda anterior e abria outra: a geometria chega à GPU e o ecrã continua
+  preto, o que é um erro completamente diferente. Todos os diagnósticos até
+  aqui mediam se um *passo correu*, nenhum o que ele *produziu*. O renderizador
+  passa a reler um quadrado de 24x24 do alvo de cena antes de qualquer
+  composição, e outro do framebuffer por omissão depois, e imprime para ambos a
+  luminância mín/média/máx com a câmara, o número de triângulos, os tamanhos de
+  alvo e todas as definições capazes de escurecer um fotograma. Por volta dos
+  2, 5 e 10 segundos, e nunca mais. Dois números decidem sem teoria: cena clara
+  e ecrã escuro, a composição está a comer a imagem; ambos escuros, o mundo está
+  desenhado mas sem luz ou fora da câmara.
+- **As trepadeiras do átrio eram um heptágono.** O `buildVineMesh` varria sete
+  lados, e nesta espessura um tubo de sete lados tem uma silhueta visivelmente
+  reta — facetas planas que nenhum suavizado corrige, porque a geometria é
+  mesmo assim. Agora doze lados e 34 anéis, 2520 vértices para o átrio todo.
+  Com um material à altura: fibra ao longo do caule, um salpicado mais grosso a
+  atravessá-lo, um brilho anisotrópico que apanha a luz em faixa em vez de em
+  ponto redondo, e luz a passar pela ponta fina.
+- **E nada no átrio tinha multiamostragem.** A superfície das trepadeiras pedia
+  `setEGLConfigChooser(8, 8, 8, 8, 16, 0)` — nenhuma multiamostragem — e é uma
+  superfície à parte, à qual o suavizado da janela nunca chegava. Cada aresta
+  era uma escada de píxeis. Passa a escolher 4x, recua para 2x e depois para
+  nenhum, e nunca lança: o seletor simples do GLSurfaceView lança
+  IllegalArgumentException no fio GL quando não encontra correspondência, o que
+  deita a superfície abaixo e deixa o retângulo preto com que esta ronda
+  começou.
+- **O botão não se mexia até lhe tocarmos.** A placa por baixo estava animada e
+  o corpo que a envolve não, e é isso que se lê como um retângulo plano por
+  melhor sombreado que esteja. Agora respira: menos de meio por cento de
+  escala, uma fração de grau de inclinação e uma sombra que sobe com ele, em
+  três períodos coprimos para que o ciclo nunca repita a mesma combinação. O
+  shader da borda foi refeito sobre um campo de distância de retângulo
+  arredondado: o anterior usava `min(uv.x, 1-uv.x, ...)`, uma queda quadrada
+  numa placa redonda, que amontoava o brilho nos cantos.
 - **Um chunk que o fornecedor falhou ficava dado como perdido para o resto da
   partida.** Removidas as falhas de shader e de guarda, um registo de Mali-G68
   voltou completamente limpo — programas ligados, framebuffer completo, guarda

@@ -89,6 +89,44 @@ Tools/                           sekiz kontrol
 ## Son düzeltmeler
 
 En yenisi üstte. Bu liste her düzeltmede güncelleniyor.
+- **Kare raporu: pikseller hakkında teori kurmak yerine onları geri okumak.**
+  `level drawn: 1 chunk(s) resident, 1748 triangles` geçen turun sorusunun
+  cevabıydı ve yeni bir sorunun başlangıcı — geometri GPU'ya ulaşıyor ve ekran
+  hâlâ siyah, ki bu tamamen başka bir hata. Şimdiye kadarki her teşhis bir
+  *adımın çalışıp çalışmadığını* ölçüyordu; hiçbiri o adımın *ne ürettiğini*
+  ölçmüyordu. Artık renderer, hiçbir şey kompozit etmeden önce sahne
+  hedefinden 24x24'lük bir yama, kompozitten sonra da varsayılan
+  framebuffer'dan bir yama geri okuyor ve ikisinin de min/ortalama/maks
+  parlaklığını kamera, üçgen sayısı, hedef boyutları ve bir kareyi
+  karartabilecek her ayarla birlikte yazıyor. Yaklaşık 2., 5. ve 10. saniyede
+  çalışıp bir daha hiç çalışmıyor. İki sayı, teoriye gerek kalmadan karar
+  veriyor: sahne aydınlık ve ekran karanlıksa görüntüyü kompozit yiyor; ikisi
+  de karanlıksa dünya çizilmiş ama ışıksız ya da kamera ona bakmıyor.
+- **Lobideki sarmaşıklar yedigendi.** `buildVineMesh` yedi kenar süpürüyordu ve
+  bunların çizildiği kalınlıkta yedi kenarlı bir tüpün silueti gözle görülür
+  şekilde düz kenarlı olur — hiçbir kenar yumuşatmanın gideremeyeceği düz
+  yüzeyler, çünkü geometri gerçekten o şekilde. Artık on iki kenar ve 34 halka;
+  bütün lobi için 2520 vertex. Yüzey de buna yakışır bir malzeme kazandı:
+  gövde boyunca uzanan lif, üzerinden geçen daha kaba bir benek, ışığı yuvarlak
+  bir nokta yerine gerçek bir gövde gibi bir şerit hâlinde yakalayan
+  anizotropik parlaklık, ve ince uçtan sızan ışık.
+- **Ve lobide hiçbir şey çoklu örneklenmiyordu.** Sarmaşık yüzeyi
+  `setEGLConfigChooser(8, 8, 8, 8, 16, 0)` istiyordu — yani hiç MSAA yok — ve
+  bu ayrı bir yüzey olduğu için pencerenin kendi kenar yumuşatması ona hiç
+  ulaşmıyordu. Her kenar sert bir piksel merdiveniydi. Artık 4x bir config
+  seçiyor, olmazsa 2x'e, o da olmazsa hiçe düşüyor ve asla fırlatmıyor:
+  GLSurfaceView'ın basit seçicisi eşleşme bulamayınca GL iş parçacığında
+  IllegalArgumentException atar, bu da yüzeyi düşürür ve bu turun başladığı
+  siyah dikdörtgeni bırakır.
+- **Buton, dokunana kadar hiç kıpırdamıyordu.** Altındaki plaka animasyonluydu,
+  içinde durduğu gövde değildi; ne kadar iyi gölgelendirilirse gölgelendirilsin
+  düz bir dikdörtgen gibi okunmasının sebebi bu. Artık nefes alıyor — yüzde
+  yarımdan az ölçek, derecenin küçük bir kesri kadar yalpa, ve onunla birlikte
+  yükselen bir gölge; üç aralarında asal periyotta, yani döngü aynı bileşimi
+  hiç tekrarlamıyor. Kenar shader'ı da yuvarlatılmış dikdörtgen mesafe alanı
+  üzerine yeniden kuruldu: eskisi `min(uv.x, 1-uv.x, ...)` kullanıyordu, yani
+  yuvarlak bir plaka üzerinde **kare** bir sönüm, ki bu da parıltıyı köşelerde
+  toplayıp dört düz şerit hâline getiriyordu.
 - **Sağlayıcının kaçırdığı bir chunk, turun geri kalanında ölü sayılıyordu.**
   Shader ve guard hataları gidince Mali-G68'den tertemiz bir log geldi —
   programlar link oluyor, framebuffer tam, guard `CLEAN` — ve dünya hâlâ

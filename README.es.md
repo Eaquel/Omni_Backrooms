@@ -92,6 +92,42 @@ Tools/                           las ocho comprobaciones
 ## Correcciones recientes
 
 Lo más nuevo primero. Esta lista se actualiza con cada corrección.
+- **El informe de fotograma: leer los píxeles en vez de teorizar sobre ellos.**
+  `level drawn: 1 chunk(s) resident, 1748 triangles` respondía a la pregunta de
+  la ronda anterior y abría otra: la geometría llega a la GPU y la pantalla
+  sigue negra, que es un fallo distinto. Todos los diagnósticos hasta ahora
+  medían si un *paso se ejecutó*, ninguno qué *produjo*. Ahora el renderizador
+  relee un cuadro de 24x24 del destino de escena antes de componer nada, y otro
+  del framebuffer por defecto después, e imprime para ambos la luminancia
+  mín/media/máx junto con la cámara, el número de triángulos, los tamaños de
+  destino y todo ajuste capaz de oscurecer un fotograma. Hacia los 2, 5 y 10
+  segundos, y nunca más. Dos números deciden sin teoría: escena clara y
+  pantalla oscura, la composición se come la imagen; ambas oscuras, el mundo
+  está dibujado pero sin luz o fuera de cámara.
+- **Las enredaderas del vestíbulo eran un heptágono.** `buildVineMesh` barría
+  siete lados, y a este grosor un tubo de siete lados tiene una silueta
+  visiblemente recta — facetas planas que ningún suavizado arregla, porque la
+  geometría es realmente así. Ahora doce lados y 34 anillos, 2520 vértices para
+  todo el vestíbulo. Con un material a juego: fibra a lo largo del tallo, un
+  moteado más grueso al través, un brillo anisótropo que capta la luz en banda
+  y no en punto redondo, y luz que atraviesa la punta fina.
+- **Y nada en el vestíbulo tenía multimuestreo.** La superficie de las
+  enredaderas pedía `setEGLConfigChooser(8, 8, 8, 8, 16, 0)` — sin multimuestreo
+  alguno — y es una superficie aparte, a la que el suavizado de la ventana nunca
+  llegaba. Cada borde era una escalera de píxeles. Ahora elige 4x, cae a 2x y
+  luego a ninguno, y nunca lanza: el selector simple de GLSurfaceView lanza
+  IllegalArgumentException en el hilo GL cuando no encuentra coincidencia, lo
+  que tumba la superficie y deja el rectángulo negro con el que empezó esta
+  ronda.
+- **El botón no se movía hasta que lo tocabas.** La placa de debajo estaba
+  animada y el cuerpo que la contiene no, que es lo que se lee como un
+  rectángulo plano por bien sombreado que esté. Ahora respira: menos de medio
+  por ciento de escala, una fracción de grado de inclinación y una sombra que
+  sube con él, en tres periodos coprimos para que el bucle nunca repita la
+  misma combinación. El shader del borde se rehízo sobre un campo de distancia
+  de rectángulo redondeado: el anterior usaba `min(uv.x, 1-uv.x, ...)`, una
+  caída cuadrada sobre una placa redonda, que amontonaba el brillo en las
+  esquinas.
 - **Un chunk que el proveedor no dio quedaba descartado para el resto de la
   partida.** Con los fallos de shader y de guardia ya fuera, un registro de
   Mali-G68 volvió completamente limpio — programas enlazados, framebuffer

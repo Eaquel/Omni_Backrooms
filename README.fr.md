@@ -91,6 +91,44 @@ Tools/                           les huit vérifications
 ## Corrections récentes
 
 Les plus récentes en premier. Cette liste est mise à jour à chaque correction.
+- **Le rapport d'image : relire les pixels au lieu d'en faire la théorie.**
+  `level drawn: 1 chunk(s) resident, 1748 triangles` répondait à la question du
+  tour précédent et en ouvrait une autre : la géométrie atteint le GPU et
+  l'écran reste noir, ce qui est un tout autre bug. Tous les diagnostics
+  jusqu'ici mesuraient si une *étape s'était exécutée*, aucun ce qu'elle
+  *produisait*. Le moteur relit désormais un carré de 24x24 dans la cible de
+  scène avant toute composition, et un autre dans le framebuffer par défaut
+  après, et imprime pour les deux la luminance min/moyenne/max avec la caméra,
+  le nombre de triangles, les tailles de cible et tout réglage capable
+  d'assombrir une image. Vers 2, 5 et 10 secondes, puis plus jamais. Deux
+  nombres tranchent sans théorie : scène claire et écran noir, la composition
+  mange l'image ; les deux sombres, le monde est dessiné mais non éclairé ou
+  hors caméra.
+- **Les lianes du hall étaient un heptagone.** `buildVineMesh` balayait sept
+  côtés, et à cette largeur un tube à sept côtés a une silhouette visiblement
+  rectiligne — des facettes plates qu'aucun antialiasing n'adoucit, puisque la
+  géométrie est réellement ainsi. Douze côtés et 34 anneaux désormais, 2520
+  sommets pour tout le hall. Avec un matériau assorti : des fibres le long de
+  la tige, un moucheté plus grossier en travers, un éclat anisotrope qui capte
+  la lumière en bande plutôt qu'en point rond, et la lumière qui traverse la
+  pointe fine.
+- **Et rien dans le hall n'était multi-échantillonné.** La surface des lianes
+  demandait `setEGLConfigChooser(8, 8, 8, 8, 16, 0)` — aucun
+  multi-échantillonnage — et c'est une surface séparée, que l'antialiasing de
+  la fenêtre n'atteignait jamais. Chaque arête était un escalier de pixels.
+  Elle choisit maintenant 4x, se rabat sur 2x, puis sur rien, et ne lève jamais
+  d'exception : le chooser simple de GLSurfaceView lève une
+  IllegalArgumentException sur le fil GL faute de correspondance, ce qui abat
+  la surface et laisse le rectangle noir par lequel ce tour a commencé.
+- **Le bouton ne bougeait pas tant qu'on n'y touchait pas.** La plaque
+  dessous était animée, le corps autour non — c'est ce qui se lit comme un
+  rectangle plat, si bien ombré soit-il. Il respire désormais : moins d'un
+  demi-pour-cent d'échelle, une fraction de degré d'inclinaison et une ombre
+  qui suit, sur trois périodes premières entre elles pour que la boucle ne
+  répète jamais la même combinaison. Le shader de bordure a été refait sur un
+  champ de distance de rectangle arrondi : l'ancien utilisait
+  `min(uv.x, 1-uv.x, ...)`, une décroissance carrée sur une plaque ronde, qui
+  entassait la lueur dans les coins.
 - **Un chunk manqué par le fournisseur était condamné pour le reste de la
   partie.** Une fois les fautes de shader et de garde parties, un journal de
   Mali-G68 est revenu parfaitement propre — programmes liés, framebuffer
